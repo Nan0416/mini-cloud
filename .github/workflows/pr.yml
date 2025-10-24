@@ -1,0 +1,45 @@
+name: PR Build & Test
+on:
+  pull_request:
+    branches:
+      - main
+env:
+  AWS_REGION: us-east-1
+permissions:
+  id-token: write
+  contents: read
+jobs:
+  build_and_test:
+    name: Node.js 20 Build & Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout the repository
+        uses: actions/checkout@v4
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Probe
+        run: |
+          aws --version
+          node -v
+          npm -v
+          git -v
+      - name: Configure Aws Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::656670067837:role/SparrowCodeArtifactStack-GithubActionRole18461C60-a8iunm5rCyo9
+          role-session-name: GitHub_to_AWS_via_FederatedOIDC
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Install Dependencies
+        run: |
+          aws sts get-caller-identity # AWS WhoAmI
+          aws codeartifact login --region us-east-1 --tool npm --domain sparrow --domain-owner 656670067837 --repository internal-npm
+          npm ci
+      - name: Build
+        run: npm run build
+      - name: Test
+        run: npm run test
+      - name: Lint
+        run: |
+          npm run format:lint

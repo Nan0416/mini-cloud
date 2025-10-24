@@ -1,0 +1,30 @@
+version: 0.2
+
+env:
+  shell: bash # select bash shell, otherwise the `source` command is not available.
+phases:
+  pre_build:
+    commands:
+      - echo $0 # print shell
+      - aws --version # print aws version
+      - npm -v # print npm version
+      - node -v # print node version
+      - ./repo_login.sh
+      - npm ci
+  build:
+    commands:
+      - npm run build
+  post_build:
+    commands:
+      - npm run test
+reports:
+  user-service-unittest-reports:
+    files:
+      - "reports/unittest-reports/**/*"
+    file-format: "JUNITXML"
+artifacts:
+  files:
+    - "dist/**/*"
+    - "node_modules/**/*"
+    - "package.json"
+    - "package-lock.json"

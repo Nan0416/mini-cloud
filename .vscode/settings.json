@@ -1,0 +1,8 @@
+{
+    "jest.runMode": {
+        "type": "on-demand",
+        "coverage": true
+    },
+    "jest.coverageFormatter": "GutterFormatter",
+    "jest.monitorLongRun": 10000
+}
