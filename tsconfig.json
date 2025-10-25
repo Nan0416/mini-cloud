@@ -1,23 +1,45 @@
 {
   "compilerOptions": {
-    "target": "es2017",
-    "module": "commonjs",
-    "declaration": true,
-    "sourceMap": true,
-    "declarationDir": "./dist/types",
+/* --- Output and Module Resolution --- */
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
     "outDir": "./dist/lib",
-    "declarationMap": true,
     "rootDir": "./src",
+
+    /* --- Declarations and Maps --- */
+    "declaration": true,
+    "declarationMap": true,
+    "declarationDir": "./dist/types",
+    "sourceMap": true,
+
+    /* --- Language & Strictness --- */
     "strict": true,
     "noImplicitAny": true,
     "strictNullChecks": true,
     "strictFunctionTypes": true,
     "strictPropertyInitialization": true,
     "alwaysStrict": true,
+
+    /* --- Interop & Imports --- */
     "esModuleInterop": true,
-    /* Advanced Options */
+    "allowSyntheticDefaultImports": true,
+    "resolveJsonModule": true,
+
+    /* --- Node.js environment --- */
+    "types": ["node"],
+
+    /* --- Build Performance & Safety --- */
     "skipLibCheck": true,
-    "forceConsistentCasingInFileNames": true
+    "forceConsistentCasingInFileNames": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+
+    /* --- Optional Modern Features --- */
+    "useUnknownInCatchVariables": true,
+    "allowImportingTsExtensions": false,
   },
-  "include": ["src/**/*"]
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist"]
 }

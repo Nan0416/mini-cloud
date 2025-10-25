@@ -1,13 +1,8 @@
-# Typescript Standalone Template
+# MiniCloud
 
-1. Update package.json name, repository and issue url.
-2. Update README.md release github workflow badge url.
-3. Update jest.config.js suiteName to package name.
-4. Update AWS CodeBuild buildspec.yml according to the need.
+![release workflow](https://github.com/Nan0416/mini-cloud/actions/workflows/release.yml/badge.svg)
 
-![release workflow](https://github.com/sparrow2024/{[package]}/actions/workflows/release.yml/badge.svg)
-
-![Latest PR workflow](https://github.com/sparrow2024/{[package]}/actions/workflows/pr.yml/badge.svg)
+![Latest PR workflow](https://github.com/Nan0416/mini-cloud/actions/workflows/pr.yml/badge.svg)
 
 ## Setup Permission
 
