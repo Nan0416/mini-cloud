@@ -74,6 +74,25 @@ export type TaskInstanceStatus =
   | 'health_check_failure'
   | 'exit(1)'; // job or service exit abnormally
 
+export const TASK_INSTANCE_STATUSES: ReadonlyArray<TaskInstanceStatus> = [
+  'init',
+  'initiated',
+  'initiation_failed',
+  'launching_timeout',
+  'launched',
+  'failed_to_launch',
+  'start_timeout',
+  'running',
+  'termination_initiated',
+  'termination_failed',
+  'terminating',
+  'agent_termination_failed',
+  'terminated',
+  'exit(0)',
+  'health_check_failure',
+  'exit(1)',
+];
+
 export interface TaskInstance {
   readonly taskId: string;
   readonly taskVersion: number;

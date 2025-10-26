@@ -1,5 +1,4 @@
-import { EnvironmentVariables } from '../../models/models/task-types/common';
-import { HealthCheck } from '../task/service';
+import { EnvironmentVariables, HealthCheck } from '../../models';
 
 export interface LaunchTaskInstanceRequest {
   readonly taskId: string;

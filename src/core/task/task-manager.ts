@@ -1,7 +1,11 @@
-import { LaunchTaskInstanceResult } from '../client';
-import { ReplacementVariables } from '../../models/models/task-types/common';
-import { TaskAgent } from '../task-agent';
-import { AgentHandler } from './agent-handler';
+import { AgentSideTaskStatus, LaunchTaskInstanceResult, NewTaskEvent, ReplacementVariables, TaskAgent } from '../../models';
+
+export interface AgentHandler {
+  handleTaskEvent(event: NewTaskEvent): Promise<void>;
+  handleTaskInstanceStatus(taskInstanceId: string, status: AgentSideTaskStatus): Promise<void>;
+  handleTaskInstancePid(taskInstanceId: string, pid: number): Promise<void>;
+  handleAgentStatus(agentId: string, name: string): Promise<void>;
+}
 
 export interface TaskManager extends AgentHandler {
   init(): Promise<void>;

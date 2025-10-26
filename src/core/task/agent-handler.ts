@@ -1,4 +1,4 @@
-import { AgentSideTaskStatus, NewTaskEvent } from '../task-agent';
+import { AgentSideTaskStatus, NewTaskEvent } from '../../models';
 
 /**
  * service's side facade to handle agent request.

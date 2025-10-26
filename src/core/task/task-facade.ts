@@ -1,6 +1,19 @@
-import { CreateTaskRequest, ListHealthChecksRequest, ListTaskInstancesRequest, TaskIdentifier, TaskIdentifierWithHealthCheck, UpdateTaskRequest } from '../client';
-import { Task, TaskDynamics } from '../task';
-import { TaskEvent, TaskEventFormat, TaskEventLevel, TaskEventSource, TaskInstance, TaskInstanceStatus } from '../../models/models/task-types/task-instance';
+import {
+  CreateTaskRequest,
+  ListHealthChecksRequest,
+  ListTaskInstancesRequest,
+  Task,
+  TaskDynamics,
+  TaskEvent,
+  TaskEventFormat,
+  TaskEventLevel,
+  TaskEventSource,
+  TaskIdentifier,
+  TaskIdentifierWithHealthCheck,
+  TaskInstance,
+  TaskInstanceStatus,
+  UpdateTaskRequest,
+} from '../../models';
 
 export interface CreateTaskInstanceRequest {
   readonly taskId: string;

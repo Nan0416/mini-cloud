@@ -21,7 +21,7 @@ Run distributed tasks, monitor metrics, and manage your fleet of machines — al
 
 ## ⚙️ Core Features
 
-### 📨 Pub/Sub Messaging
+### ~~📨 Pub/Sub Messaging~~
 A lightweight publish/subscribe message service for inter-process or inter-node communication.
 
 ### 🧩 Task Management
@@ -31,6 +31,8 @@ A lightweight publish/subscribe message service for inter-process or inter-node 
 
 ### 📈 Metrics & Monitoring
 A unified monitoring service to collect and visualize CPU, memory, and service-level metrics across your MiniCloud fleet.
+
+### Ticket Management
 
 ### 🌐 Web Control UI
 A modern web dashboard to control your MiniCloud environment.  

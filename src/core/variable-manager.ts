@@ -1,5 +1,4 @@
-import { ReplacementVariables } from '../../models/models/task-types/common';
-import { Task } from '../task';
+import { ReplacementVariables, Task } from '../models';
 
 export interface VariableManager {
   replace(task: Task): Promise<Task>;
