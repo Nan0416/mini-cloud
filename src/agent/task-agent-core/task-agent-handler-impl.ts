@@ -1,6 +1,24 @@
 import { LoggerFactory } from '@sparrow/logging-js';
-import { AgentSideTaskStatus, ExitCode, HealthCheck, OfflineTaskReport, TaskClientForAgent, TaskEventLevel, TaskIdentifier, TaskInstance } from '../../models';
-import { InternalLaunchTaskInstanceRequest } from './models';
+import {
+  AgentSideTaskStatus,
+  HealthCheck,
+  OfflineTaskReport,
+  ReportEventRequest,
+  ReportEventResponse,
+  ReportExitRequest,
+  ReportExitResponse,
+  ReportPassiveHealthCheckRequest,
+  ReportPassiveHealthCheckResponse,
+  ReportPidRequest,
+  ReportPidResponse,
+  ReportTerminationRequest,
+  ReportTerminationResponse,
+  TaskClientForAgent,
+  TaskEventLevel,
+  TaskIdentifier,
+  TaskInstance,
+} from '../../models';
+import { InternalLaunchTaskInstanceRequest } from './internal-models';
 import { PassiveHealthCheckManager } from './passive-health-check-manager';
 import { PingHealthCheckManager } from './ping-health-check-manager';
 import { TaskLauncher } from './task-launcher';
@@ -9,10 +27,22 @@ import { readFile, unlink } from 'fs/promises';
 import { HealthCheckResult } from './health-check-manager';
 import { healthCheckResultsDelta } from './utilities';
 import { TaskAgentHandler } from './task-agent-handler';
+import {
+  GetAgentStatusRequest,
+  GetAgentStatusResponse,
+  LaunchTaskInstanceRequest,
+  LaunchTaskInstanceResponse,
+  TerminateAgentRequest,
+  TerminateAgentResponse,
+  TerminateTaskInstanceRequest,
+  TerminateTaskInstanceResponse,
+} from '../../models/clients/task-agent-client';
 
 const logger = LoggerFactory.getLogger('TaskAgentHandlerImpl');
 
 export interface TaskAgentHandlerProps {
+  readonly agentId: string;
+  readonly agentName: string;
   readonly client: TaskClientForAgent;
   readonly taskLauncher: TaskLauncher;
   readonly variableReplacement: VariableReplacement;
@@ -22,6 +52,8 @@ export interface TaskAgentHandlerProps {
 }
 
 export class TaskAgentHandlerImpl implements TaskAgentHandler {
+  private readonly agentId: string;
+  private readonly agentName: string;
   private readonly client: TaskClientForAgent;
   private readonly taskLauncher: TaskLauncher;
   private readonly variableReplacement: VariableReplacement;
@@ -33,6 +65,8 @@ export class TaskAgentHandlerImpl implements TaskAgentHandler {
   private backgroundHandle?: NodeJS.Timeout;
 
   constructor(props: TaskAgentHandlerProps) {
+    this.agentId = props.agentId;
+    this.agentName = props.agentName;
     this.client = props.client;
     this.taskLauncher = props.taskLauncher;
     this.variableReplacement = props.variableReplacement;
@@ -44,18 +78,18 @@ export class TaskAgentHandlerImpl implements TaskAgentHandler {
   }
 
   async init(): Promise<void> {
-    logger.info(`loading event when the agent is offline`);
+    logger.info(`Loading event when the agent is offline.`);
     const offlineReports = await this.loadOfflineReports();
-    logger.info(`found ${offlineReports.length} reports`);
+    logger.info(`Found ${offlineReports.length} reports.`);
     await this.populateOfflineReports(offlineReports);
     await this.cleanOfflineReports();
 
-    logger.info('initialize task agent facade, loading current running instances on the agent');
-    const runningInstances = await this.client.listRunningInstances();
-    logger.info(`found ${runningInstances.length} running instances, intialize their health check`);
-    await this.initializeRunningInstanceHealthCheck(runningInstances);
+    logger.info('Initialize task agent facade, loading current running instances on the agent.');
+    const { taskInstances } = await this.client.listRunningInstances({ agentId: this.agentId });
+    logger.info(`Found ${taskInstances.length} running instances, intialize their health check.`);
+    await this.initializeRunningInstanceHealthCheck(taskInstances);
 
-    logger.info('setup recurrent agent status report and task health checks');
+    logger.info('Set up recurrent agent status report and task health checks.');
     this.backgroundHandle = setInterval(async () => {
       await this.backgroundTask();
     }, 5_000);
@@ -70,33 +104,36 @@ export class TaskAgentHandlerImpl implements TaskAgentHandler {
     this.instanceIdToHealthCheck.clear();
   }
 
-  async terminateAgent(): Promise<void> {
-    logger.info('perform self termination');
+  async terminateAgent(request: TerminateAgentRequest): Promise<TerminateAgentResponse> {
+    logger.info('Perform self termination.');
     process.kill(process.pid, 'SIGINT');
+    return {};
   }
 
   /**
    * replace variables, launch the task, track health check, report instance status.
    * @param launchRequest
    */
-  async handleLaunchRequest(launchRequest: LaunchTaskInstanceRequest): Promise<void> {
+  async launchTaskInstance(request: LaunchTaskInstanceRequest): Promise<LaunchTaskInstanceResponse> {
     try {
-      logger.info(`launch task ${launchRequest.taskId} version ${launchRequest.version} with assigned task instance id ${launchRequest.taskInstanceId}`);
-      const internalRequest = this.convertLaunchTaskInstanceRequestToInternalLaunchTaskInstanceRequest(launchRequest);
+      logger.info(`Launch task ${request.taskId} version ${request.version} with assigned task instance id ${request.taskInstanceId}`);
+      const internalRequest = this.convertLaunchTaskInstanceRequestToInternalLaunchTaskInstanceRequest(request);
       const requestAfterReplacement = await this.variableReplacement.replace(internalRequest);
       await this.taskLauncher.launch(requestAfterReplacement);
-      const message = `successfully launched task instance ${launchRequest.taskInstanceId}`;
+      const message = `Successfully launched task instance ${request.taskInstanceId}`;
       logger.info(message);
-      await this.reportStatusAndEvent(launchRequest.taskInstanceId, 'launched', 'success', message);
+      await this.reportStatusAndEvent(request.taskInstanceId, 'launched', 'success', message);
 
-      if (launchRequest.healthCheck) {
-        this.instanceIdToHealthCheck.set(launchRequest.taskInstanceId, launchRequest.healthCheck);
+      if (request.healthCheck) {
+        this.instanceIdToHealthCheck.set(request.taskInstanceId, request.healthCheck);
       }
     } catch (err: any) {
-      const message = `Failed to launch task instance ${launchRequest.taskInstanceId}.`;
+      const message = `Failed to launch task instance ${request.taskInstanceId}.`;
       logger.error(message, err);
-      await this.reportStatusAndEvent(launchRequest.taskInstanceId, 'failed_to_launch', 'error', message);
+      await this.reportStatusAndEvent(request.taskInstanceId, 'failed_to_launch', 'error', message);
     }
+
+    return {};
   }
 
   private convertLaunchTaskInstanceRequestToInternalLaunchTaskInstanceRequest(request: LaunchTaskInstanceRequest): InternalLaunchTaskInstanceRequest {
@@ -121,68 +158,90 @@ export class TaskAgentHandlerImpl implements TaskAgentHandler {
   /**
    * terminate pid and report status.
    */
-  async handleTerminationRequest(instanceId: string, pid: number): Promise<void> {
-    logger.info(`terminate task instance ${instanceId} pid ${pid}`);
+  async terminateTaskInstance(request: TerminateTaskInstanceRequest): Promise<TerminateTaskInstanceResponse> {
+    logger.info(`terminate task instance ${request.taskInstanceId} pid ${request.pid}`);
     try {
-      process.kill(pid, 'SIGINT');
-      this.stopInstanceHealthCheck(instanceId);
-      const message = `successfully send SIGINT signal to pid ${pid}`;
+      process.kill(request.pid, 'SIGINT');
+      this.stopInstanceHealthCheck(request.taskInstanceId);
+      const message = `successfully send SIGINT signal to pid ${request.pid}`;
       logger.info(message);
-      await this.reportStatusAndEvent(instanceId, 'terminating', 'success', message);
+      await this.reportStatusAndEvent(request.taskInstanceId, 'terminating', 'success', message);
     } catch (err: any) {
       // no permission, etc.
       if (err.code === 'ESRCH') {
         // assume the process is successfully terminated if no such process.
-        this.stopInstanceHealthCheck(instanceId);
-        const message = `pid ${pid} doesn't exist`;
+        this.stopInstanceHealthCheck(request.taskInstanceId);
+        const message = `pid ${request.pid} doesn't exist`;
         logger.info(message);
-        await this.reportStatusAndEvent(instanceId, 'terminated', 'success', message);
+        await this.reportStatusAndEvent(request.taskInstanceId, 'terminated', 'success', message);
       } else {
-        const message = `failed to send SIGINT signal to pid ${pid} due to ${err.code}`;
+        const message = `failed to send SIGINT signal to pid ${request.pid} due to ${err.code}`;
         logger.error(message);
-        await this.reportStatusAndEvent(instanceId, 'agent_termination_failed', 'error', message);
+        await this.reportStatusAndEvent(request.taskInstanceId, 'agent_termination_failed', 'error', message);
       }
     }
+
+    return {};
   }
 
-  async handleAgentStatusRequest(): Promise<void> {
-    logger.info('received agent status request');
-    await this.client.reportAgentStatus();
+  async getAgentStatus(request: GetAgentStatusRequest): Promise<GetAgentStatusResponse> {
+    logger.info('Received agent status request.');
+    await this.client.reportAgentStatus({
+      agentId: this.agentId,
+      name: this.agentName,
+    });
+    return {};
   }
 
   /**
-   * report to task service.
+   * Task instance's task reporter calls the method to report its pid, and this method will report it to the task service.
    * @param instanceId
    * @param pid
    */
-  async reportPid(instanceId: string, pid: number): Promise<void> {
-    logger.info(`received instance ${instanceId} pid report, ${pid}, update task status to running and start health check`);
-    await this.client.reportPid(instanceId, pid);
-    await this.client.reportStatus(instanceId, 'running');
+  async reportPid(request: ReportPidRequest): Promise<ReportPidResponse> {
+    logger.info(`Received instance ${request.taskInstanceId} pid report, ${request.pid}, update task status to running and start health check`);
+    await this.client.reportTaskInstancePid({
+      taskInstanceId: request.taskInstanceId,
+      pid: request.pid,
+    });
+    await this.client.reportTaskInstanceStatus({
+      taskInstanceId: request.taskInstanceId,
+      status: 'running',
+    });
 
-    const healthCheck = this.instanceIdToHealthCheck.get(instanceId);
+    const healthCheck = this.instanceIdToHealthCheck.get(request.taskInstanceId);
     if (healthCheck !== undefined) {
-      logger.info(`start instance ${instanceId} health check`);
+      logger.info(`Start instance ${request.taskInstanceId} health check`);
       if (healthCheck.type === 'passive') {
-        this.passiveHealthCheckManager.watchInstance(instanceId, healthCheck);
+        this.passiveHealthCheckManager.watchInstance(request.taskInstanceId, healthCheck);
       } else if (healthCheck.type === 'ping') {
-        this.pingHealthCheckManager.watchInstance(instanceId, healthCheck);
+        this.pingHealthCheckManager.watchInstance(request.taskInstanceId, healthCheck);
       } else {
-        logger.warn(`unknown health check type ${(healthCheck as any).type} associated with task instance ${instanceId}`);
+        logger.warn(`Unknown health check type ${(healthCheck as any).type} associated with task instance ${request.taskInstanceId}`);
       }
     }
+
+    return {};
   }
 
-  async reportTermination(instanceId: string): Promise<void> {
-    logger.info(`report instance ${instanceId} termination to task service`);
-    this.stopInstanceHealthCheck(instanceId);
-    await this.client.reportStatus(instanceId, 'terminated');
+  async reportTermination(request: ReportTerminationRequest): Promise<ReportTerminationResponse> {
+    logger.info(`Report instance ${request.taskInstanceId} termination to task service.`);
+    this.stopInstanceHealthCheck(request.taskInstanceId);
+    await this.client.reportTaskInstanceStatus({
+      taskInstanceId: request.taskInstanceId,
+      status: 'terminated',
+    });
+    return {};
   }
 
-  async reportExit(instanceId: string, code?: ExitCode): Promise<void> {
-    logger.info(`report instance ${instanceId} exit, code ${code}, to task service`);
-    this.stopInstanceHealthCheck(instanceId);
-    await this.client.reportStatus(instanceId, code === -1 ? 'exit(1)' : 'exit(0)');
+  async reportExit(request: ReportExitRequest): Promise<ReportExitResponse> {
+    logger.info(`Report instance ${request.taskInstanceId} exit, code ${request.code}, to task service`);
+    this.stopInstanceHealthCheck(request.taskInstanceId);
+    await this.client.reportTaskInstanceStatus({
+      taskInstanceId: request.taskInstanceId,
+      status: request.code === -1 ? 'exit(1)' : 'exit(0)',
+    });
+    return {};
   }
 
   private stopInstanceHealthCheck(instanceId: string) {
@@ -192,28 +251,34 @@ export class TaskAgentHandlerImpl implements TaskAgentHandler {
     this.healthCheckResults.delete(instanceId);
   }
 
-  async reportEvent(event: InstanceEvent): Promise<void> {
-    logger.info(`report instance ${event.instanceId} ${event.level} event to task service`);
+  async reportEvent(request: ReportEventRequest): Promise<ReportEventResponse> {
+    logger.info(`Report instance ${request.taskInstanceId} ${request.level} event to task service.`);
     await this.client.reportTaskEvent({
-      instanceId: event.instanceId,
-      timestamp: event.timestamp,
+      taskInstanceId: request.taskInstanceId,
+      timestamp: request.timestamp,
       source: 'task-instance',
-      level: event.level,
-      format: typeof event.payload === 'string' ? 'string' : 'json',
-      payload: event.payload,
+      level: request.level,
+      format: typeof request.payload === 'string' ? 'string' : 'json',
+      payload: request.payload,
     });
+
+    return {};
   }
 
-  async handleHealthCheck(instanceId: string): Promise<void> {
-    logger.info(`record task instance ${instanceId} passive health check`);
-    this.passiveHealthCheckManager.handlePing(instanceId);
+  async reportPassiveHealthCheck(request: ReportPassiveHealthCheckRequest): Promise<ReportPassiveHealthCheckResponse> {
+    logger.info(`Record task instance ${request.taskInstanceId} passive health check.`);
+    this.passiveHealthCheckManager.handlePing(request.taskInstanceId);
+    return {};
   }
 
-  private async reportStatusAndEvent(instanceId: string, status: AgentSideTaskStatus, level: TaskEventLevel, message: string) {
-    logger.info(`report task instance ${instanceId} ${status} status and ${level} event`);
-    await this.client.reportStatus(instanceId, status);
+  private async reportStatusAndEvent(taskInstanceId: string, status: AgentSideTaskStatus, level: TaskEventLevel, message: string) {
+    logger.info(`Report task instance ${taskInstanceId} ${status} status and ${level} event.`);
+    await this.client.reportTaskInstanceStatus({
+      taskInstanceId: taskInstanceId,
+      status: status,
+    });
     await this.client.reportTaskEvent({
-      instanceId: instanceId,
+      taskInstanceId: taskInstanceId,
       source: 'task-agent',
       timestamp: Date.now(),
       level: level,
@@ -223,7 +288,7 @@ export class TaskAgentHandlerImpl implements TaskAgentHandler {
   }
 
   private async backgroundTask() {
-    logger.debug('running health check');
+    logger.debug('Running health check.');
     let latestHealthCheckResults: ReadonlyArray<HealthCheckResult> = [];
     latestHealthCheckResults = latestHealthCheckResults.concat(await this.passiveHealthCheckManager.healthCheck(this.healthCheckResults));
     latestHealthCheckResults = latestHealthCheckResults.concat(await this.pingHealthCheckManager.healthCheck(this.healthCheckResults));
@@ -233,23 +298,23 @@ export class TaskAgentHandlerImpl implements TaskAgentHandler {
     latestHealthCheckResults.forEach((v) => newHealthCheckResults.set(v.instanceId, v.result));
     this.healthCheckResults = newHealthCheckResults;
 
-    logger.debug(`found ${delta.instancesBecomeFailed.length} new instances failed health check and ${delta.instancesBecomeSuccessful.length} instances back online`);
+    logger.debug(`Found ${delta.instancesBecomeFailed.length} new instances failed health check and ${delta.instancesBecomeSuccessful.length} instances back online`);
 
     for (let i = 0; i < delta.instancesBecomeFailed.length; i++) {
-      const message = `task instance ${delta.instancesBecomeFailed[i]} health check failed`;
+      const message = `Task instance ${delta.instancesBecomeFailed[i]} health check failed`;
       logger.info(message);
       await this.reportStatusAndEvent(delta.instancesBecomeFailed[i], 'health_check_failure', 'error', message);
     }
 
     for (let i = 0; i < delta.instancesBecomeSuccessful.length; i++) {
-      const message = `task instance ${delta.instancesBecomeSuccessful[i]} back online`;
+      const message = `Task instance ${delta.instancesBecomeSuccessful[i]} back online`;
       logger.info(message);
       await this.reportStatusAndEvent(delta.instancesBecomeSuccessful[i], 'running', 'success', message);
     }
   }
 
   private async loadOfflineReports(): Promise<OfflineTaskReport[]> {
-    logger.info(`read file ${this.offlineReportPath}`);
+    logger.info(`Read file ${this.offlineReportPath}`);
     try {
       const data = await readFile(this.offlineReportPath, { encoding: 'utf-8' });
       return data
@@ -274,7 +339,10 @@ export class TaskAgentHandlerImpl implements TaskAgentHandler {
       if (report.type === 'pid') {
         const message = `backfill pid report happened at ${new Date(report.timestamp).toISOString()}`;
         logger.info(message);
-        await this.client.reportPid(report.instanceId, report.pid);
+        await this.client.reportTaskInstancePid({
+          taskInstanceId: report.instanceId,
+          pid: report.pid,
+        });
         await this.reportStatusAndEvent(report.instanceId, 'running', 'success', message);
       } else if (report.type === 'exit') {
         const status = report.code === -1 ? 'exit(1)' : 'exit(0)';
@@ -287,7 +355,7 @@ export class TaskAgentHandlerImpl implements TaskAgentHandler {
         await this.reportStatusAndEvent(report.instanceId, 'terminated', 'success', message);
       } else if (report.type === 'event') {
         await this.client.reportTaskEvent({
-          instanceId: report.instanceId,
+          taskInstanceId: report.instanceId,
           source: 'task-instance',
           timestamp: report.timestamp,
           level: report.level,
@@ -317,7 +385,7 @@ export class TaskAgentHandlerImpl implements TaskAgentHandler {
       version: i.taskVersion,
     }));
 
-    const healthChecks = await this.client.listHealthChecks(taskIdentifiers);
+    const { results: healthChecks } = await this.client.listHealthChecks({ taskIdentifiers: taskIdentifiers });
     for (let i = 0; i < healthChecks.length; i++) {
       const healthCheck = healthChecks[i];
       const instanceId = instances.find((i) => i.taskId === healthCheck.taskId && i.taskVersion === healthCheck.version)?.instanceId;

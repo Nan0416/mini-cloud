@@ -1,5 +1,5 @@
 import { getenv, stage } from '@sparrow/utilities';
-import { VariableReplacementConfig } from './facade/variable-replacement';
+import { VariableReplacementConfig } from './task-agent-core/variable-replacement';
 import path from 'path';
 
 interface StageConfig {

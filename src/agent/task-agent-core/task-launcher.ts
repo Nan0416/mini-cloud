@@ -3,7 +3,7 @@ import { LoggerFactory } from '@sparrow/logging-js';
 import { Metrics } from '@sparrow/metrics-types';
 import { createWriteStream } from 'fs';
 import { Stream } from 'stream';
-import { InternalLaunchTaskInstanceRequest } from './models';
+import { InternalLaunchTaskInstanceRequest } from './internal-models';
 import { mkdir } from 'fs/promises';
 import path from 'path';
 import { MetricsContext } from '@sparrow/metrics-logger';

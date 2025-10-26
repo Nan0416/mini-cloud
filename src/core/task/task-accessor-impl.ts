@@ -511,7 +511,7 @@ export class TaskAccessorImpl implements TaskAccessor {
   }
 
   async addTaskEvent(input: AddTaskEventInput): Promise<AddTaskEventOutput> {
-    logger.info(`Add ${input.level} task event to task instance ${input.instanceId} with timestamp ${new Date(input.timestamp).toISOString()}.`);
+    logger.info(`Add ${input.level} task event to task instance ${input.taskInstanceId} with timestamp ${new Date(input.timestamp).toISOString()}.`);
     const eventId = uuidv4();
     logger.info(`Sssign event id ${eventId} to the event.`);
 
@@ -539,7 +539,7 @@ export class TaskAccessorImpl implements TaskAccessor {
     }
 
     await this.taskDao.addTaskEvent({
-      instanceId: input.instanceId,
+      instanceId: input.taskInstanceId,
       eventId: eventId,
       source: input.source,
       timestamp: new Date(input.timestamp),

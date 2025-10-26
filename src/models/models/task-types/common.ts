@@ -106,6 +106,8 @@ export interface TaskInstance {
 
 export type TaskEventLevel = 'success' | 'warning' | 'error';
 
+export const TASK_EVENT_LEVELS: ReadonlyArray<TaskEventLevel> = ['success', 'warning', 'error'];
+
 export type TaskEventFormat = 'string' | 'json';
 
 export type TaskEventSource = 'task-service' | 'task-agent' | 'task-instance';
@@ -142,44 +144,6 @@ export interface TaskAgent {
   readonly status: AgentStatus;
   readonly name: string;
 }
-
-export interface LaunchTaskInstanceMessage {
-  readonly taskId: string;
-  readonly version: number;
-  readonly taskInstanceId: string;
-  readonly cmd: string; // support ${keyword} replacement
-  readonly cwd: string;
-  readonly arguments?: string[];
-  readonly env?: EnvironmentVariables;
-  readonly stdout?: string;
-  readonly stderr?: string;
-  readonly healthCheck?: HealthCheck;
-}
-
-export interface LaunchTaskEvent {
-  readonly type: 'launch-task';
-  readonly agentId: string;
-  readonly request: LaunchTaskInstanceMessage;
-}
-
-export interface TerminateTaskInstanceEvent {
-  readonly type: 'terminate-task-instance';
-  readonly agentId: string;
-  readonly instanceId: string;
-  readonly pid: number;
-}
-
-export interface RequestAgentStatusEvent {
-  readonly type: 'request-agent-status';
-  readonly agentId?: string;
-}
-
-export interface TerminateAgentEvent {
-  readonly type: 'terminate-agent';
-  readonly agentId: string;
-}
-
-export type TaskServiceEvent = LaunchTaskEvent | TerminateTaskInstanceEvent | RequestAgentStatusEvent | TerminateAgentEvent;
 
 // a subset of task status
 export type AgentSideTaskStatus =

@@ -38,7 +38,7 @@ brew services stop mongodb-community@8.2
 
 1. implement message service
 2. implement task reporter client 
-3. implement task agent
+3. implement task agent service and handler
 4. finish task service handler
 
 

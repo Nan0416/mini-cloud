@@ -110,7 +110,7 @@ export interface ListTaskInstancesOutput {
 }
 
 export interface AddTaskEventInput {
-  readonly instanceId: string;
+  readonly taskInstanceId: string;
   readonly source: TaskEventSource;
   readonly timestamp: number;
   readonly level: TaskEventLevel;

@@ -61,7 +61,7 @@ export interface ReportExitRequest {
 export interface ReportExitResponse {}
 
 export interface ReportEventRequest {
-  readonly instanceId: string;
+  readonly taskInstanceId: string;
   readonly timestamp: number;
   readonly level: TaskEventLevel;
   readonly payload: any;
@@ -70,7 +70,7 @@ export interface ReportEventRequest {
 export interface ReportEventResponse {}
 
 export interface ReportPassiveHealthCheckRequest {
-  readonly instanceId: string;
+  readonly taskInstanceId: string;
 }
 
 export interface ReportPassiveHealthCheckResponse {}

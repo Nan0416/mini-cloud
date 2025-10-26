@@ -1,4 +1,4 @@
-import { InternalLaunchTaskInstanceRequest } from './models';
+import { InternalLaunchTaskInstanceRequest } from './internal-models';
 import lodash from 'lodash';
 
 export interface VariableReplacementConfig {

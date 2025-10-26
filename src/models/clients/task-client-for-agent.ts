@@ -2,7 +2,6 @@ import { TaskEventFormat, TaskEventLevel, TaskInstance, TaskInstanceStatus } fro
 import { TaskIdentifier, TaskIdentifierWithHealthCheck } from './task-request-response';
 
 export interface ListRunningInstancesRequest {
-  readonly status: TaskInstanceStatus;
   readonly agentId: string;
 }
 
@@ -19,7 +18,7 @@ export interface ListHealthChecksResponse {
 }
 
 export interface ReportTaskEventRequest {
-  readonly instanceId: string;
+  readonly taskInstanceId: string;
   readonly source: 'task-agent' | 'task-instance';
   readonly timestamp: number;
   readonly level: TaskEventLevel;

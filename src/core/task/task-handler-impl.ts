@@ -62,7 +62,7 @@ import { TERMINATION_PERMITTED_STATUSES } from './utilities';
 import { TaskAccessor } from './task-accessor';
 import { VariableManager } from './variable-manager';
 import { TaskHandler } from '../../handlers/task-handler';
-import { TaskAgentClient } from '../../models/clients/task-agent-client';
+import { TaskAgentRequestBroadcaster } from '../../models/clients/task-agent-client';
 
 const logger = LoggerFactory.getLogger('TaskManagerImpl');
 
@@ -73,7 +73,7 @@ interface InternalTaskAgent extends TaskAgent {
 }
 export interface TaskManagerProps {
   readonly taskAccessor: TaskAccessor;
-  readonly taskAgentClient: TaskAgentClient;
+  readonly taskAgentRequestBroadcaster: TaskAgentRequestBroadcaster;
   readonly variableManager: VariableManager;
   readonly agentList: TaskAgent[];
   readonly issueClient: IssueClient;
@@ -83,7 +83,7 @@ export interface TaskManagerProps {
 const PERIOD_TASK_DURATION = 5_000;
 export class TaskHandlerImpl implements TaskHandler {
   private readonly taskAccessor: TaskAccessor;
-  private readonly taskAgentClient: TaskAgentClient;
+  private readonly taskAgentRequestBroadcaster: TaskAgentRequestBroadcaster;
   private readonly variableManager: VariableManager;
   private readonly issueClient: IssueClient;
   private readonly agentList: InternalTaskAgent[];
@@ -94,7 +94,7 @@ export class TaskHandlerImpl implements TaskHandler {
 
   constructor(props: TaskManagerProps) {
     this.taskAccessor = props.taskAccessor;
-    this.taskAgentClient = props.taskAgentClient;
+    this.taskAgentRequestBroadcaster = props.taskAgentRequestBroadcaster;
     this.variableManager = props.variableManager;
     this.agentList = props.agentList.map((agent) => ({ ...agent, lastPingAt: 0 }));
     this.issueClient = props.issueClient;
@@ -216,7 +216,7 @@ export class TaskHandlerImpl implements TaskHandler {
   }
 
   async reportTaskEvent(request: ReportTaskEventRequest): Promise<ReportTaskEventReponse> {
-    logger.info(`Handle agent task event report request ${request.instanceId} ${request.level} event.`);
+    logger.info(`Handle agent task event report request ${request.taskInstanceId} ${request.level} event.`);
     // NewTaskEvent and AddTaskEventRequest have the same shape.
     await this.taskAccessor.addTaskEvent(request);
     return {};
@@ -314,10 +314,13 @@ export class TaskHandlerImpl implements TaskHandler {
     const { taskInstance } = await this.taskAccessor.getTaskInstance({ taskInstanceId: request.taskInstanceId });
 
     if (TERMINATION_PERMITTED_STATUSES.includes(taskInstance.status) && typeof taskInstance.pid === 'number') {
-      await this.taskAgentClient.terminateTaskInstance({
-        taskInstanceId: taskInstance.instanceId,
+      await this.taskAgentRequestBroadcaster.send({
         agentId: taskInstance.agentId,
-        pid: taskInstance.pid,
+        type: 'terminate-task-instance',
+        request: {
+          taskInstanceId: taskInstance.instanceId,
+          pid: taskInstance.pid,
+        },
       });
       const message = `Successfully initiated termination on task instance ${taskInstance.instanceId} pid ${taskInstance.pid}.`;
       logger.info(message);
@@ -348,7 +351,11 @@ export class TaskHandlerImpl implements TaskHandler {
     logger.info(`Terminate task agent ${request.agentId}.`);
     const agent = this.agentList.find((agent) => agent.identifier === request.agentId);
     if (agent?.status === 'online') {
-      await this.taskAgentClient.terminateAgent({ agentId: request.agentId });
+      await this.taskAgentRequestBroadcaster.send({
+        agentId: request.agentId,
+        type: 'terminate-agent',
+        request: {},
+      });
       agent.status = 'offline';
     } else {
       logger.info(`Task agent ${request.agentId} doesn't exist or is offline.`);
@@ -429,18 +436,22 @@ export class TaskHandlerImpl implements TaskHandler {
       let status: 'initiated' | 'initiation_failed';
       if (agent?.status === 'online') {
         logger.info(`Agent ${agentId} is online, sending launch request to it.`);
-        await this.taskAgentClient.launchTaskInstance({
+
+        await this.taskAgentRequestBroadcaster.send({
           agentId: agentId,
-          taskId: destinationTask.taskId,
-          version: destinationTask.version,
-          taskInstanceId: taskInstanceId,
-          cmd: destinationTask.cmd,
-          cwd: destinationTask.cwd,
-          arguments: destinationTask.arguments,
-          env: destinationTask.env,
-          stdout: destinationTask.stdout,
-          stderr: destinationTask.stderr,
-          healthCheck: destinationTask.type === 'service' ? destinationTask.healthCheck : undefined,
+          type: 'launch-task-instance',
+          request: {
+            taskId: destinationTask.taskId,
+            version: destinationTask.version,
+            taskInstanceId: taskInstanceId,
+            cmd: destinationTask.cmd,
+            cwd: destinationTask.cwd,
+            arguments: destinationTask.arguments,
+            env: destinationTask.env,
+            stdout: destinationTask.stdout,
+            stderr: destinationTask.stderr,
+            healthCheck: destinationTask.type === 'service' ? destinationTask.healthCheck : undefined,
+          },
         });
 
         const message = `Initiated task ${task.taskId} ${task.version} at agent ${agentId}.`;
@@ -468,7 +479,10 @@ export class TaskHandlerImpl implements TaskHandler {
 
   private async requireAgentStatus() {
     logger.debug(`Broadcast message to request agent status at ${new Date().toISOString()}.`);
-    await this.taskAgentClient.getAgentStatus({});
+    await this.taskAgentRequestBroadcaster.send({
+      type: 'get-agent-status',
+      request: {},
+    });
   }
 
   private expireAgents(referenceTime: number) {
@@ -506,7 +520,7 @@ export class TaskHandlerImpl implements TaskHandler {
       status: status,
     });
     await this.taskAccessor.addTaskEvent({
-      instanceId: instanceId,
+      taskInstanceId: instanceId,
       source: 'task-service',
       timestamp: Date.now(),
       level: level,

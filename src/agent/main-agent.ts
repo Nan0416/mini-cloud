@@ -1,18 +1,18 @@
 import './logger-setup';
 import '@qinnan/node-exception-captors';
 
-import { TaskAgentServer, TaskServiceEventHandler } from './request-handler';
+import { TaskAgentServer, TaskServiceEventHandler } from './endpoints';
 import { LoggerFactory } from '@qinnan/logging-js';
 import config from './stage-config';
 import { authHttpClient, AccessKeyTokenProvider } from '@qinnan/auth-http-client';
 import { StatefulWsSubscriber, NodeSubscriberImpl } from '@qinnan/message-subscriber';
-import { TaskAgentFacadeImpl } from './facade';
+import { TaskAgentFacadeImpl } from './task-agent-core';
 import { TaskServiceEvent } from '@qinnan/task-types';
 import { InternalClientImpl } from './internal-client';
-import { TaskLauncher } from './facade/task-launcher';
-import { VariableReplacement } from './facade/variable-replacement';
-import { PassiveHealthCheckManager } from './facade/passive-health-check-manager';
-import { PingHealthCheckManager } from './facade/ping-health-check-manager';
+import { TaskLauncher } from './task-agent-core/task-launcher';
+import { VariableReplacement } from './task-agent-core/variable-replacement';
+import { PassiveHealthCheckManager } from './task-agent-core/passive-health-check-manager';
+import { PingHealthCheckManager } from './task-agent-core/ping-health-check-manager';
 import { mkdirSync } from 'fs';
 import axios from 'axios';
 import path from 'path';
