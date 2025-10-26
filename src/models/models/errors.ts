@@ -8,7 +8,7 @@ export class InternalServiceError extends HttpError {
     this.name = 'InternalServiceError';
   }
 }
-nameToConstructor.set('AccountServiceError', InternalServiceError);
+nameToConstructor.set('InternalServiceError', InternalServiceError);
 
 export class InvalidRequestError extends InternalServiceError {
   constructor(message: string) {
@@ -18,13 +18,21 @@ export class InvalidRequestError extends InternalServiceError {
 }
 nameToConstructor.set('InvalidRequestError', InvalidRequestError);
 
-export class AccountNotFoundError extends InternalServiceError {
+export class TaskNotFoundError extends InternalServiceError {
   constructor(message: string) {
     super(message, 404);
-    this.name = 'AccountNotFoundError';
+    this.name = 'TaskNotFoundError';
   }
 }
-nameToConstructor.set('AccountNotFoundError', AccountNotFoundError);
+nameToConstructor.set('TaskNotFoundError', TaskNotFoundError);
+
+export class TaskInstanceNotFoundError extends InternalServiceError {
+  constructor(message: string) {
+    super(message, 404);
+    this.name = 'TaskInstanceNotFoundError';
+  }
+}
+nameToConstructor.set('TaskInstanceNotFoundError', TaskInstanceNotFoundError);
 
 export class NotImplementedError extends InternalServiceError {
   constructor(message: string) {

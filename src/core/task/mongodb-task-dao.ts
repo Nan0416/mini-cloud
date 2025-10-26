@@ -4,10 +4,9 @@ import TaskEventSchema from './mongoose-models/task-event';
 import LatestTaskIdSchema from './mongoose-models/latest-task-id';
 import TaskDynamicsSchema from './mongoose-models/task-dynamics';
 import { LoggerFactory } from '@sparrow/logging-js';
-import { Task, TaskInstance, TaskEvent, Job, Service, TaskInstanceStatus, TaskEventLevel, TaskEventFormat, TaskEventSource, TaskDynamics } from '../../models';
+import { Task, TaskInstance, TaskEvent, Job, Service, TaskInstanceStatus, TaskEventLevel, TaskEventFormat, TaskEventSource, TaskDynamics, InternalServiceError } from '../../models';
 import { InternalTask, InternalTaskInstance, InternalTaskEvent, InternalLatestTaskId, InternalTaskDynamics } from './internal-models';
 import { TaskDao, ListTaskInstancesInput } from './task-dao';
-import { EnhancedError, Errors } from '@sparrow/standard-error';
 
 interface Timestamps {
   readonly createdAt: Date;
@@ -32,53 +31,6 @@ export class MongoDBTaskDao implements TaskDao {
     } else {
       logger.info(`Mongodb doesn't find task ${taskId} version ${version}`);
       return undefined;
-    }
-  }
-
-  private convertInternalTaskToTask(internalTask: InternalTask & Timestamps): Task {
-    if (internalTask.type === 'job') {
-      const blob: any = JSON.parse(internalTask.blob);
-      const job: Job = {
-        taskId: internalTask.taskId,
-        version: internalTask.version,
-        createdAt: internalTask.createdAt.getTime(),
-        lastUpdatedAt: internalTask.updatedAt.getTime(),
-        name: internalTask.name,
-        description: internalTask.description,
-        type: 'job',
-        cmd: internalTask.cmd,
-        cwd: internalTask.cwd,
-        stdout: internalTask.stdout,
-        stderr: internalTask.stderr,
-        arguments: blob.arguments,
-        env: blob.env,
-        duration: internalTask.duration,
-        firstLaunchAt: internalTask.firstLaunchAt,
-      };
-      return job;
-    } else if (internalTask.type === 'service') {
-      const blob: any = JSON.parse(internalTask.blob);
-      const service: Service = {
-        taskId: internalTask.taskId,
-        version: internalTask.version,
-        createdAt: internalTask.createdAt.getTime(),
-        lastUpdatedAt: internalTask.updatedAt.getTime(),
-        name: internalTask.name,
-        description: internalTask.description,
-        type: 'service',
-        cmd: internalTask.cmd,
-        cwd: internalTask.cwd,
-        stdout: internalTask.stdout,
-        stderr: internalTask.stderr,
-        arguments: blob.arguments,
-        env: blob.env,
-        healthCheck: blob.healthCheck,
-      };
-      return service;
-    } else {
-      const message = `Invalid task type ${internalTask.type} found in mongodb.`;
-      logger.warn(message);
-      throw EnhancedError.create(Errors.INTERNAL_ERROR, 500, message);
     }
   }
 
@@ -122,7 +74,7 @@ export class MongoDBTaskDao implements TaskDao {
         const message = `Task ${internalTask.taskId} version ${internalTask.version} already existed in mongodb.`;
         logger.error(message);
         // Caller, we,guarantee task is unique.
-        throw EnhancedError.create(Errors.INTERNAL_ERROR, 500, message);
+        throw new InternalServiceError(message);
       }
       throw err;
     }
@@ -228,6 +180,53 @@ export class MongoDBTaskDao implements TaskDao {
     return instances.map((i) => this.convertInternalTaskInstanceToTaskInstance(i.toObject<InternalTaskInstance & Timestamps>()));
   }
 
+  private convertInternalTaskToTask(internalTask: InternalTask & Timestamps): Task {
+    if (internalTask.type === 'job') {
+      const blob: any = JSON.parse(internalTask.blob);
+      const job: Job = {
+        taskId: internalTask.taskId,
+        version: internalTask.version,
+        createdAt: internalTask.createdAt.getTime(),
+        lastUpdatedAt: internalTask.updatedAt.getTime(),
+        name: internalTask.name,
+        description: internalTask.description,
+        type: 'job',
+        cmd: internalTask.cmd,
+        cwd: internalTask.cwd,
+        stdout: internalTask.stdout,
+        stderr: internalTask.stderr,
+        arguments: blob.arguments,
+        env: blob.env,
+        duration: internalTask.duration,
+        firstLaunchAt: internalTask.firstLaunchAt,
+      };
+      return job;
+    } else if (internalTask.type === 'service') {
+      const blob: any = JSON.parse(internalTask.blob);
+      const service: Service = {
+        taskId: internalTask.taskId,
+        version: internalTask.version,
+        createdAt: internalTask.createdAt.getTime(),
+        lastUpdatedAt: internalTask.updatedAt.getTime(),
+        name: internalTask.name,
+        description: internalTask.description,
+        type: 'service',
+        cmd: internalTask.cmd,
+        cwd: internalTask.cwd,
+        stdout: internalTask.stdout,
+        stderr: internalTask.stderr,
+        arguments: blob.arguments,
+        env: blob.env,
+        healthCheck: blob.healthCheck,
+      };
+      return service;
+    } else {
+      const message = `Invalid task type ${internalTask.type} found in mongodb.`;
+      logger.warn(message);
+      throw new InternalServiceError(message);
+    }
+  }
+
   private convertInternalTaskInstanceToTaskInstance(obj: InternalTaskInstance & Timestamps): TaskInstance {
     return {
       taskId: obj.taskId,
@@ -249,7 +248,7 @@ export class MongoDBTaskDao implements TaskDao {
       if (err.code === 11000) {
         const message = `Task instance ${internalInstance.instanceId} already existed in mongodb.`;
         logger.error(message);
-        throw EnhancedError.create(Errors.INTERNAL_ERROR, 500, message);
+        throw new InternalServiceError(message);
       }
       throw err;
     }
@@ -274,7 +273,7 @@ export class MongoDBTaskDao implements TaskDao {
         const message = `Task event ${event.eventId} already existed in mongodb.`;
         logger.error(message);
         // caller, we, guarantee event is unique.
-        throw EnhancedError.create(Errors.INTERNAL_ERROR, 500, message);
+        throw new InternalServiceError(message);
       }
       throw err;
     }
@@ -292,9 +291,9 @@ export class MongoDBTaskDao implements TaskDao {
       try {
         _payload = JSON.parse(_payload);
       } catch (err: any) {
-        const message = 'Failed to deserial task event json payload.';
+        const message = 'Failed to deserialize task event json payload.';
         logger.error(message);
-        throw EnhancedError.create(Errors.INTERNAL_ERROR, 500, message);
+        throw new InternalServiceError(message);
       }
     }
     return {

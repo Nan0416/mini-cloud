@@ -1,6 +1,6 @@
 export * from './task-client';
 export * from './task-request-response';
-export * from './internal-task-client';
+export * from './task-client-for-agent';
 export * from './internal-task-request-response';
 export * from './issue-client';
 export * from './issue-request-response';
@@ -11,3 +11,5 @@ export * from './subscriber';
 export * from './metrics-request-response';
 export * from './metrics-agent-request-response';
 export * from './metrics-aggregator-request-response';
+export * from './task-client-for-agent';
+export * from './task-reporter-client';

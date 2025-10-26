@@ -4,7 +4,7 @@ import { readFileSync, mkdirSync } from 'fs';
 import { writeFile } from 'fs/promises';
 import lodash from 'lodash';
 import path from 'path';
-import { VariableManager } from '../variable-manager';
+import { VariableManager } from './variable-manager';
 
 export interface KeyValuePair {
   readonly key: string;

@@ -1,3 +1,46 @@
+# Setup
+
+## Dependencies
+
+1. Install MongoDB, tested with Community Edition 8.2 MacOS version, installed with HomeBrew
+
+https://www.mongodb.com/docs/manual/administration/install-community/?operating-system=macos&macos-installation-method=homebrew
+
+```zsh
+brew tap mongodb/brew
+brew update
+brew install mongodb-community@8.2
+```
+
+Start MongoDB as a service
+
+```zsh
+brew services start mongodb-community@8.2
+brew services list
+brew services stop mongodb-community@8.2
+```
+
+
+## Components and architecture
+
+1. Backend service:
+    * Handle frontend user requests and issue instructions to agents.
+    * Handle reports from agents.
+
+2. The agent program, runs inside worker hosts, 
+    * Listens to backend service's request to launch tasks.
+    * Performs health checks on tasks.
+    * Report metrics to backend service.
+
+3. Metrics aggregator and partitioner
+
+## ToDo
+
+1. implement message service
+2. implement task reporter client 
+3. implement task agent
+4. finish task service handler
+
 
 ## Setup Permission
 

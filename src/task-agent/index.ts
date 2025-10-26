@@ -1,1 +1,1 @@
-export * from './task-agent-facade';
+export * from './task-agent-handler';

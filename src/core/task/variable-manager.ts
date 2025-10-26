@@ -1,4 +1,4 @@
-import { ReplacementVariables, Task } from '../models';
+import { ReplacementVariables, Task } from '../../models';
 
 export interface VariableManager {
   replace(task: Task): Promise<Task>;

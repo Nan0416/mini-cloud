@@ -192,12 +192,3 @@ export type AgentSideTaskStatus =
   | 'exit(0)' // job exit normally.
   | 'exit(1)'
   | 'health_check_failure';
-
-export interface NewTaskEvent {
-  readonly instanceId: string;
-  readonly source: 'task-agent' | 'task-instance';
-  readonly timestamp: number;
-  readonly level: TaskEventLevel;
-  readonly format: TaskEventFormat;
-  readonly payload: any;
-}
