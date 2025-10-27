@@ -131,7 +131,7 @@ export class MongoDBTaskDao implements TaskDao {
   }
 
   async getTaskInstance(instanceId: string): Promise<TaskInstance | undefined> {
-    logger.info(`Mobgodb gets task instance ${instanceId}`);
+    logger.info(`Mongodb gets task instance ${instanceId}`);
     const doc = await TaskInstanceSchema.findOne({
       instanceId: instanceId,
     }).exec();
@@ -145,7 +145,7 @@ export class MongoDBTaskDao implements TaskDao {
   }
 
   async getTaskInstanceStatus(taskInstanceId: string): Promise<TaskInstanceStatus | undefined> {
-    logger.info(`Mobgodb gets task instance ${taskInstanceId} status`);
+    logger.info(`Mongodb gets task instance ${taskInstanceId} status`);
     const doc = await TaskInstanceSchema.findOne({
       instanceId: taskInstanceId,
     }).exec();

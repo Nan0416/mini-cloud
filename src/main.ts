@@ -3,10 +3,10 @@ import './logger-setup';
 import '@sparrow/node-exception-captors';
 
 import { LoggerFactory } from '@sparrow/logging-js';
-// import config from './stage-config';
-// import { DependencyFactory } from './dependencies/dependency-factory';
-// import { Service } from './service';
+import config from './stage-config';
+import { Service } from './service';
 import { Server } from 'http';
+import { DependencyFactory } from './dependencies/dependency-factory';
 
 const logger = LoggerFactory.getLogger('main');
 
@@ -20,22 +20,23 @@ process.on('SIGINT', async () => {
 });
 
 (async () => {
-  //   const factory = new DependencyFactory({
-  //     appName: config.appName,
-  //     region: config.region,
-  //     ddbTableNames: config.ddbTableNames,
-  //     firstPartyCognitoUserPoolId: config.firstPartyCognitoUserPoolId,
-  //     credentials: applicationRole
-  //   });
+  const factory = new DependencyFactory({
+    appName: config.appName,
+    region: config.region,
+    ddbTableNames: config.ddbTableNames,
+    firstPartyCognitoUserPoolId: config.firstPartyCognitoUserPoolId,
+    credentials: applicationRole,
+  });
 
-  //   const dependencies = await factory.build();
+  const dependencies = await factory.build();
 
-  //   const service = new UserService({
-  //     xxxEndpoint: dependencies.xxxEndpoints,
-  //   });
+  const service = new Service({
+    messageEndpoints: dependencies.messageEndpoints,
+    taskEndpoints: dependencies.taskEndpoints,
+  });
 
-  //   const app = service.init();
-  //   httpServer = app.listen(config.localPort);
+  const app = service.init();
+  httpServer = app.listen(config.localPort);
 
   logger.info('Launched user service.');
 })();

@@ -1,12 +1,28 @@
-import { ForwardTimestamp, InvalidRequestError, MessageHubStatus, Metrics, PublishTimestamp, SenderIdentifier, SubscriberRequest, Target } from '../../models';
+import {
+  BroadcastRequest,
+  BroadcastResponse,
+  ForwardTimestamp,
+  GetMessageHubStatusRequest,
+  GetMessageHubStatusResponse,
+  InvalidRequestError,
+  MessageHubStatus,
+  Metrics,
+  PublishTimestamp,
+  SenderIdentifier,
+  SendToRequest,
+  SendToResponse,
+  SubscriberRequest,
+  Target,
+} from '../../models';
 import { v4 as uuidv4 } from 'uuid';
 import WebSocket, { Server } from 'ws';
 import { LoggerFactory } from '@sparrow/logging-js';
-import { Errors } from '@sparrow/standard-error';
-import { MessageHub } from './message-hub';
+import { MessageHandler } from './message-handler';
 import { getMetricsLogger } from '../../utilities';
 
 // reference: https://github.com/allworldautomation/websocket-pubsub
+const INVALID_REQUEST = 'InvalidRequest';
+const INTERNAL_ERROR = 'InternalError';
 const PUBLISHER_MESSAGE = 'PubisherMessage';
 const SUBSCRIBERS_COUNT = 'Subscribers.Count';
 const TOPICS_COUNT = 'Topics.Count';
@@ -19,8 +35,8 @@ const TOPICS_COUNT = 'Topics.Count';
  * Also a reverse index, topic to subscriberIds.
  */
 
-const logger = LoggerFactory.getLogger('MessageHubImpl');
-export class MessageHubImpl implements MessageHub {
+const logger = LoggerFactory.getLogger('MessageHandlerImpl');
+export class MessageHandlerImpl implements MessageHandler {
   private readonly subscriberIdToTopics: Map<string, Set<string>>;
   private readonly subscriberIdToWebsocket: Map<string, WebSocket>;
   private readonly topicToSubscriberIds: Map<string, Set<string>>;
@@ -51,7 +67,7 @@ export class MessageHubImpl implements MessageHub {
     }, 60_000);
   }
 
-  getStatus(): MessageHubStatus {
+  async getMessageHubStatus(request: GetMessageHubStatusRequest): Promise<GetMessageHubStatusResponse> {
     const topicToSubscriberCount: Record<string, number> = {};
     const topics = Array.from(this.topicToSubscriberIds.keys());
     for (let topic of topics) {
@@ -60,8 +76,10 @@ export class MessageHubImpl implements MessageHub {
     }
 
     return {
-      totalSubscriberCount: this.subscriberIdToTopics.size,
-      topicToSubscriberCount,
+      status: {
+        totalSubscriberCount: this.subscriberIdToTopics.size,
+        topicToSubscriberCount,
+      },
     };
   }
 
@@ -94,7 +112,7 @@ export class MessageHubImpl implements MessageHub {
           request = JSON.parse(data.toString()) as SubscriberRequest;
         } catch (err: any) {
           logger.warn(`Failed to serialize user request ${data.toString()}`, err);
-          this.metrics.incrementCounter(Errors.INVALID_REQUEST);
+          this.metrics.incrementCounter(INVALID_REQUEST);
           return;
         }
 
@@ -136,14 +154,24 @@ export class MessageHubImpl implements MessageHub {
           }
         } catch (err) {
           logger.warn(`Failed to handle subscriber request.`, err);
-          this.metrics.incrementCounter(Errors.INVALID_REQUEST);
+          this.metrics.incrementCounter(INVALID_REQUEST);
           return;
         }
       });
     });
   }
 
-  publish(target: Target, event: any & PublishTimestamp & SenderIdentifier) {
+  async broadcast<E extends PublishTimestamp & SenderIdentifier>(request: BroadcastRequest<E>): Promise<BroadcastResponse> {
+    this.publish({ method: 'broadcast', to: request.topic }, request.event);
+    return {};
+  }
+
+  async sendTo<E extends PublishTimestamp & SenderIdentifier>(request: SendToRequest<E>): Promise<SendToResponse> {
+    this.publish({ method: 'p2p', to: request.recipientId }, request.event);
+    return {};
+  }
+
+  private publish(target: Target, event: any & PublishTimestamp & SenderIdentifier) {
     this.metrics.time(`${PUBLISHER_MESSAGE}.Latency`, Date.now() - event._publishedAt);
     this.metrics.incrementCounter(`${PUBLISHER_MESSAGE}.Count`);
 
@@ -161,7 +189,7 @@ export class MessageHubImpl implements MessageHub {
             logger.info(`Successfully forward p2p message to recipient ${target.to}.`);
           } else {
             logger.warn(`Failed to send event to recipient ${target.to}.`, err);
-            this.metrics.incrementCounter(Errors.INTERNAL_ERROR);
+            this.metrics.incrementCounter(INTERNAL_ERROR);
           }
         });
       } else {
@@ -179,7 +207,7 @@ export class MessageHubImpl implements MessageHub {
                 logger.info(`Successfully forward message to subscriber ${subscriberId}.`);
               } else {
                 logger.warn(`Failed to send event to subscriber ${subscriberId}.`, err);
-                this.metrics.incrementCounter(Errors.INTERNAL_ERROR);
+                this.metrics.incrementCounter(INTERNAL_ERROR);
               }
             });
           } else {

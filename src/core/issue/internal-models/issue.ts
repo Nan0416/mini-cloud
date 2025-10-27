@@ -7,6 +7,4 @@ export interface InternalIssue {
   readonly title: string;
   readonly description: string;
   readonly deduplicationToken: string;
-  readonly note?: string;
-  readonly resolvedAt?: number;
 }

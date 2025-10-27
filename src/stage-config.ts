@@ -7,27 +7,25 @@ export interface DDBTableNames {
   readonly cognitoUserRecoveryCodeTableName: string;
 }
 
+export interface DiscordNotifierConfigs {
+  readonly webhookId: string;
+  readonly webhookToken: string;
+}
+
 export interface StageConfig {
   readonly stage: STAGE;
   readonly appName: string;
-  readonly region: 'us-east-1';
-  readonly firstPartyCognitoUserPoolId: string;
-  readonly ddbTableNames: DDBTableNames;
-  readonly localPort: number;
+  readonly servicePort: number;
+  readonly websocketPort: number;
+  readonly discordNotifierConfigs: DiscordNotifierConfigs;
 }
 
 function getStageConfig(stage: STAGE): StageConfig {
   return {
     stage: stage,
     appName: getenv(APPLICATION_NAME_KEY),
-    region: 'us-east-1',
-    firstPartyCognitoUserPoolId: getenv('FIRST_PARTY_COGNITO_USER_POOL_ID'),
-    localPort: 3000,
-    ddbTableNames: {
-      userProfileTableName: getenv('UserProfileTableName'),
-      canonicalUserIdMappingTableName: getenv('CanonicalUserIdMappingTableName'),
-      cognitoUserRecoveryCodeTableName: getenv('CognitoUserRecoveryCodeTableName'),
-    },
+    servicePort: 3000,
+    websocketPort: 3050,
   };
 }
 

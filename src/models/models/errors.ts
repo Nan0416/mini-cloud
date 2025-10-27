@@ -34,6 +34,14 @@ export class TaskInstanceNotFoundError extends InternalServiceError {
 }
 nameToConstructor.set('TaskInstanceNotFoundError', TaskInstanceNotFoundError);
 
+export class IssueNotFoundError extends InternalServiceError {
+  constructor(message: string) {
+    super(message, 404);
+    this.name = 'IssueNotFoundError';
+  }
+}
+nameToConstructor.set('IssueNotFoundError', IssueNotFoundError);
+
 export class NotImplementedError extends InternalServiceError {
   constructor(message: string) {
     super(message, 501);

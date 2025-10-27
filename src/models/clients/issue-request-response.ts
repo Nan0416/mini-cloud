@@ -9,7 +9,9 @@ export interface CreateIssueRequest {
   readonly deduplicationToken: string;
 }
 
-export interface CreateIssueResponse {}
+export interface CreateIssueResponse {
+  readonly issueId: string;
+}
 
 export interface UpdateIssueStatusRequest {
   readonly issueId: string;
@@ -35,5 +37,5 @@ export interface GetIssueRequest {
 }
 
 export interface GetIssueResponse {
-  readonly issue?: Issue;
+  readonly issue: Issue;
 }

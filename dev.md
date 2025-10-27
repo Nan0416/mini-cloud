@@ -36,8 +36,11 @@ brew services stop mongodb-community@8.2
 
 ## ToDo
 
-1. implement task reporter client 
-2. dependency factories.
+1. dependency factories for service.
+2. authentication between agent and service api, and message websocket
+3. authentication between web browser and service api and message websocket
+4. issue service
+5. metrics setup.
 
 ## Setup Permission
 

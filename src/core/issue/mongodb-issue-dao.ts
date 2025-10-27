@@ -1,10 +1,9 @@
-import { Issue, IssueCategory, IssueStatus } from '../../models';
+import { InternalServiceError, Issue, IssueCategory, IssueStatus } from '../../models';
 import { IssueDao } from './issue-dao';
 import { LoggerFactory } from '@sparrow/logging-js';
 import IssueSchema from './mongoose-models/issue';
 import { Error } from 'mongoose';
 import { InternalIssue } from './internal-models/issue';
-import { EnhancedError, Errors } from '@sparrow/standard-error';
 
 interface Timestamps {
   readonly createdAt: Date;
@@ -25,11 +24,11 @@ export class MongoDBIssueDao implements IssueDao {
         const message = `${internalIssue.issueId} issue already existed`;
         logger.error(message);
         // caller, we, should guarantee the id is unique.
-        throw EnhancedError.create(Errors.INTERNAL_ERROR, 500, message);
+        throw new InternalServiceError(message);
       } else if (err instanceof Error.ValidationError) {
         const message = err.message;
         logger.error(message);
-        throw EnhancedError.create(Errors.INTERNAL_ERROR, 500, message ?? '');
+        throw new InternalServiceError(message ?? '');
       }
       throw err;
     }
@@ -43,7 +42,7 @@ export class MongoDBIssueDao implements IssueDao {
       const message = `Failed to issue ${issueId} status to ${status} due to issue not exist.`;
       logger.error(message);
       // caller, we, guarantee the issue exists before updating.
-      throw EnhancedError.create(Errors.INTERNAL_ERROR, 500, message);
+      throw new InternalServiceError(message);
     }
   }
 
@@ -79,8 +78,6 @@ export class MongoDBIssueDao implements IssueDao {
       severity: internalIssue.severity,
       title: internalIssue.title,
       description: internalIssue.description,
-      note: internalIssue.note,
-      resolvedAt: internalIssue.resolvedAt,
       createdAt: internalIssue.createdAt.getTime(),
       lastUpdatedAt: internalIssue.updatedAt.getTime(),
     };

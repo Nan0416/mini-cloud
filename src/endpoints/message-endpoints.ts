@@ -1,15 +1,15 @@
 import type { Express } from 'express';
 import { Endpoints } from './endpoints';
-import { MessageHub } from '../core/message/message-hub';
+import { MessageHandler } from '../core/message';
 import { LoggerFactory } from '@sparrow/logging-js';
 import { InvalidRequestError, PublishTimestamp, SenderIdentifier } from '../models';
 
 const logger = LoggerFactory.getLogger('MessageEndpoints');
 
 export class MessageEndpoints implements Endpoints {
-  private readonly messageHub: MessageHub;
-  constructor(messageHub: MessageHub) {
-    this.messageHub = messageHub;
+  private readonly messageHandler: MessageHandler;
+  constructor(messageHandler: MessageHandler) {
+    this.messageHandler = messageHandler;
   }
   bind(app: Express): void {
     app.post('/message/broadcast', async (req, res, next) => {
@@ -21,9 +21,12 @@ export class MessageEndpoints implements Endpoints {
         const evt = req.body as PublishTimestamp & SenderIdentifier;
         this.assert(typeof evt?._publishedAt === 'number', 'missing or invalid _publishedAt timestamp');
         this.assert(evt?._senderId === undefined, 'publisher client could not set senderId, messages are sent anonymously');
-        this.messageHub.publish({ method: 'broadcast', to: topic }, evt);
+        const response = await this.messageHandler.broadcast({
+          topic: topic,
+          event: evt,
+        });
         res.status(200);
-        res.json({ message: 'success' });
+        res.json(response);
       } catch (err) {
         next(err);
       }
@@ -38,9 +41,12 @@ export class MessageEndpoints implements Endpoints {
         const evt = req.body as PublishTimestamp & SenderIdentifier;
         this.assert(typeof evt?._publishedAt === 'number', 'missing or invalid _publishedAt timestamp');
         this.assert(evt?._senderId === undefined, 'publisher client could not set senderId, messages are sent anonymously');
-        this.messageHub.publish({ method: 'p2p', to: recipientId }, evt);
+        const response = await this.messageHandler.sendTo({
+          recipientId: recipientId,
+          event: evt,
+        });
         res.status(200);
-        res.json({ message: 'success' });
+        res.json(response);
       } catch (err) {
         next(err);
       }
@@ -49,9 +55,9 @@ export class MessageEndpoints implements Endpoints {
     app.get('/message/status', async (req, res, next) => {
       logger.info(`Received request to get message hub status.`);
       try {
-        const status = this.messageHub.getStatus();
+        const response = await this.messageHandler.getMessageHubStatus({});
         res.status(200);
-        res.json(status);
+        res.json(response);
       } catch (err) {
         next(err);
       }

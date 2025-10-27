@@ -1,2 +1,2 @@
-export * from './message-hub';
-export * from './message-hub-impl';
+export * from './message-handler';
+export * from './message-handler-impl';

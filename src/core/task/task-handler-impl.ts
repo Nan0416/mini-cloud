@@ -61,8 +61,8 @@ import { TaskStatusWatcher } from './task-status-watcher';
 import { TERMINATION_PERMITTED_STATUSES } from './utilities';
 import { TaskAccessor } from './task-accessor';
 import { VariableManager } from './variable-manager';
-import { TaskHandler } from '../../handlers/task-handler';
 import { TaskAgentRequestBroadcaster } from '../../models/clients/task-agent-client';
+import { TaskHandler } from './task-handler';
 
 const logger = LoggerFactory.getLogger('TaskManagerImpl');
 

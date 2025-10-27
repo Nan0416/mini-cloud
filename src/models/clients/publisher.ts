@@ -1,12 +1,21 @@
+import { PublishTimestamp, SenderIdentifier } from '../models';
+
+export interface BroadcastRequest<E extends PublishTimestamp & SenderIdentifier> {
+  readonly topic: string;
+  readonly event: E;
+}
+
+export interface BroadcastResponse {}
+
+export interface SendToRequest<E extends PublishTimestamp & SenderIdentifier> {
+  readonly recipientId: string;
+  readonly event: E;
+}
+
+export interface SendToResponse {}
+
 export interface Publisher {
-  /**
-   * @deprecated
-   * @param topic
-   * @param event
-   */
-  publish<T>(topic: string, event: T): Promise<void>;
+  broadcast<E extends PublishTimestamp & SenderIdentifier>(request: BroadcastRequest<E>): Promise<BroadcastResponse>;
 
-  broadcast<E>(topic: string, event: E): Promise<void>;
-
-  sendTo<E>(recipientId: string, event: E): Promise<void>;
+  sendTo<E extends PublishTimestamp & SenderIdentifier>(request: SendToRequest<E>): Promise<SendToResponse>;
 }

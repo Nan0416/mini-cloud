@@ -41,14 +41,6 @@ const IssueSchemaDef: mongoose.Schema = new mongoose.Schema(
       required: true,
       index: true,
     },
-    note: {
-      type: String,
-      required: false,
-    },
-    resolvedAt: {
-      type: Number,
-      required: false,
-    },
   },
   {
     timestamps: true,

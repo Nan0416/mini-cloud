@@ -23,7 +23,7 @@ import {
   assertListRunningInstancesRequest,
 } from './task-request-assertions';
 import { Endpoints } from './endpoints';
-import { TaskHandler } from '../handlers/task-handler';
+import { TaskHandler } from '../core/task';
 
 const logger = LoggerFactory.getLogger('TaskEndpoints');
 export class TaskEndpoints implements Endpoints {
