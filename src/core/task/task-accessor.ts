@@ -53,7 +53,7 @@ export interface ListHealthChecksInput {
 }
 
 export interface ListHealthChecksOutput {
-  readonly healthChecks: TaskIdentifierWithHealthCheck[];
+  readonly results: TaskIdentifierWithHealthCheck[];
 }
 
 export interface GetTaskDynamicsInput {
@@ -99,6 +99,7 @@ export interface GetTaskInstanceOutput {
 export interface ListTaskInstancesInput {
   readonly taskId?: string;
   readonly version?: number;
+  readonly agentId?: string;
   readonly status?: TaskInstanceStatus;
   // updated window [from, to)
   readonly from?: number;

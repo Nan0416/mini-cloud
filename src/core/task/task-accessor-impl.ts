@@ -369,7 +369,7 @@ export class TaskAccessorImpl implements TaskAccessor {
       );
     }
     return {
-      healthChecks: results,
+      results: results,
     };
   }
 
@@ -489,7 +489,7 @@ export class TaskAccessorImpl implements TaskAccessor {
       throw new InvalidRequestError(message);
     }
 
-    const taskInstances = await this.taskDao.listTaskInstances({
+    let taskInstances = await this.taskDao.listTaskInstances({
       status: input.status,
       taskId: input.taskId,
       version: input.version,
@@ -497,6 +497,10 @@ export class TaskAccessorImpl implements TaskAccessor {
       to: input.to,
     });
 
+    if (typeof input.agentId === 'string') {
+      logger.info(`Filter by agentId ${input.agentId}`);
+      taskInstances = taskInstances.filter((instance) => instance.agentId === input.agentId);
+    }
     return {
       taskInstances: taskInstances,
     };

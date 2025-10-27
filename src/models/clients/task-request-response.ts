@@ -22,7 +22,7 @@ export interface GetTaskDynamicsRequest {
 }
 
 export interface GetTaskDynamicsResponse {
-  readonly dynamics: TaskDynamics;
+  readonly taskDynamics: TaskDynamics;
 }
 
 export interface ResetTaskActiveRequest {
@@ -30,21 +30,17 @@ export interface ResetTaskActiveRequest {
   readonly active: boolean;
 }
 
-export interface ResetTaskActiveResponse {
-  readonly message: string;
-}
+export interface ResetTaskActiveResponse {}
 
 export interface ResetTaskTargetAgentsRequest {
   readonly taskId: string;
   readonly targetAgentIds: string[];
 }
 
-export interface ResetTaskTargetAgentsResponse {
-  readonly message: string;
-}
+export interface ResetTaskTargetAgentsResponse {}
 
 export interface GetTaskInstanceRequest {
-  readonly instanceId: string;
+  readonly taskInstanceId: string;
 }
 
 export interface GetTaskInstanceResponse {
@@ -54,6 +50,7 @@ export interface GetTaskInstanceResponse {
 export interface ListTaskInstancesRequest {
   readonly taskId?: string;
   readonly version?: number;
+  readonly agentId?: string;
   readonly status?: TaskInstanceStatus;
   // updated window [from, to)
   readonly from?: number;
@@ -110,7 +107,7 @@ export interface ListTaskEventsRequest {
 }
 
 export interface ListTaskEventsResponse {
-  readonly events: TaskEvent[];
+  readonly taskEvents: TaskEvent[];
 }
 
 export interface TerminateTaskInstanceRequest {

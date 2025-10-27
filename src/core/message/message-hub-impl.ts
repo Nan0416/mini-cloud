@@ -1,8 +1,8 @@
-import { ForwardTimestamp, MessageHubStatus, Metrics, PublishTimestamp, SenderIdentifier, SubscriberRequest, Target } from '../../models';
+import { ForwardTimestamp, InvalidRequestError, MessageHubStatus, Metrics, PublishTimestamp, SenderIdentifier, SubscriberRequest, Target } from '../../models';
 import { v4 as uuidv4 } from 'uuid';
 import WebSocket, { Server } from 'ws';
 import { LoggerFactory } from '@sparrow/logging-js';
-import { EnhancedError, Errors } from '@sparrow/standard-error';
+import { Errors } from '@sparrow/standard-error';
 import { MessageHub } from './message-hub';
 import { getMetricsLogger } from '../../utilities';
 
@@ -245,7 +245,7 @@ export class MessageHubImpl implements MessageHub {
 
   private assert(condition: boolean, message: string) {
     if (!condition) {
-      throw EnhancedError.create(Errors.INVALID_REQUEST, 400, message);
+      throw new InvalidRequestError(message);
     }
   }
 }

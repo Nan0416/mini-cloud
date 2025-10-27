@@ -8,16 +8,19 @@ const logger = LoggerFactory.getLogger('Service');
 
 export interface ServiceProps {
   readonly taskEndpoints: Endpoints;
+  readonly messageEndpoints: Endpoints;
 }
 
 export class Service {
   private readonly app: express.Express;
   private readonly taskEndpoints: Endpoints;
+  private readonly messageEndpoints: Endpoints;
   private readonly errorHandlingMiddlewareProvider: ErrorHandlingMiddlewareProvider;
 
   constructor(props: ServiceProps) {
     this.app = express();
     this.taskEndpoints = props.taskEndpoints;
+    this.messageEndpoints = props.messageEndpoints;
     this.errorHandlingMiddlewareProvider = new ErrorHandlingMiddlewareProvider({
       serviceErrorClass: InternalServiceError,
       serviceErrorName: 'InternalServiceError',
@@ -28,8 +31,9 @@ export class Service {
     this.app.use(express.json());
     this.app.use(express.urlencoded({ extended: true }));
     this.app.use(new MetricsFlusher().build());
-    // authentication is done by aws auth in api gateway.
+    // todo: authentication
     this.taskEndpoints.bind(this.app);
+    this.messageEndpoints.bind(this.app);
     this.app.use(this.errorHandlingMiddlewareProvider.build());
     logger.info('Service is up and is ready to handle requests.');
     return this.app;

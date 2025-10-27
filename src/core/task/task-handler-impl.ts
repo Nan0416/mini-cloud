@@ -160,43 +160,46 @@ export class TaskHandlerImpl implements TaskHandler {
   }
 
   async getTask(request: GetTaskRequest): Promise<GetTaskResponse> {
-    throw new Error('Method not implemented.');
+    return this.taskAccessor.getTask(request);
   }
 
   async getTaskDynamics(request: GetTaskDynamicsRequest): Promise<GetTaskDynamicsResponse> {
-    throw new Error('Method not implemented.');
+    return this.taskAccessor.getTaskDynamics(request);
   }
 
   async resetTaskActive(request: ResetTaskActiveRequest): Promise<ResetTaskActiveResponse> {
-    throw new Error('Method not implemented.');
+    return this.taskAccessor.resetTaskActive(request);
   }
 
   async resetTaskTargetAgents(request: ResetTaskTargetAgentsRequest): Promise<ResetTaskTargetAgentsResponse> {
-    throw new Error('Method not implemented.');
+    return this.taskAccessor.resetTaskTargetAgents(request);
   }
 
   async listTasks(request: ListTasksRequest): Promise<ListTasksResponse> {
-    throw new Error('Method not implemented.');
+    return this.taskAccessor.listLatestTasks(request);
   }
 
   async getTaskInstance(request: GetTaskInstanceRequest): Promise<GetTaskInstanceResponse> {
-    throw new Error('Method not implemented.');
+    return this.taskAccessor.getTaskInstance(request);
   }
 
   async listTaskInstances(request: ListTaskInstancesRequest): Promise<ListTaskInstancesResponse> {
-    throw new Error('Method not implemented.');
+    return this.taskAccessor.listTaskInstances(request);
   }
 
   async listTaskEvents(request: ListTaskEventsRequest): Promise<ListTaskEventsResponse> {
-    throw new Error('Method not implemented.');
+    return this.taskAccessor.listTaskEvents(request);
   }
 
   async listRunningInstances(request: ListRunningInstancesRequest): Promise<ListRunningInstancesResponse> {
-    throw new Error('Method not implemented.');
+    return this.taskAccessor.listTaskInstances({
+      agentId: request.agentId,
+      status: 'running',
+    });
   }
 
   async listHealthChecks(request: ListHealthChecksRequest): Promise<ListHealthChecksResponse> {
-    throw new Error('Method not implemented.');
+    return this.taskAccessor.listHealthChecks(request);
   }
 
   async resetReplacementVariables(request: ResetReplacementVariablesRequest): Promise<ResetReplacementVariablesResponse> {
