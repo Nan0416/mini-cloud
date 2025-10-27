@@ -3,6 +3,8 @@ import { ExitCode, OfflineTaskReport, TaskEventLevel, TaskReporterClient } from 
 import { appendFile } from 'fs/promises';
 import { promises as fs } from 'fs';
 import path from 'path';
+import { TaskReporterClientImpl } from './task-reporter-client-impl';
+import { AxiosHttpClient } from '@sparrow/axios-http-client';
 
 const logger = LoggerFactory.getLogger('TaskReporter');
 
@@ -18,7 +20,7 @@ export class TaskReporter {
 
   constructor(agentUrl: string) {
     logger.info(`Task agent url ${agentUrl}.`);
-
+    this.taskReporterClient = new TaskReporterClientImpl(new AxiosHttpClient({ baseUrl: agentUrl, timeout: 5000 }));
     this.taskInstanceId = process.env['TASK_INSTANCE_ID'];
     if (typeof this.taskInstanceId === 'string') {
       logger.info(`Task instance id ${this.taskInstanceId}.`);
@@ -169,7 +171,7 @@ export class TaskReporter {
 
     try {
       await this.taskReporterClient.reportEvent({
-        instanceId: this.taskInstanceId,
+        taskInstanceId: this.taskInstanceId,
         level: level,
         payload: payload,
         timestamp: Date.now(),
@@ -195,7 +197,7 @@ export class TaskReporter {
 
     try {
       await this.taskReporterClient.reportPassiveHealthCheck({
-        instanceId: this.taskInstanceId,
+        taskInstanceId: this.taskInstanceId,
       });
     } catch (err) {
       logger.debug('Task reporter passive health check failed.');

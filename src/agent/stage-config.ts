@@ -1,15 +1,13 @@
-import { getenv, stage } from '@sparrow/utilities';
-import { VariableReplacementConfig } from './task-agent-core/variable-replacement';
+import { APPLICATION_NAME_KEY } from '@sparrow/standard-error';
+import { getenv, STAGE, stage } from '@sparrow/utilities';
 import path from 'path';
+import { VariableReplacementConfig } from './task-agent-core';
 
-interface StageConfig {
+export interface StageConfig {
   readonly appName: string;
-  readonly authTokenEndpoint: string;
-  readonly port: number;
-  readonly accessKey: string;
-  readonly secretKey: string;
-  readonly streamDomain: string;
-  readonly taskDomain: string;
+  readonly serviceBaseUrl: string;
+  readonly websocketBaseUrl: string;
+  readonly agentPort: number;
   readonly taskTopic: string;
   readonly agentId: string;
   readonly agentName: string;
@@ -18,7 +16,7 @@ interface StageConfig {
   readonly passiveHealthCheckToleranceBuffer: number;
 }
 
-function getStageConfig(stage: 'beta' | 'prod'): StageConfig {
+function getStageConfig(stage: STAGE): StageConfig {
   const stdErrDir = path.join(getenv('HOME'), 'task-outputs', stage, 'stderr');
   const stdOutDir = path.join(getenv('HOME'), 'task-outputs', stage, 'stdout');
   const offlineReportPath = path.join(getenv('HOME'), 'task-outputs', stage, `offline-reports.reports`);
@@ -34,13 +32,10 @@ function getStageConfig(stage: 'beta' | 'prod'): StageConfig {
 
   return {
     appName: getenv(APPLICATION_NAME_KEY),
-    authTokenEndpoint: authTokenEndpoint[stage].domain,
-    port: taskAgent[stage].port,
-    accessKey: getenv('ACCESS_KEY'),
-    secretKey: getenv('SECRET_KEY'),
-    streamDomain: stream[stage].domain,
-    taskDomain: tasks[stage].domain,
-    taskTopic: taskTopic[stage].topic,
+    serviceBaseUrl: 'http://localhost:3000',
+    websocketBaseUrl: 'ws://localhost:3050',
+    agentPort: 4000,
+    taskTopic: '_task',
     agentId: getenv('AGENT_ID'),
     agentName: getenv('AGENT_NAME'),
     offlineReportPath: offlineReportPath,

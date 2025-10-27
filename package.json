@@ -36,6 +36,7 @@
   },
   "dependencies": {
     "@sparrow/aws-emf-metrics-logger": "^2.2.0",
+    "@sparrow/axios-http-client": "^1.5.1",
     "@sparrow/common-express-middlewares": "^2.5.1",
     "@sparrow/http-client": "^1.6.0",
     "@sparrow/logging-js": "^1.0.3",

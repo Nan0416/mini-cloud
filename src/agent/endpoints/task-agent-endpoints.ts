@@ -15,8 +15,8 @@ export class TaskAgentEndpoints implements Endpoints {
   private readonly assertions: TaskAgentRequestAssertions;
   private readonly taskAgentHandler: TaskAgentHandler;
 
-  constructor(taskAgentHandler: TaskAgentHandler, assertions: TaskAgentRequestAssertions) {
-    this.assertions = assertions;
+  constructor(taskAgentHandler: TaskAgentHandler) {
+    this.assertions = new TaskAgentRequestAssertions();
     this.taskAgentHandler = taskAgentHandler;
   }
 

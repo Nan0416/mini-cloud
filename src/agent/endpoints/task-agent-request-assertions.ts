@@ -66,7 +66,7 @@ export class TaskAgentRequestAssertions extends BaseRequestAssertions {
         level: { type: 'string', enum: TASK_EVENT_LEVELS },
         payload: {} as any,
       },
-      required: ['taskInstanceId', 'timestamp', 'level', 'payload'],
+      required: ['taskInstanceId', 'timestamp', 'level'],
       additionalProperties: false,
     };
   }
