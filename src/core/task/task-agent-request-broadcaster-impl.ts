@@ -20,7 +20,7 @@ export class TaskAgentRequestBroadcasterImpl implements TaskAgentRequestBroadcas
       event: {
         ...event,
         _publishedAt: Date.now(),
-      }
+      },
     });
   }
 }

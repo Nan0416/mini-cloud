@@ -1,5 +1,16 @@
 import { LoggerFactory } from '@sparrow/logging-js';
-import { BroadcastRequest, BroadcastResponse, ForwardTimestamp, InternalServiceError, PublishTimestamp, SenderIdentifier, SendToRequest, SendToResponse, Subscriber, SubscriberRequest } from '../../models';
+import {
+  BroadcastRequest,
+  BroadcastResponse,
+  ForwardTimestamp,
+  InternalServiceError,
+  PublishTimestamp,
+  SenderIdentifier,
+  SendToRequest,
+  SendToResponse,
+  Subscriber,
+  SubscriberRequest,
+} from '../../models';
 import { ICloseEvent, IMessageEvent, w3cwebsocket } from 'websocket'; // support both node.js and browser.
 import { evtCleanup } from './internal-utils';
 import { Metrics } from '@sparrow/metrics-types';
@@ -76,7 +87,7 @@ export class SubscriberImpl<T> implements Subscriber<T> {
   async sendTo<E extends PublishTimestamp & SenderIdentifier>(request: SendToRequest<E>): Promise<SendToResponse> {
     logger.info(`Send request to recipient ${request.recipientId}.`);
     await this.sendRequest({ topic: request.recipientId, action: 'p2p', payload: request.event });
-    return {}
+    return {};
   }
 
   private sendRequest(request: SubscriberRequest): Promise<void> {

@@ -3,7 +3,7 @@ import { InternalTask } from '../internal-models';
 
 export interface InternalTaskDoc extends InternalTask, mongoose.Document {}
 
-const InternalTaskSchemaDef: mongoose.Schema = new mongoose.Schema(
+const InternalTaskSchemaDef: mongoose.Schema = new mongoose.Schema<InternalTask>(
   {
     taskId: {
       type: String,
@@ -62,4 +62,4 @@ const InternalTaskSchemaDef: mongoose.Schema = new mongoose.Schema(
 InternalTaskSchemaDef.index({ taskId: 1 }, { unique: false });
 InternalTaskSchemaDef.index({ taskId: 1, version: 1 }, { unique: true });
 
-export default mongoose.model<InternalTaskDoc>('TaskV2', InternalTaskSchemaDef);
+export default mongoose.model<InternalTaskDoc>('Task', InternalTaskSchemaDef);

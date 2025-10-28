@@ -4,7 +4,7 @@ import { TTL_IN_SECOND } from './constants';
 
 export interface InternalTaskInstanceDoc extends InternalTaskInstance, mongoose.Document {}
 
-const InternalTaskInstanceSchemaDef: mongoose.Schema = new mongoose.Schema(
+const InternalTaskInstanceSchemaDef: mongoose.Schema = new mongoose.Schema<InternalTaskInstance>(
   {
     instanceId: {
       type: String,
@@ -15,7 +15,6 @@ const InternalTaskInstanceSchemaDef: mongoose.Schema = new mongoose.Schema(
     taskId: {
       type: String,
       required: true,
-      index: true,
     },
     version: {
       type: Number,
@@ -24,7 +23,6 @@ const InternalTaskInstanceSchemaDef: mongoose.Schema = new mongoose.Schema(
     agentId: {
       type: String,
       required: true,
-      // index: true, create index when it has a large number of agents.
     },
     pid: {
       type: Number,
@@ -33,7 +31,6 @@ const InternalTaskInstanceSchemaDef: mongoose.Schema = new mongoose.Schema(
     status: {
       type: String,
       required: true,
-      index: true,
     },
   },
   {
@@ -41,10 +38,9 @@ const InternalTaskInstanceSchemaDef: mongoose.Schema = new mongoose.Schema(
   },
 );
 
-// not unique.
 InternalTaskInstanceSchemaDef.index({ taskId: 1, version: 1 });
 InternalTaskInstanceSchemaDef.index({ status: 1 });
 // expire only when status is terminated, exit(0), exit(-1)...
 InternalTaskInstanceSchemaDef.index({ updatedAt: 1 }, { expireAfterSeconds: TTL_IN_SECOND });
 
-export default mongoose.model<InternalTaskInstanceDoc>('TaskInstanceV2', InternalTaskInstanceSchemaDef);
+export default mongoose.model<InternalTaskInstanceDoc>('TaskInstance', InternalTaskInstanceSchemaDef);

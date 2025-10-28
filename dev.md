@@ -36,9 +36,10 @@ brew services stop mongodb-community@8.2
 
 ## ToDo
 
+1. metrics setup.
 2. authentication between agent and service api, and message websocket
 3. authentication between web browser and service api and message websocket
-5. metrics setup.
+
 
 ## Setup Permission
 

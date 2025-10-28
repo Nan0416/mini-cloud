@@ -3,7 +3,7 @@ import { InternalLatestTaskId } from '../internal-models';
 
 export interface InternalLatestTaskIdDoc extends InternalLatestTaskId, mongoose.Document {}
 
-const InternalLatestTaskIdSchemaDef: mongoose.Schema = new mongoose.Schema({
+const InternalLatestTaskIdSchemaDef: mongoose.Schema = new mongoose.Schema<InternalLatestTaskId>({
   taskId: {
     type: String,
     required: true,
@@ -16,4 +16,4 @@ const InternalLatestTaskIdSchemaDef: mongoose.Schema = new mongoose.Schema({
   },
 });
 
-export default mongoose.model<InternalLatestTaskIdDoc>('LatestTaskIdV2', InternalLatestTaskIdSchemaDef);
+export default mongoose.model<InternalLatestTaskIdDoc>('LatestTaskId', InternalLatestTaskIdSchemaDef);

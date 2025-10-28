@@ -4,7 +4,7 @@ import { TTL_IN_SECOND } from './constants';
 
 export interface InternalTaskEventDoc extends InternalTaskEvent, mongoose.Document {}
 
-const InternalTaskEventSchemaDef: mongoose.Schema = new mongoose.Schema({
+const InternalTaskEventSchemaDef: mongoose.Schema = new mongoose.Schema<InternalTaskEvent>({
   instanceId: {
     type: String,
     required: true,
@@ -42,4 +42,4 @@ InternalTaskEventSchemaDef.index({ timestamp: 1 }, { expireAfterSeconds: TTL_IN_
 /**
  * Keep calling the collection MetricReference for backward compatibility.
  */
-export default mongoose.model<InternalTaskEventDoc>('TaskEventV2', InternalTaskEventSchemaDef);
+export default mongoose.model<InternalTaskEventDoc>('TaskEvent', InternalTaskEventSchemaDef);

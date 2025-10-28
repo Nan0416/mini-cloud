@@ -63,11 +63,11 @@ const PROD_AGENTS: TaskAgent[] = [
 ];
 
 function getStageConfig(stage: STAGE): StageConfig {
-  const dirPath =  getenv('MINI_CLOUD_DIR');
+  const dirPath = getenv('MINI_CLOUD_DIR');
   return {
     stage: stage,
     appName: getenv(APPLICATION_NAME_KEY),
-    mongodbUri: stage === 'prod' ? 'mongodb://localhost:27017/mini-cloud' : 'mongodb://localhost:27017/mini-cloud-beta',
+    mongodbUri: `mongodb://localhost:27017/mini-cloud-${stage}`,
     servicePort: 3000,
     websocketPort: 3050,
     taskTopic: '_task',

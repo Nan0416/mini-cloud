@@ -3,7 +3,7 @@ import { InternalTaskDynamics } from '../internal-models';
 
 export interface InternalTaskDynamicsDoc extends InternalTaskDynamics, mongoose.Document {}
 
-const InternalTaskDynamicsSchemaDef: mongoose.Schema = new mongoose.Schema({
+const InternalTaskDynamicsSchemaDef: mongoose.Schema = new mongoose.Schema<InternalTaskDynamics>({
   taskId: {
     type: String,
     required: true,
@@ -20,4 +20,4 @@ const InternalTaskDynamicsSchemaDef: mongoose.Schema = new mongoose.Schema({
   },
 });
 
-export default mongoose.model<InternalTaskDynamicsDoc>('TaskDynamicsV2', InternalTaskDynamicsSchemaDef);
+export default mongoose.model<InternalTaskDynamicsDoc>('TaskDynamics', InternalTaskDynamicsSchemaDef);

@@ -4,7 +4,7 @@ import { InternalIssue } from '../internal-models/issue';
 export interface InternalIssueDoc extends InternalIssue, mongoose.Document {}
 export const TTL_IN_SECOND = 365 * 24 * 3600;
 
-const IssueSchemaDef: mongoose.Schema = new mongoose.Schema(
+const IssueSchemaDef = new mongoose.Schema<InternalIssueDoc>(
   {
     issueId: {
       type: String,
@@ -44,6 +44,7 @@ const IssueSchemaDef: mongoose.Schema = new mongoose.Schema(
   },
   {
     timestamps: true,
+    versionKey: false,
   },
 );
 
@@ -51,4 +52,4 @@ IssueSchemaDef.index({ updatedAt: 1 }, { expireAfterSeconds: TTL_IN_SECOND });
 IssueSchemaDef.index({ status: 1, updatedAt: 1 }); // list operation index
 IssueSchemaDef.index({ status: 1, deduplicationToken: 1 }); // deduplication operation index
 
-export default mongoose.model<InternalIssueDoc>('issuev2', IssueSchemaDef);
+export default mongoose.model<InternalIssueDoc>('Issue', IssueSchemaDef);
