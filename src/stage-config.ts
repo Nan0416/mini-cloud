@@ -1,11 +1,7 @@
 import { APPLICATION_NAME_KEY } from '@sparrow/standard-error';
 import { getenv, STAGE, stage } from '@sparrow/utilities';
-
-export interface DDBTableNames {
-  readonly userProfileTableName: string;
-  readonly canonicalUserIdMappingTableName: string;
-  readonly cognitoUserRecoveryCodeTableName: string;
-}
+import { TaskAgent } from './models';
+import path from 'path';
 
 export interface DiscordNotifierConfigs {
   readonly webhookId: string;
@@ -15,17 +11,72 @@ export interface DiscordNotifierConfigs {
 export interface StageConfig {
   readonly stage: STAGE;
   readonly appName: string;
+  readonly mongodbUri: string;
   readonly servicePort: number;
   readonly websocketPort: number;
+  readonly taskTopic: string;
+  readonly fsVariablesPath: string;
+  readonly taskAgents: TaskAgent[];
   readonly discordNotifierConfigs: DiscordNotifierConfigs;
 }
 
+// todo: persist in database?
+const BETA_AGENTS: TaskAgent[] = [
+  {
+    identifier: '00001',
+    name: 'i-0080f7a1d29ad6261',
+    status: 'offline',
+  },
+  {
+    identifier: '00002',
+    name: 'MacMini-1',
+    status: 'offline',
+  },
+  {
+    identifier: '00003',
+    name: 'MacBookPro16',
+    status: 'offline',
+  },
+];
+
+const PROD_AGENTS: TaskAgent[] = [
+  {
+    identifier: '10001',
+    name: 'i-0080f7a1d29ad6261',
+    status: 'offline',
+  },
+  {
+    identifier: '10002',
+    name: 'MacMini-1',
+    status: 'offline',
+  },
+  {
+    identifier: '10003',
+    name: 'MacBookPro16',
+    status: 'offline',
+  },
+  {
+    identifier: '10004',
+    name: 'i-09b4767214eaf3b32',
+    status: 'offline',
+  },
+];
+
 function getStageConfig(stage: STAGE): StageConfig {
+  const dirPath =  getenv('MINI_CLOUD_DIR');
   return {
     stage: stage,
     appName: getenv(APPLICATION_NAME_KEY),
+    mongodbUri: stage === 'prod' ? 'mongodb://localhost:27017/mini-cloud' : 'mongodb://localhost:27017/mini-cloud-beta',
     servicePort: 3000,
     websocketPort: 3050,
+    taskTopic: '_task',
+    fsVariablesPath: path.join(dirPath, 'task-variables.json'),
+    taskAgents: stage === 'prod' ? PROD_AGENTS : BETA_AGENTS,
+    discordNotifierConfigs: {
+      webhookId: getenv('DISCORD_WEBHOOK_ID'),
+      webhookToken: getenv('DISCORD_WEBHOOK_TOKEN'),
+    },
   };
 }
 

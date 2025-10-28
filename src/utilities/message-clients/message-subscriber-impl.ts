@@ -1,5 +1,5 @@
 import { LoggerFactory } from '@sparrow/logging-js';
-import { ForwardTimestamp, InternalServiceError, PublishTimestamp, SenderIdentifier, Subscriber, SubscriberRequest } from '../../models';
+import { BroadcastRequest, BroadcastResponse, ForwardTimestamp, InternalServiceError, PublishTimestamp, SenderIdentifier, SendToRequest, SendToResponse, Subscriber, SubscriberRequest } from '../../models';
 import { ICloseEvent, IMessageEvent, w3cwebsocket } from 'websocket'; // support both node.js and browser.
 import { evtCleanup } from './internal-utils';
 import { Metrics } from '@sparrow/metrics-types';
@@ -67,26 +67,16 @@ export class SubscriberImpl<T> implements Subscriber<T> {
     await this.sendRequest({ topic, action: 'unsubscribe' });
   }
 
-  async publish<E>(topic: string, event: E): Promise<void> {
-    await this.broadcast(topic, event);
+  async broadcast<E extends PublishTimestamp & SenderIdentifier>(request: BroadcastRequest<E>): Promise<BroadcastResponse> {
+    logger.info(`Send request to broadcast event on ${request.topic}.`);
+    await this.sendRequest({ topic: request.topic, action: 'broadcast', payload: request.event });
+    return {};
   }
 
-  async broadcast<E>(topic: string, event: E): Promise<void> {
-    const evt: PublishTimestamp = {
-      ...event,
-      _publishedAt: Date.now(),
-    };
-    logger.info(`Send request to broadcast event on ${topic}.`);
-    await this.sendRequest({ topic, action: 'broadcast', payload: evt });
-  }
-
-  async sendTo<E>(recipientId: string, event: E): Promise<void> {
-    const evt: PublishTimestamp = {
-      ...event,
-      _publishedAt: Date.now(),
-    };
-    logger.info(`Send request to recipient ${recipientId}.`);
-    await this.sendRequest({ topic: recipientId, action: 'p2p', payload: evt });
+  async sendTo<E extends PublishTimestamp & SenderIdentifier>(request: SendToRequest<E>): Promise<SendToResponse> {
+    logger.info(`Send request to recipient ${request.recipientId}.`);
+    await this.sendRequest({ topic: request.recipientId, action: 'p2p', payload: request.event });
+    return {}
   }
 
   private sendRequest(request: SubscriberRequest): Promise<void> {

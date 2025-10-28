@@ -1,7 +1,7 @@
 import lodash from 'lodash';
 import { LoggerFactory } from '@sparrow/logging-js';
 import { LinearBackoff, RetryBackoff } from '../retry-backoffs';
-import { InternalServiceError, Subscriber } from '../../models';
+import { BroadcastRequest, BroadcastResponse, InternalServiceError, PublishTimestamp, SenderIdentifier, SendToRequest, SendToResponse, Subscriber } from '../../models';
 import { Metrics } from '@sparrow/metrics-types';
 import { MetricsContext } from '@sparrow/metrics-logger';
 
@@ -38,28 +38,26 @@ export class StatefulWsSubscriber<T> implements Subscriber<T> {
     this.metrics = MetricsContext.getMetrics();
   }
 
-  async sendTo<E>(recipientId: string, event: E): Promise<void> {
-    logger.info(`Send direct p2p message to recipient ${recipientId}.`);
+  async sendTo<E extends PublishTimestamp & SenderIdentifier>(request: SendToRequest<E>): Promise<SendToResponse> {
+    logger.info(`Send direct p2p message to recipient ${request.recipientId}.`);
     if (this.subscriber) {
-      await this.subscriber.sendTo(recipientId, event);
+      await this.subscriber.sendTo(request);
     } else {
       const message = 'Failed to publish event because subscriber is not ready.';
       throw new InternalServiceError(message);
     }
+    return {};
   }
 
-  async broadcast<E>(topic: string, event: E): Promise<void> {
-    logger.info(`broadcast event to topic ${topic}`);
+  async broadcast<E extends PublishTimestamp & SenderIdentifier>(request: BroadcastRequest<E>): Promise<BroadcastResponse> {
+    logger.info(`broadcast event to topic ${request.topic}`);
     if (this.subscriber) {
-      await this.subscriber.broadcast(topic, event);
+      await this.subscriber.broadcast(request);
     } else {
       const message = 'Failed to publish event because subscriber is not ready.';
       throw new InternalServiceError(message);
     }
-  }
-
-  async publish<E>(topic: string, event: E): Promise<void> {
-    await this.broadcast(topic, event);
+    return {};
   }
 
   get onEvent(): (event: T, senderId?: string) => void {

@@ -1,6 +1,6 @@
 import { HttpClient } from '@sparrow/http-client';
 import { LoggerFactory } from '@sparrow/logging-js';
-import { Publisher, PublishTimestamp } from '../../models';
+import { BroadcastRequest, BroadcastResponse, Publisher, PublishTimestamp, SenderIdentifier, SendToRequest, SendToResponse } from '../../models';
 
 const logger = LoggerFactory.getLogger('PublisherImpl');
 export class PublisherImpl implements Publisher {
@@ -9,39 +9,30 @@ export class PublisherImpl implements Publisher {
     this.httpClient = httpClient;
   }
 
-  async publish<T>(topic: string, event: T): Promise<void> {
-    await this.broadcast(topic, event);
-  }
-
-  async broadcast<T>(topic: string, event: T): Promise<void> {
-    const evt: PublishTimestamp = {
-      ...event,
-      _publishedAt: Date.now(),
-    };
-    logger.info(`Broadcast message to topic ${topic}.`);
+  async broadcast<E extends PublishTimestamp & SenderIdentifier>(request: BroadcastRequest<E>): Promise<BroadcastResponse> {
+    logger.info(`Broadcast message to topic ${request.topic}.`);
     await this.httpClient.send({
       method: 'POST',
       url: '/message/broadcast',
       query: {
-        topic: encodeURIComponent(topic),
+        topic: encodeURIComponent(request.topic),
       },
-      body: evt,
+      body: request.event,
     });
+
+    return {};
   }
 
-  async sendTo<T>(recipientId: string, event: T): Promise<void> {
-    const evt: PublishTimestamp = {
-      ...event,
-      _publishedAt: Date.now(),
-    };
-    logger.info(`Send direct p2p message to recipient ${recipientId}.`);
-    await this.httpClient.send({
+  async sendTo<E extends PublishTimestamp & SenderIdentifier>(request: SendToRequest<E>): Promise<SendToResponse> {
+    logger.info(`Send direct p2p message to recipient ${request.recipientId}.`);
+    const response = await this.httpClient.send<SendToResponse>({
       method: 'POST',
       url: '/message/p2p',
       query: {
-        recipientId: encodeURIComponent(recipientId),
+        recipientId: encodeURIComponent(request.recipientId),
       },
-      body: evt,
+      body: request.event,
     });
+    return response.body;
   }
 }

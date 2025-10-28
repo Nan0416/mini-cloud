@@ -1,5 +1,4 @@
 export * from './publisher-impl';
-export * from './noop-publisher';
 export * from './message-subscriber-impl';
 export * from './stateful-subscriber-impl';
 export * from './fanout-impl';

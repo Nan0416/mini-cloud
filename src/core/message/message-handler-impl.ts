@@ -5,7 +5,6 @@ import {
   GetMessageHubStatusRequest,
   GetMessageHubStatusResponse,
   InvalidRequestError,
-  MessageHubStatus,
   Metrics,
   PublishTimestamp,
   SenderIdentifier,
@@ -84,7 +83,7 @@ export class MessageHandlerImpl implements MessageHandler {
   }
 
   private initializeWebsocketServer(server: Server) {
-    logger.info('Initalize server websocket.');
+    logger.info(`Initalize server websocket at port ${this.wsPort}.`);
     server.on('connection', (subscriberWebsocket) => {
       const subscriberId = uuidv4();
 
