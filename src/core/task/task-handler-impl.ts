@@ -1,4 +1,4 @@
-import { LoggerFactory } from '@sparrow/logging-js';
+import { LoggerFactory } from '@ultrasa/dev-kit';
 import {
   Task,
   Job,
@@ -56,7 +56,7 @@ import {
   ResetTaskActiveResponse,
   ResetTaskTargetAgentsRequest,
   ResetTaskTargetAgentsResponse,
-} from '../../models';
+} from '@ultrasa/mini-cloud-models';
 import { TaskStatusWatcher } from './task-status-watcher';
 import { TERMINATION_PERMITTED_STATUSES } from './utilities';
 import { TaskAccessor } from './task-accessor';

@@ -1,5 +1,5 @@
-import { LoggerFactory } from '@sparrow/logging-js';
-import { ExitCode, OfflineTaskReport, TaskEventLevel, TaskReporterClient } from '../../models';
+import { LoggerFactory } from '@ultrasa/dev-kit';
+import { ExitCode, OfflineTaskReport, TaskEventLevel, TaskReporterClient } from '@ultrasa/mini-cloud-models';
 import { appendFile } from 'fs/promises';
 import { promises as fs } from 'fs';
 import path from 'path';

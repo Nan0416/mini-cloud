@@ -1,6 +1,6 @@
 import { InternalServiceError, Issue, IssueCategory, IssueStatus } from '../../models';
 import { IssueDao } from './issue-dao';
-import { LoggerFactory } from '@sparrow/logging-js';
+import { LoggerFactory } from '@ultrasa/dev-kit';
 import IssueSchema from './mongoose-models/issue';
 import { Error } from 'mongoose';
 import { InternalIssue } from './internal-models/issue';

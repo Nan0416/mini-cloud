@@ -1,5 +1,5 @@
-import { LoggerFactory } from '@sparrow/logging-js';
-import { HealthCheck, ReplacementVariables, Task } from '../../models';
+import { LoggerFactory } from '@ultrasa/dev-kit';
+import { HealthCheck, ReplacementVariables, Task } from '@ultrasa/mini-cloud-models';
 import { readFileSync, mkdirSync } from 'fs';
 import { writeFile } from 'fs/promises';
 import lodash from 'lodash';

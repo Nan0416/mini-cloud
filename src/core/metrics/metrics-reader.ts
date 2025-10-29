@@ -1,4 +1,4 @@
-import { Partition, BasePartition, Dimension, Dimensions, MetricStat, MetricValueUnit, TimeValue } from '../../models';
+import { Partition, BasePartition, Dimension, Dimensions, MetricStat, MetricValueUnit, TimeValue } from '@ultrasa/mini-cloud-models';
 
 export interface ReadingInput {
   readonly namespace: string;

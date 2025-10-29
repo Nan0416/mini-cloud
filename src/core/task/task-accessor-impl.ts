@@ -1,5 +1,14 @@
-import { LoggerFactory } from '@sparrow/logging-js';
-import { InternalServiceError, InvalidRequestError, Task, TaskDynamics, TaskIdentifierWithHealthCheck, TaskInstanceNotFoundError, TaskInstanceStatus, TaskNotFoundError } from '../../models';
+import { LoggerFactory } from '@ultrasa/dev-kit';
+import {
+  InternalServiceError,
+  InvalidRequestError,
+  Task,
+  TaskDynamics,
+  TaskIdentifierWithHealthCheck,
+  TaskInstanceNotFoundError,
+  TaskInstanceStatus,
+  TaskNotFoundError,
+} from '@ultrasa/mini-cloud-models';
 import { TaskDao } from './task-dao';
 import { TASK_INSTANCE_STATUS_TO_ORDER } from './utilities';
 import { v4 as uuidv4 } from 'uuid';

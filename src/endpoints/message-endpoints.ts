@@ -1,8 +1,8 @@
 import type { Express } from 'express';
 import { Endpoints } from './endpoints';
 import { MessageHandler } from '../core/message';
-import { LoggerFactory } from '@sparrow/logging-js';
-import { InvalidRequestError, PublishTimestamp, SenderIdentifier } from '../models';
+import { LoggerFactory } from '@ultrasa/dev-kit';
+import { InvalidRequestError, PublishTimestamp, SenderIdentifier } from '@ultrasa/mini-cloud-models';
 
 const logger = LoggerFactory.getLogger('MessageEndpoints');
 

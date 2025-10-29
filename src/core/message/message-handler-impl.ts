@@ -5,19 +5,18 @@ import {
   GetMessageHubStatusRequest,
   GetMessageHubStatusResponse,
   InvalidRequestError,
-  Metrics,
   PublishTimestamp,
   SenderIdentifier,
   SendToRequest,
   SendToResponse,
   SubscriberRequest,
   Target,
-} from '../../models';
+} from '@ultrasa/mini-cloud-models';
 import { v4 as uuidv4 } from 'uuid';
 import WebSocket, { Server } from 'ws';
-import { LoggerFactory } from '@sparrow/logging-js';
+import { LoggerFactory } from '@ultrasa/dev-kit';
 import { MessageHandler } from './message-handler';
-import { getMetricsLogger } from '../../utilities';
+import { Metrics, MetricsContext } from '@ultrasa/dev-kit';
 
 // reference: https://github.com/allworldautomation/websocket-pubsub
 const INVALID_REQUEST = 'InvalidRequest';
@@ -48,7 +47,7 @@ export class MessageHandlerImpl implements MessageHandler {
   private metricsHandle: NodeJS.Timeout;
 
   constructor(wsPort: number, host?: string) {
-    this.metrics = getMetricsLogger().create();
+    this.metrics = MetricsContext.getMetrics();
     this.wsPort = wsPort;
     this.wsServer = new WebSocket.Server({
       host: host,

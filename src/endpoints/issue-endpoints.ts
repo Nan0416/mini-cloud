@@ -1,9 +1,9 @@
 import type { Express } from 'express';
-import { LoggerFactory } from '@sparrow/logging-js';
+import { LoggerFactory } from '@ultrasa/dev-kit';
 
 import { Endpoints } from './endpoints';
 import { IssueHandler } from '../core/issue';
-import { CreateIssueRequest, InvalidRequestError, ISSUE_STATUSES, IssueStatus, UpdateIssueStatusRequest } from '../models';
+import { CreateIssueRequest, InvalidRequestError, ISSUE_STATUSES, IssueStatus, UpdateIssueStatusRequest } from '@ultrasa/mini-cloud-models';
 
 const logger = LoggerFactory.getLogger('IssueEndpoints');
 export class IssueEndpoints implements Endpoints {

@@ -1,9 +1,9 @@
-import { LoggerFactory } from '@sparrow/logging-js';
+import { LoggerFactory } from '@ultrasa/dev-kit';
 import { MessageHandlerImpl } from '../core/message';
 import { Endpoints, IssueEndpoints, MessageEndpoints, TaskEndpoints } from '../endpoints';
 import { FsVariableManager, MongoDBTaskDao, TaskAgentRequestBroadcasterImpl, TaskHandlerImpl } from '../core/task';
 import { TaskAccessorImpl } from '../core/task/task-accessor-impl';
-import { TaskAgent } from '../models';
+import { TaskAgent } from '@ultrasa/mini-cloud-models';
 import { DiscordIssueNotifier, IssueHandlerImpl, MongoDBIssueDao } from '../core/issue';
 import { WebhookClient } from 'discord.js';
 import { DiscordNotifierConfigs } from '../stage-config';

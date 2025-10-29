@@ -1,4 +1,4 @@
-import { Fanout, Listener } from '../../models';
+import { Fanout, Listener } from '@ultrasa/mini-cloud-models';
 import { v4 as uuidv4 } from 'uuid';
 
 export class FanoutImpl<T> implements Fanout<T> {

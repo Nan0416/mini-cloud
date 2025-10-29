@@ -1,5 +1,5 @@
-import { LoggerFactory } from '@sparrow/logging-js';
-import { Publisher, PublishTimestamp } from '../../models';
+import { LoggerFactory } from '@ultrasa/dev-kit';
+import { Publisher, PublishTimestamp } from '@ultrasa/mini-cloud-models';
 import { TaskAgentRequestBroadcaster, TaskAgentRequestEvent } from '../../models/clients/task-agent-client';
 
 const logger = LoggerFactory.getLogger('TaskAgentRequestBroadcasterImpl');

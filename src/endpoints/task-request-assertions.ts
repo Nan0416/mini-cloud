@@ -26,7 +26,7 @@ import {
   TerminateTaskAgentRequest,
   TerminateTaskInstanceRequest,
   UpdateTaskRequest,
-} from '../models';
+} from '@ultrasa/mini-cloud-models';
 import lodash from 'lodash';
 
 const EXTERNAL_TASK_EVENT_SOURCES: ReadonlyArray<TaskEventSource> = [

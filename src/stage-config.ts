@@ -1,6 +1,6 @@
 import { APPLICATION_NAME_KEY } from '@sparrow/standard-error';
 import { getenv, STAGE, stage } from '@sparrow/utilities';
-import { TaskAgent } from './models';
+import { TaskAgent } from '@ultrasa/mini-cloud-models';
 import path from 'path';
 
 export interface DiscordNotifierConfigs {

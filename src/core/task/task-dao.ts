@@ -1,4 +1,4 @@
-import { Task, TaskDynamics, TaskEvent, TaskInstance, TaskInstanceStatus } from '../../models';
+import { Task, TaskDynamics, TaskEvent, TaskInstance, TaskInstanceStatus } from '@ultrasa/mini-cloud-models';
 import { InternalLatestTaskId, InternalTask, InternalTaskEvent, InternalTaskInstance } from './internal-models';
 
 export interface ListTaskInstancesInput {

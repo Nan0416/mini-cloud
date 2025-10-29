@@ -1,4 +1,4 @@
-import { Dimension, Dimensions, MetricItem, Metrics, MetricsLogger } from '../../models';
+import { Dimension, Dimensions, MetricItem, Metrics } from '../../models';
 import jsonStringify from 'json-stable-stringify';
 import { convertDimensionsToDimensionArray, deduplicateDimensions } from './utilities';
 

@@ -10,14 +10,12 @@ import {
   ListIssuesResponse,
   GetIssueRequest,
   GetIssueResponse,
-} from '../../models';
-import { LoggerFactory } from '@sparrow/logging-js';
+} from '@ultrasa/mini-cloud-models';
+import { LoggerFactory, Metrics, MetricsContext } from '@ultrasa/dev-kit';
 import { IssueDao } from './issue-dao';
-import { Metrics } from '@sparrow/metrics-types';
 import { InternalIssue } from './internal-models/issue';
 import { customAlphabet } from 'nanoid';
 import { IssueNotifier } from './issue-notifier';
-import { MetricsContext } from '@sparrow/metrics-logger';
 import { IssueHandler } from './issue-handler';
 const idFunc = customAlphabet('1234567890', 10);
 

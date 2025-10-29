@@ -1,2 +1,0 @@
-# ensure aws-cli version is at or above 2.11.19
-aws codeartifact login --region us-east-1 --profile sparrow-codeartifact --tool npm --domain sparrow --domain-owner 656670067837 --repository internal-npm

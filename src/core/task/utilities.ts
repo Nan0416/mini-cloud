@@ -1,4 +1,4 @@
-import { TaskInstanceStatus } from '../../models';
+import { TaskInstanceStatus } from '@ultrasa/mini-cloud-models';
 
 /**
  * Task instance status state machine

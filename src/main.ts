@@ -1,9 +1,10 @@
 import 'source-map-support/register';
 import './logger-setup';
-import '@sparrow/node-exception-captors';
+import { enableExceptionCatpors } from '@ultrasa/dev-kit';
+enableExceptionCatpors();
 
 import mongoose from 'mongoose';
-import { LoggerFactory } from '@sparrow/logging-js';
+import { LoggerFactory } from '@ultrasa/dev-kit';
 import config from './stage-config';
 import { Service } from './service';
 import { Server } from 'http';

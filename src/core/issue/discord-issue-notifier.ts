@@ -1,7 +1,7 @@
-import { LoggerFactory } from '@sparrow/logging-js';
+import { LoggerFactory } from '@ultrasa/dev-kit';
 import Discord, { EmbedBuilder } from 'discord.js';
 import { IssueNotifier } from './issue-notifier';
-import { Issue, IssueStatus } from '../../models';
+import { Issue, IssueStatus } from '@ultrasa/mini-cloud-models';
 
 const logger = LoggerFactory.getLogger('IssueNotifierImpl');
 

@@ -1,4 +1,4 @@
-import { LoggerFactory } from '@sparrow/logging-js';
+import { LoggerFactory } from '@ultrasa/dev-kit';
 import { RetryBackoff } from './models';
 import { asleep } from './utilities';
 

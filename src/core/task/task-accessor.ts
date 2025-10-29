@@ -11,7 +11,7 @@ import {
   TaskInstance,
   TaskInstanceStatus,
   UpdateTaskRequest,
-} from '../../models';
+} from '@ultrasa/mini-cloud-models';
 
 export type CreateTaskInput = CreateTaskRequest;
 

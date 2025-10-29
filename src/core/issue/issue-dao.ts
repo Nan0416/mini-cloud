@@ -1,4 +1,4 @@
-import { Issue } from '../../models';
+import { Issue } from '@ultrasa/mini-cloud-models';
 import { InternalIssue } from './internal-models/issue';
 
 export interface IssueDao {

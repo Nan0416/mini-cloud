@@ -14,7 +14,7 @@ import {
   CompleteTemporaryRawMetricsProcessingRequest,
   ListMetricReferencesRequest,
   CompleteTemporaryMetricUploadRequest,
-} from '../../models';
+} from '@ultrasa/mini-cloud-models';
 
 // export interface DeleteTemporaryMetricReferenceRequest {
 //   readonly namespace: string;

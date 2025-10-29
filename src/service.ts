@@ -1,8 +1,8 @@
 import express from 'express';
-import { LoggerFactory } from '@sparrow/logging-js';
+import { LoggerFactory } from '@ultrasa/dev-kit';
 import { ErrorHandlingMiddlewareProvider, MetricsFlusher } from '@sparrow/common-express-middlewares';
 import { Endpoints } from './endpoints';
-import { InternalServiceError } from './models/models';
+import { InternalServiceError } from '@ultrasa/mini-cloud-models';
 
 const logger = LoggerFactory.getLogger('Service');
 

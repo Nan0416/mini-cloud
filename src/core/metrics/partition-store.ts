@@ -1,4 +1,4 @@
-import { LoadMetricsRequest, Partition } from '../../models';
+import { LoadMetricsRequest, Partition } from '@ultrasa/mini-cloud-models';
 
 export interface PartitionStore {
   terminate(): Promise<void>;

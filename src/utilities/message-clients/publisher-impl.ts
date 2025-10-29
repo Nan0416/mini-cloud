@@ -1,6 +1,5 @@
-import { HttpClient } from '@sparrow/http-client';
-import { LoggerFactory } from '@sparrow/logging-js';
-import { BroadcastRequest, BroadcastResponse, Publisher, PublishTimestamp, SenderIdentifier, SendToRequest, SendToResponse } from '../../models';
+import { LoggerFactory, HttpClient } from '@ultrasa/dev-kit';
+import { BroadcastRequest, BroadcastResponse, Publisher, PublishTimestamp, SenderIdentifier, SendToRequest, SendToResponse } from '@ultrasa/mini-cloud-models';
 
 const logger = LoggerFactory.getLogger('PublisherImpl');
 export class PublisherImpl implements Publisher {

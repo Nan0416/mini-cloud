@@ -1,10 +1,11 @@
 import { config as loadEnv } from 'dotenv';
 loadEnv();
 
-import { ConsoleLoggerBuilder, LoggerFactory } from '@sparrow/logging-js';
-import { ConsoleMetricsFactory, MetricsContext } from '@sparrow/metrics-logger';
+import { ConsoleLoggerBuilder, LoggerFactory, ConsoleMetricsFactory, MetricsContext } from '@ultrasa/dev-kit';
+
 import config from './stage-config';
 
-MetricsContext.setMetrics(new ConsoleMetricsFactory(config.appName).create());
+MetricsContext.setDefaultNamespace(config.appName);
+MetricsContext.setMetricsFactory(new ConsoleMetricsFactory());
 
 LoggerFactory.setBuilder(new ConsoleLoggerBuilder({}));

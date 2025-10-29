@@ -1,4 +1,4 @@
-import { LoggerFactory } from '@sparrow/logging-js';
+import { LoggerFactory, HttpClient } from '@ultrasa/dev-kit';
 import {
   ReportEventRequest,
   ReportEventResponse,
@@ -11,8 +11,7 @@ import {
   ReportTerminationRequest,
   ReportTerminationResponse,
   TaskReporterClient,
-} from '../../models';
-import { HttpClient } from '@sparrow/http-client';
+} from '@ultrasa/mini-cloud-models';
 
 const logger = LoggerFactory.getLogger('TaskReporterClientImpl');
 
