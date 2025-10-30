@@ -1,6 +1,6 @@
 import express from 'express';
 import { LoggerFactory } from '@ultrasa/dev-kit';
-import { ErrorHandlingMiddlewareProvider, MetricsFlusher } from '@sparrow/common-express-middlewares';
+import { ErrorHandlingMiddlewareProvider, MetricsFlusher } from '@ultrasa/express-middlewares';
 import { Endpoints } from './endpoints';
 import { InternalServiceError } from '@ultrasa/mini-cloud-models';
 

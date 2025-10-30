@@ -1,4 +1,4 @@
-import { Dimension, Dimensions, MetricItem, Metrics } from '../../models';
+import { Dimension, Dimensions, MetricItem, Metrics, MetricsLogger } from '@ultrasa/mini-cloud-models';
 import jsonStringify from 'json-stable-stringify';
 import { convertDimensionsToDimensionArray, deduplicateDimensions } from './utilities';
 

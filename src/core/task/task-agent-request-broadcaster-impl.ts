@@ -1,6 +1,6 @@
 import { LoggerFactory } from '@ultrasa/dev-kit';
 import { Publisher, PublishTimestamp } from '@ultrasa/mini-cloud-models';
-import { TaskAgentRequestBroadcaster, TaskAgentRequestEvent } from '../../models/clients/task-agent-client';
+import { TaskAgentRequestBroadcaster, TaskAgentRequestEvent } from '@ultrasa/mini-cloud-models';
 
 const logger = LoggerFactory.getLogger('TaskAgentRequestBroadcasterImpl');
 

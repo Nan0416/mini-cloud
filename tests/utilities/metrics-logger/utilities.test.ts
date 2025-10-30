@@ -1,4 +1,4 @@
-import { Dimensions } from '../../../src/models';
+import { Dimensions } from '@ultrasa/dev-kit';
 import { convertDimensionsToDimensionArray } from '../../../src/utilities';
 
 describe('utilities', () => {

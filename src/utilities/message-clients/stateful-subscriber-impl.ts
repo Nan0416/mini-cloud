@@ -4,7 +4,6 @@ import { LinearBackoff, RetryBackoff } from '../retry-backoffs';
 import { BroadcastRequest, BroadcastResponse, InternalServiceError, PublishTimestamp, SenderIdentifier, SendToRequest, SendToResponse, Subscriber } from '@ultrasa/mini-cloud-models';
 import { Metrics, MetricsContext } from '@ultrasa/dev-kit';
 
-
 export type SubscriberProvider<T> = () => Subscriber<T>;
 
 const ABNORMAL_CLOSE_COUNT = 'AbnormalCloseCount';

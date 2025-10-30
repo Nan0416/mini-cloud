@@ -16,7 +16,6 @@ import { evtCleanup } from './internal-utils';
 import { nanoid } from 'nanoid';
 import { Metrics, MetricsContext } from '@ultrasa/dev-kit';
 
-
 const logger = LoggerFactory.getLogger('NodeSubscriberImpl');
 const OPEN_MESSAGE_WS_LATENCY = 'OpenMessageWsLatency';
 const TOTAL_MESSAGE_LATENCY = 'TotalMessageLatency';
