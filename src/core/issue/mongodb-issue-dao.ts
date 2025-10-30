@@ -1,4 +1,4 @@
-import { InternalServiceError, Issue, IssueCategory, IssueStatus } from '../../models';
+import { InternalServiceError, Issue, IssueStatus, Severity } from '@ultrasa/mini-cloud-models';
 import { IssueDao } from './issue-dao';
 import { LoggerFactory } from '@ultrasa/dev-kit';
 import IssueSchema from './mongoose-models/issue';
@@ -73,9 +73,10 @@ export class MongoDBIssueDao implements IssueDao {
     return {
       issueId: internalIssue.issueId,
       status: internalIssue.status as IssueStatus,
-      category: internalIssue.category as IssueCategory,
+      category: internalIssue.category,
       type: internalIssue.type,
-      severity: internalIssue.severity,
+      // todo: assert between 1 to 5.
+      severity: internalIssue.severity as Severity,
       title: internalIssue.title,
       description: internalIssue.description,
       createdAt: internalIssue.createdAt.getTime(),

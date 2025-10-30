@@ -1,5 +1,4 @@
-import { APPLICATION_NAME_KEY } from '@sparrow/standard-error';
-import { getenv, STAGE, stage } from '@sparrow/utilities';
+import { getenv } from '@ultrasa/dev-kit';
 import { TaskAgent } from '@ultrasa/mini-cloud-models';
 import path from 'path';
 
@@ -8,8 +7,11 @@ export interface DiscordNotifierConfigs {
   readonly webhookToken: string;
 }
 
+export type Stage = 'beta' | 'prod';
+export const STAGES: ReadonlyArray<Stage> = ['beta', 'prod'];
+
 export interface StageConfig {
-  readonly stage: STAGE;
+  readonly stage: Stage;
   readonly appName: string;
   readonly mongodbUri: string;
   readonly servicePort: number;
@@ -62,11 +64,11 @@ const PROD_AGENTS: TaskAgent[] = [
   },
 ];
 
-function getStageConfig(stage: STAGE): StageConfig {
+function getStageConfig(stage: Stage): StageConfig {
   const dirPath = getenv('MINI_CLOUD_DIR');
   return {
     stage: stage,
-    appName: getenv(APPLICATION_NAME_KEY),
+    appName: getenv('APPLICATION_NAME'),
     mongodbUri: `mongodb://localhost:27017/mini-cloud-${stage}`,
     servicePort: 3000,
     websocketPort: 3050,
@@ -80,6 +82,6 @@ function getStageConfig(stage: STAGE): StageConfig {
   };
 }
 
-const config = getStageConfig(stage());
+const config = getStageConfig(getenv('STAGE', STAGES));
 
 export default config;

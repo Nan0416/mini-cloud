@@ -1,4 +1,4 @@
-import { AsyncQueue } from '../../../src/core/utilities';
+import { AsyncQueue } from '../../src/utilities';
 
 function asleep(ms: number): Promise<void> {
   return new Promise<void>((resolve) => setTimeout(resolve, ms));

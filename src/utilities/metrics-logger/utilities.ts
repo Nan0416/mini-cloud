@@ -1,4 +1,5 @@
-import { Dimension, Dimensions } from '../../models';
+import { Dimensions } from '@ultrasa/dev-kit';
+import { Dimension } from '@ultrasa/mini-cloud-models';
 
 export function convertDimensionsToDimensionArray(dimensions?: ReadonlyArray<Dimension> | Dimensions): Dimension[] {
   if (dimensions === undefined) {

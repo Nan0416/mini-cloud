@@ -1,5 +1,5 @@
 import { MetricsImpl } from './metrics-impl';
-import { Dimension, Dimensions, Metrics, MetricsLogger } from '../../models';
+import { Dimension, Dimensions, Metrics, MetricsLogger } from '@ultrasa/mini-cloud-models';
 import { convertDimensionsToDimensionArray, deduplicateDimensions } from './utilities';
 import * as winston from 'winston';
 import 'winston-daily-rotate-file';

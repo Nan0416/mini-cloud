@@ -4,7 +4,7 @@ import TaskEventSchema from './mongoose-models/task-event';
 import LatestTaskIdSchema from './mongoose-models/latest-task-id';
 import TaskDynamicsSchema from './mongoose-models/task-dynamics';
 import { LoggerFactory } from '@ultrasa/dev-kit';
-import { Task, TaskInstance, TaskEvent, Job, Service, TaskInstanceStatus, TaskEventLevel, TaskEventFormat, TaskEventSource, TaskDynamics, InternalServiceError } from '../../models';
+import { Task, TaskInstance, TaskEvent, Job, Service, TaskInstanceStatus, TaskEventLevel, TaskEventFormat, TaskEventSource, TaskDynamics, InternalServiceError } from '@ultrasa/mini-cloud-models';
 import { InternalTask, InternalTaskInstance, InternalTaskEvent, InternalLatestTaskId, InternalTaskDynamics } from './internal-models';
 import { TaskDao, ListTaskInstancesInput } from './task-dao';
 
