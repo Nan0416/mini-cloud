@@ -36,9 +36,18 @@ brew services stop mongodb-community@8.2
 
 ## ToDo
 
-1. metrics setup.
-2. authentication between agent and service api, and message websocket
-3. authentication between web browser and service api and message websocket
+[X] Task service
+[X] Message service
+[X] Issue service
+[] Artifact service
+[] Metrics service
+
+1. metrics service
+2. metrics agent
+3. metrics partitions and aggregators
+4. file uploader/artifact store.
+4. authentication between agent and service api, and message websocket
+5. authentication between web browser and service api and message websocket
 
 
 ## Setup Permission
