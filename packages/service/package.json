@@ -1,0 +1,26 @@
+{
+  "name": "@mini-cloud/service",
+  "version": "1.0.0",
+  "private": true,
+  "description": "The mini-cloud control plane: task scheduling, agent coordination and the pub/sub hub.",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc --project tsconfig.json",
+    "clean": "rm -rf dist tsconfig.tsbuildinfo",
+    "migrate": "ts-node src/data/migrate-cli.ts"
+  },
+  "dependencies": {
+    "@mini-cloud/shared": "1.0.0",
+    "express": "^5.1.0",
+    "nanoid": "^3.3.11",
+    "pg": "^8.13.1",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/pg": "^8.11.10",
+    "@types/ws": "^8.5.13"
+  },
+  "license": "MIT"
+}

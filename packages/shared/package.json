@@ -1,0 +1,13 @@
+{
+  "name": "@mini-cloud/shared",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Domain models, API contracts, error types and utilities shared by every mini-cloud package.",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc --project tsconfig.json",
+    "clean": "rm -rf dist tsconfig.tsbuildinfo"
+  },
+  "license": "MIT"
+}
