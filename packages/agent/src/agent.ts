@@ -259,14 +259,7 @@ export class MiniCloudAgent {
 
   private async handleTaskEvent(instanceId: string, level: TaskEventLevel, payload: unknown, timestamp: number): Promise<void> {
     await this.safely(`forward an event for ${instanceId}`, async () => {
-      await this.client.reportTaskEvent({
-        instanceId,
-        source: 'task',
-        timestamp,
-        level,
-        format: typeof payload === 'string' ? 'string' : 'json',
-        payload,
-      });
+      await this.client.reportTaskEvent({ instanceId, source: 'task', timestamp, level, payload });
     });
   }
 
@@ -353,7 +346,7 @@ export class MiniCloudAgent {
   private async report(instanceId: string, status: AgentReportedStatus, level: TaskEventLevel, message: string): Promise<void> {
     await this.safely(`report "${status}" for ${instanceId}`, async () => {
       await this.client.reportInstanceStatus({ instanceId, status });
-      await this.client.reportTaskEvent({ instanceId, source: 'agent', timestamp: Date.now(), level, format: 'string', payload: message });
+      await this.client.reportTaskEvent({ instanceId, source: 'agent', timestamp: Date.now(), level, payload: message });
     });
   }
 

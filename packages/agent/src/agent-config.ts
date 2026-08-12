@@ -1,4 +1,4 @@
-import { getenv, getenvInteger } from '@mini-cloud/shared';
+import { InvalidRequestError, getenv, getenvInteger } from '@mini-cloud/shared';
 import os from 'os';
 import path from 'path';
 
@@ -20,17 +20,37 @@ export interface AgentConfig {
   readonly pingFailureThreshold: number;
 }
 
-/** The single place the agent reads `process.env`. */
-export function loadAgentConfig(): AgentConfig {
+/** Command-line values, which take precedence over the environment. */
+export interface AgentConfigOverrides {
+  readonly agentId?: string;
+  readonly name?: string;
+  readonly serviceUrl?: string;
+  readonly token?: string;
+  readonly port?: number;
+}
+
+/**
+ * The single place the agent reads `process.env`.
+ *
+ * Overrides are resolved here rather than applied by the caller afterwards, so
+ * precedence is decided in one place and a value supplied only on the command line
+ * is present before anything is validated.
+ */
+export function loadAgentConfig(overrides: AgentConfigOverrides = {}): AgentConfig {
   const workDir = getenv('MINI_CLOUD_AGENT_DIR', path.join(os.homedir(), '.mini-cloud', 'agent'));
 
+  // No default: two agents sharing an id would each receive the other's commands.
+  const agentId = overrides.agentId ?? process.env['MINI_CLOUD_AGENT_ID'];
+  if (agentId === undefined || agentId.length === 0) {
+    throw new InvalidRequestError('An agent id is required, and must be unique per agent. Pass --id <agentId> or set MINI_CLOUD_AGENT_ID.');
+  }
+
   return {
-    // No default: two agents sharing an id would each receive the other's commands.
-    agentId: getenv('MINI_CLOUD_AGENT_ID'),
-    name: getenv('MINI_CLOUD_AGENT_NAME', os.hostname()),
-    serviceUrl: getenv('MINI_CLOUD_SERVICE_URL', 'http://127.0.0.1:3000'),
-    token: process.env['MINI_CLOUD_TOKEN'],
-    port: getenvInteger('MINI_CLOUD_AGENT_PORT', 3100),
+    agentId,
+    name: overrides.name ?? getenv('MINI_CLOUD_AGENT_NAME', os.hostname()),
+    serviceUrl: overrides.serviceUrl ?? getenv('MINI_CLOUD_SERVICE_URL', 'http://127.0.0.1:3000'),
+    token: overrides.token ?? process.env['MINI_CLOUD_TOKEN'],
+    port: overrides.port ?? getenvInteger('MINI_CLOUD_AGENT_PORT', 3100),
     workDir,
     // Three heartbeats fit inside the service's default 15s offline window, so one
     // dropped request does not flap the agent offline.

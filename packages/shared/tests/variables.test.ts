@@ -49,8 +49,8 @@ describe('substituteLaunchFields', () => {
   });
 
   it('substitutes into a ping health check without touching a passive one', () => {
-    const ping = substituteLaunchFields({ cmd: 'x', cwd: '/', healthCheck: { type: 'ping', domain: 'http://localhost:${PORT}', path: '/${STAGE}/ping' } }, { ...variables, PORT: '9000' });
-    expect(ping.healthCheck).toEqual({ type: 'ping', domain: 'http://localhost:9000', path: '/beta/ping' });
+    const ping = substituteLaunchFields({ cmd: 'x', cwd: '/', healthCheck: { type: 'ping', url: 'http://localhost:${PORT}/${STAGE}/ping' } }, { ...variables, PORT: '9000' });
+    expect(ping.healthCheck).toEqual({ type: 'ping', url: 'http://localhost:9000/beta/ping' });
 
     const passive = substituteLaunchFields({ cmd: 'x', cwd: '/', healthCheck: { type: 'passive', periodInMs: 5000 } }, variables);
     expect(passive.healthCheck).toEqual({ type: 'passive', periodInMs: 5000 });

@@ -1,4 +1,4 @@
-import { LoggerFactory, NotFoundError, TaskEvent, TaskEventFormat, TaskEventLevel, TaskEventSource, TaskInstance, TaskInstanceStatus } from '@mini-cloud/shared';
+import { LoggerFactory, NotFoundError, TaskEvent, TaskEventLevel, TaskEventSource, TaskInstance, TaskInstanceStatus } from '@mini-cloud/shared';
 import { TaskEventDao } from '../data/task-event-dao';
 import { ListTaskInstancesInput, TaskInstanceDao } from '../data/task-instance-dao';
 import { generateEventId, generateInstanceId } from '../utils/ids';
@@ -9,7 +9,6 @@ export interface AddEventInput {
   readonly instanceId: string;
   readonly source: TaskEventSource;
   readonly level: TaskEventLevel;
-  readonly format: TaskEventFormat;
   readonly payload: unknown;
   readonly timestamp: number;
 }
@@ -66,7 +65,7 @@ export class InstanceService {
   /** Records a status change and the event explaining it. */
   async recordStatusWithEvent(instanceId: string, status: TaskInstanceStatus, level: TaskEventLevel, message: string, source: TaskEventSource = 'service'): Promise<boolean> {
     const applied = await this.recordStatus(instanceId, status);
-    await this.addEvent({ instanceId, source, level, format: 'string', payload: message, timestamp: Date.now() });
+    await this.addEvent({ instanceId, source, level, payload: message, timestamp: Date.now() });
     return applied;
   }
 

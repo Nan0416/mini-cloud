@@ -1,6 +1,7 @@
-import { TASK_INSTANCE_STATUSES, TaskEvent, TaskInstance, assertOneOf } from '@mini-cloud/shared';
-import { ParsedArgs, boolFlag, flag, requirePositional } from '../args';
-import { createClient } from '../client-factory';
+import { TASK_INSTANCE_STATUSES, TaskEvent, TaskInstance, TaskInstanceStatus } from '@mini-cloud/shared';
+import { Command, InvalidArgumentError } from 'commander';
+import { parsePositiveInteger } from '../args';
+import { GlobalOptions, createClient } from '../client-factory';
 import { Column, formatAge, formatTimestamp, printJson, printTable, truncate } from '../output';
 
 const INSTANCE_COLUMNS: ReadonlyArray<Column<TaskInstance>> = [
@@ -19,73 +20,87 @@ const EVENT_COLUMNS: ReadonlyArray<Column<TaskEvent>> = [
   { header: 'MESSAGE', value: (event) => truncate(typeof event.payload === 'string' ? event.payload : JSON.stringify(event.payload), 100) },
 ];
 
-export async function instanceCommand(args: ParsedArgs): Promise<void> {
-  const subcommand = args.positionals[1] ?? 'list';
-
-  switch (subcommand) {
-    case 'list':
-      return listInstances(args);
-    case 'get':
-      return getInstance(args);
-    case 'terminate':
-      return terminateInstance(args);
-    case 'events':
-      return listEvents(args);
-    default:
-      throw new Error(`Unknown instance subcommand "${subcommand}". Try: list, get, terminate, events.`);
+/** Rejected by commander before the command body runs, with the valid set listed. */
+function parseStatus(value: string): TaskInstanceStatus {
+  const match = TASK_INSTANCE_STATUSES.find((status) => status === value);
+  if (match === undefined) {
+    throw new InvalidArgumentError(`must be one of: ${TASK_INSTANCE_STATUSES.join(', ')}`);
   }
+  return match;
 }
 
-async function listInstances(args: ParsedArgs): Promise<void> {
-  const status = flag(args, 'status');
-  const limit = flag(args, 'limit');
+export function buildInstanceCommand(): Command {
+  const instance = new Command('instance').description('inspect and stop individual launches');
 
-  const { instances } = await createClient(args).listTaskInstances({
-    taskId: flag(args, 'task'),
-    agentId: flag(args, 'agent'),
-    status: status === undefined ? undefined : assertOneOf(status, 'status', TASK_INSTANCE_STATUSES),
-    limit: limit === undefined ? undefined : Number(limit),
-  });
+  instance
+    .command('list')
+    .description('list launches, newest first')
+    .option('--task <taskId>', 'only launches of this task')
+    .option('--agent <agentId>', 'only launches on this agent')
+    .option('--status <status>', 'only launches in this status', parseStatus)
+    .option('--limit <n>', 'maximum rows to return', (value) => parsePositiveInteger(value, 'limit'))
+    .action(async function (this: Command, options: { task?: string; agent?: string; status?: TaskInstanceStatus; limit?: number }) {
+      const global: GlobalOptions = this.optsWithGlobals();
+      const { instances } = await createClient(global).listTaskInstances({
+        taskId: options.task,
+        agentId: options.agent,
+        status: options.status,
+        limit: options.limit,
+      });
 
-  if (boolFlag(args, 'json')) {
-    printJson(instances);
-    return;
-  }
-  printTable(instances, INSTANCE_COLUMNS, 'No matching instances.');
-}
+      if (global.json === true) {
+        printJson(instances);
+        return;
+      }
+      printTable(instances, INSTANCE_COLUMNS, 'No matching instances.');
+    });
 
-async function getInstance(args: ParsedArgs): Promise<void> {
-  const instanceId = requirePositional(args, 2, 'instanceId');
-  const { instance } = await createClient(args).getTaskInstance({ instanceId });
+  instance
+    .command('get')
+    .description('show one launch')
+    .argument('<instanceId>')
+    .action(async function (this: Command, instanceId: string) {
+      const global: GlobalOptions = this.optsWithGlobals();
+      const { instance: found } = await createClient(global).getTaskInstance({ instanceId });
 
-  if (boolFlag(args, 'json')) {
-    printJson(instance);
-    return;
-  }
+      if (global.json === true) {
+        printJson(found);
+        return;
+      }
 
-  console.log(`Instance ${instance.instanceId}`);
-  console.log(`  task     ${instance.taskId} v${instance.taskVersion}`);
-  console.log(`  agent    ${instance.agentId}`);
-  console.log(`  pid      ${instance.pid ?? '-'}`);
-  console.log(`  status   ${instance.status}`);
-  console.log(`  created  ${formatTimestamp(instance.createdAt)}`);
-  console.log(`  updated  ${formatTimestamp(instance.lastUpdatedAt)}`);
-}
+      console.log(`Instance ${found.instanceId}`);
+      console.log(`  task     ${found.taskId} v${found.taskVersion}`);
+      console.log(`  agent    ${found.agentId}`);
+      console.log(`  pid      ${found.pid ?? '-'}`);
+      console.log(`  status   ${found.status}`);
+      console.log(`  created  ${formatTimestamp(found.createdAt)}`);
+      console.log(`  updated  ${formatTimestamp(found.lastUpdatedAt)}`);
+    });
 
-async function terminateInstance(args: ParsedArgs): Promise<void> {
-  const instanceId = requirePositional(args, 2, 'instanceId');
-  await createClient(args).terminateTaskInstance({ instanceId });
-  console.log(`Sent a terminate request for instance ${instanceId}.`);
-}
+  instance
+    .command('terminate')
+    .description('ask the agent to stop a running instance')
+    .argument('<instanceId>')
+    .action(async function (this: Command, instanceId: string) {
+      await createClient(this.optsWithGlobals()).terminateTaskInstance({ instanceId });
+      console.log(`Sent a terminate request for instance ${instanceId}.`);
+    });
 
-async function listEvents(args: ParsedArgs): Promise<void> {
-  const instanceId = requirePositional(args, 2, 'instanceId');
-  const limit = flag(args, 'limit');
-  const { events } = await createClient(args).listTaskEvents({ instanceId, limit: limit === undefined ? undefined : Number(limit) });
+  instance
+    .command('events')
+    .description('show a launch’s event log')
+    .argument('<instanceId>')
+    .option('--limit <n>', 'maximum events to return', (value) => parsePositiveInteger(value, 'limit'))
+    .action(async function (this: Command, instanceId: string, options: { limit?: number }) {
+      const global: GlobalOptions = this.optsWithGlobals();
+      const { events } = await createClient(global).listTaskEvents({ instanceId, limit: options.limit });
 
-  if (boolFlag(args, 'json')) {
-    printJson(events);
-    return;
-  }
-  printTable(events, EVENT_COLUMNS, `Instance ${instanceId} has no events yet.`);
+      if (global.json === true) {
+        printJson(events);
+        return;
+      }
+      printTable(events, EVENT_COLUMNS, `Instance ${instanceId} has no events yet.`);
+    });
+
+  return instance;
 }

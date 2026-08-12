@@ -33,9 +33,8 @@ export interface BaseTask {
 /** The agent polls an HTTP endpoint the task exposes. */
 export interface PingHealthCheck {
   readonly type: 'ping';
-  readonly domain: string;
-  /** Defaults to `/ping`. */
-  readonly path?: string;
+  /** Full URL to poll, e.g. `http://127.0.0.1:8080/healthz`. */
+  readonly url: string;
   readonly periodInMs?: number;
 }
 

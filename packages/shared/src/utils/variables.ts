@@ -29,11 +29,7 @@ function substituteEnv(env: EnvironmentVariables, variables: ReplacementVariable
 
 function substituteHealthCheck(healthCheck: HealthCheck, variables: ReplacementVariables): HealthCheck {
   if (healthCheck.type === 'ping') {
-    return {
-      ...healthCheck,
-      domain: substituteVariables(healthCheck.domain, variables),
-      path: healthCheck.path === undefined ? undefined : substituteVariables(healthCheck.path, variables),
-    };
+    return { ...healthCheck, url: substituteVariables(healthCheck.url, variables) };
   }
   return healthCheck;
 }

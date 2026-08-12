@@ -49,7 +49,7 @@ describeIfDatabase('PostgreSQL DAOs', () => {
   });
 
   beforeEach(async () => {
-    await pool.query('TRUNCATE task, task_head, task_dynamics, task_instance, task_event, agent, replacement_variable CASCADE');
+    await pool.query('TRUNCATE task, task_dynamics, task_instance, task_event, agent, replacement_variable CASCADE');
   });
 
   const jobInput = (taskId: string, version: number, overrides: Record<string, unknown> = {}) => ({
@@ -74,6 +74,18 @@ describeIfDatabase('PostgreSQL DAOs', () => {
       expect((await taskDao.getTaskVersion('t1', 1))?.name).toBe('first');
     });
 
+    it('reports createdAt as when the task first existed and lastUpdatedAt as when the head was written', async () => {
+      await taskDao.createTaskVersion(jobInput('t1', 1));
+      await pool.query("UPDATE task SET created_at = now() - interval '2 days' WHERE task_id = 't1' AND version = 1");
+      await taskDao.createTaskVersion(jobInput('t1', 2));
+
+      const task = await taskDao.getLatestTask('t1');
+      expect(task).not.toBeNull();
+      // Without the MIN(created_at) window the head's own timestamp would be
+      // reported as the task's creation date, losing when it was first defined.
+      expect(task!.lastUpdatedAt - task!.createdAt).toBeGreaterThan(24 * 3600_000);
+    });
+
     it('lists only head versions', async () => {
       await taskDao.createTaskVersion(jobInput('t1', 1));
       await taskDao.createTaskVersion(jobInput('t1', 2));
@@ -94,13 +106,13 @@ describeIfDatabase('PostgreSQL DAOs', () => {
         cwd: '/srv',
         arguments: ['--port', '8080'],
         env: { STAGE: 'beta' },
-        healthCheck: { type: 'ping', domain: 'http://localhost:8080', path: '/healthz', periodInMs: 3000 },
+        healthCheck: { type: 'ping', url: 'http://localhost:8080/healthz', periodInMs: 3000 },
       });
 
       const task = await taskDao.getLatestTask('s1');
       expect(task?.arguments).toEqual(['--port', '8080']);
       expect(task?.env).toEqual({ STAGE: 'beta' });
-      expect(task?.type === 'service' && task.healthCheck).toEqual({ type: 'ping', domain: 'http://localhost:8080', path: '/healthz', periodInMs: 3000 });
+      expect(task?.type === 'service' && task.healthCheck).toEqual({ type: 'ping', url: 'http://localhost:8080/healthz', periodInMs: 3000 });
     });
 
     it('deletes every version along with its head and dynamics', async () => {
@@ -129,6 +141,30 @@ describeIfDatabase('PostgreSQL DAOs', () => {
       expect(scheduled[0].targetAgentIds).toEqual(['agent-a', 'agent-b']);
       expect(scheduled[0].job.duration).toBe(5000);
       expect(scheduled[0].job.firstLaunchAt).toBeGreaterThan(0);
+    });
+
+    it('judges schedulability against the head version, not any version', async () => {
+      // v1 is a schedulable job; v2 removes the schedule. Deriving "latest" with
+      // DISTINCT ON has to happen before the filters, or v1 would stand in for a
+      // head version that is no longer supposed to run.
+      await taskDao.createTaskVersion(jobInput('j1', 1, { durationMs: 5000, firstLaunchAt: Date.now() }));
+      await taskDao.createTaskVersion(jobInput('j1', 2));
+      await dynamicsDao.setTargetAgents('j1', ['agent-a']);
+      await dynamicsDao.setActive('j1', true);
+
+      expect(await taskDao.listScheduledJobs()).toHaveLength(0);
+    });
+
+    it('reports the head version of a job that is still scheduled', async () => {
+      await taskDao.createTaskVersion(jobInput('j1', 1, { durationMs: 5000, firstLaunchAt: Date.now() }));
+      await taskDao.createTaskVersion(jobInput('j1', 2, { durationMs: 60_000, firstLaunchAt: Date.now(), name: 'v2' }));
+      await dynamicsDao.setTargetAgents('j1', ['agent-a']);
+      await dynamicsDao.setActive('j1', true);
+
+      const scheduled = await taskDao.listScheduledJobs();
+      expect(scheduled).toHaveLength(1);
+      expect(scheduled[0].job.version).toBe(2);
+      expect(scheduled[0].job.duration).toBe(60_000);
     });
 
     it('excludes jobs that are inactive, unanchored, untargeted, or services', async () => {

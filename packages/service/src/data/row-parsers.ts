@@ -1,11 +1,9 @@
 import {
   AgentStatus,
   InternalServiceError,
-  TASK_EVENT_FORMATS,
   TASK_EVENT_LEVELS,
   TASK_EVENT_SOURCES,
   TASK_INSTANCE_STATUSES,
-  TaskEventFormat,
   TaskEventLevel,
   TaskEventSource,
   TaskInstanceStatus,
@@ -36,10 +34,6 @@ export function toTaskEventSource(value: string, eventId: string): TaskEventSour
 
 export function toTaskEventLevel(value: string, eventId: string): TaskEventLevel {
   return narrow(value, TASK_EVENT_LEVELS, 'level', eventId);
-}
-
-export function toTaskEventFormat(value: string, eventId: string): TaskEventFormat {
-  return narrow(value, TASK_EVENT_FORMATS, 'format', eventId);
 }
 
 export function toAgentStatus(value: string, agentId: string): AgentStatus {

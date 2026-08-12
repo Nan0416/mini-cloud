@@ -122,22 +122,24 @@ export interface TaskInstance {
 export type TaskEventLevel = 'success' | 'warning' | 'error';
 export const TASK_EVENT_LEVELS: ReadonlyArray<TaskEventLevel> = ['success', 'warning', 'error'];
 
-export type TaskEventFormat = 'string' | 'json';
-export const TASK_EVENT_FORMATS: ReadonlyArray<TaskEventFormat> = ['string', 'json'];
-
 export type TaskEventSource = 'service' | 'agent' | 'task';
 export const TASK_EVENT_SOURCES: ReadonlyArray<TaskEventSource> = ['service', 'agent', 'task'];
 
 /** Sources an external caller may claim. `service` is reserved for the service itself. */
 export const EXTERNAL_TASK_EVENT_SOURCES: ReadonlyArray<TaskEventSource> = ['agent', 'task'];
 
-/** An audit-log entry attached to an instance: status transitions, agent notes, task logs. */
+/**
+ * An audit-log entry attached to an instance: status transitions, agent notes, task logs.
+ *
+ * `payload` is stored as JSONB and read back parsed, so a string payload arrives as a
+ * string and an object as an object. There is no separate format discriminator —
+ * JSON already carries that distinction.
+ */
 export interface TaskEvent {
   readonly eventId: string;
   readonly instanceId: string;
   readonly source: TaskEventSource;
   readonly timestamp: number;
   readonly level: TaskEventLevel;
-  readonly format: TaskEventFormat;
   readonly payload: unknown;
 }

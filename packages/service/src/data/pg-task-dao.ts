@@ -20,22 +20,32 @@ interface TaskRow {
   readonly duration_ms: string | null;
   readonly first_launch_at: Date | null;
   readonly created_at: Date;
-  readonly head_updated_at: Date | null;
+  /** When version 1 of this task was written, i.e. when the task first existed. */
+  readonly task_created_at: Date;
 }
 
-const SELECT_TASK = `
-  SELECT t.*, h.updated_at AS head_updated_at
+/**
+ * The newest version of every task.
+ *
+ * `DISTINCT ON` keeps the first row per `task_id` under the given ordering, so
+ * ordering by descending version yields the head of each task in one pass — no head
+ * pointer to maintain and no correlated subquery per row. The window function runs
+ * before `DISTINCT ON`, which is what lets each surviving row still carry the
+ * original creation time of its whole task.
+ */
+const SELECT_LATEST_TASKS = `
+  SELECT DISTINCT ON (t.task_id) t.*, MIN(t.created_at) OVER (PARTITION BY t.task_id) AS task_created_at
   FROM task t
-  LEFT JOIN task_head h ON h.task_id = t.task_id AND h.version = t.version
 `;
 
 function toTask(row: TaskRow): Task {
   const base = {
     taskId: row.task_id,
     version: row.version,
-    createdAt: row.created_at.getTime(),
-    // A version is immutable, so its "last updated" is when it became the head.
-    lastUpdatedAt: (row.head_updated_at ?? row.created_at).getTime(),
+    createdAt: row.task_created_at.getTime(),
+    // A version is immutable, so when this version was written is exactly when the
+    // task was last edited.
+    lastUpdatedAt: row.created_at.getTime(),
     name: row.name,
     description: row.description ?? undefined,
     cmd: row.cmd,
@@ -72,68 +82,66 @@ function toEnv(raw: Record<string, string>): EnvironmentVariables {
 export class PgTaskDao implements TaskDao {
   constructor(private readonly pool: Pool) {}
 
+  /**
+   * A single INSERT. Because "latest" is derived rather than stored, writing a new
+   * version needs no second write and therefore no transaction to keep two tables
+   * agreeing with each other.
+   */
   async createTaskVersion(input: CreateTaskVersionInput): Promise<void> {
     logger.info(`Inserting task ${input.taskId} version ${input.version}.`);
-    const client = await this.pool.connect();
-    try {
-      await client.query('BEGIN');
-      await client.query(
-        `INSERT INTO task (task_id, version, name, description, type, cmd, cwd, arguments, env, stdout, stderr, health_check, duration_ms, first_launch_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
-        [
-          input.taskId,
-          input.version,
-          input.name,
-          input.description ?? null,
-          input.type,
-          input.cmd,
-          input.cwd,
-          input.arguments === undefined ? null : JSON.stringify(input.arguments),
-          input.env === undefined ? null : JSON.stringify(input.env),
-          input.stdout ?? null,
-          input.stderr ?? null,
-          input.healthCheck === undefined ? null : JSON.stringify(input.healthCheck),
-          input.durationMs ?? null,
-          input.firstLaunchAt === undefined ? null : new Date(input.firstLaunchAt),
-        ],
-      );
-      // The head must move in the same transaction as the insert, otherwise a crash
-      // in between would leave a version nothing points at.
-      await client.query(
-        `INSERT INTO task_head (task_id, version, updated_at) VALUES ($1, $2, now())
-         ON CONFLICT (task_id) DO UPDATE SET version = EXCLUDED.version, updated_at = now()`,
-        [input.taskId, input.version],
-      );
-      await client.query('COMMIT');
-    } catch (err) {
-      await client.query('ROLLBACK');
-      throw err;
-    } finally {
-      client.release();
-    }
+    await this.pool.query(
+      `INSERT INTO task (task_id, version, name, description, type, cmd, cwd, arguments, env, stdout, stderr, health_check, duration_ms, first_launch_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+      [
+        input.taskId,
+        input.version,
+        input.name,
+        input.description ?? null,
+        input.type,
+        input.cmd,
+        input.cwd,
+        input.arguments === undefined ? null : JSON.stringify(input.arguments),
+        input.env === undefined ? null : JSON.stringify(input.env),
+        input.stdout ?? null,
+        input.stderr ?? null,
+        input.healthCheck === undefined ? null : JSON.stringify(input.healthCheck),
+        input.durationMs ?? null,
+        input.firstLaunchAt === undefined ? null : new Date(input.firstLaunchAt),
+      ],
+    );
   }
 
   async getTaskVersion(taskId: string, version: number): Promise<Task | null> {
-    const result = await this.pool.query<TaskRow>(`${SELECT_TASK} WHERE t.task_id = $1 AND t.version = $2`, [taskId, version]);
+    const result = await this.pool.query<TaskRow>(
+      `SELECT t.*, (SELECT MIN(created_at) FROM task WHERE task_id = $1) AS task_created_at
+       FROM task t WHERE t.task_id = $1 AND t.version = $2`,
+      [taskId, version],
+    );
     const row = result.rows[0];
     return row === undefined ? null : toTask(row);
   }
 
   async getLatestTask(taskId: string): Promise<Task | null> {
-    const result = await this.pool.query<TaskRow>(`${SELECT_TASK} WHERE t.task_id = $1 AND h.version IS NOT NULL`, [taskId]);
+    const result = await this.pool.query<TaskRow>(
+      `SELECT t.*, (SELECT MIN(created_at) FROM task WHERE task_id = $1) AS task_created_at
+       FROM task t WHERE t.task_id = $1 ORDER BY t.version DESC LIMIT 1`,
+      [taskId],
+    );
     const row = result.rows[0];
     return row === undefined ? null : toTask(row);
   }
 
   async getLatestVersionNumber(taskId: string): Promise<number | null> {
-    const result = await this.pool.query<{ version: number }>('SELECT version FROM task_head WHERE task_id = $1', [taskId]);
-    const row = result.rows[0];
-    return row === undefined ? null : row.version;
+    const result = await this.pool.query<{ version: number | null }>('SELECT MAX(version) AS version FROM task WHERE task_id = $1', [taskId]);
+    // MAX over no rows yields one row holding NULL, not zero rows.
+    return result.rows[0]?.version ?? null;
   }
 
   async listLatestTasks(): Promise<ReadonlyArray<Task>> {
-    const result = await this.pool.query<TaskRow>(`${SELECT_TASK} WHERE h.version IS NOT NULL ORDER BY t.created_at DESC`);
-    return result.rows.map(toTask);
+    const result = await this.pool.query<TaskRow>(`${SELECT_LATEST_TASKS} ORDER BY t.task_id, t.version DESC`);
+    const tasks = result.rows.map(toTask);
+    // DISTINCT ON dictates the SQL ordering, so present the caller-facing order here.
+    return [...tasks].sort((left, right) => right.createdAt - left.createdAt);
   }
 
   async deleteTask(taskId: string): Promise<void> {
@@ -141,7 +149,6 @@ export class PgTaskDao implements TaskDao {
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
-      await client.query('DELETE FROM task_head WHERE task_id = $1', [taskId]);
       await client.query('DELETE FROM task_dynamics WHERE task_id = $1', [taskId]);
       await client.query('DELETE FROM task WHERE task_id = $1', [taskId]);
       await client.query('COMMIT');
@@ -171,17 +178,16 @@ export class PgTaskDao implements TaskDao {
   }
 
   async listScheduledJobs(): Promise<ReadonlyArray<ScheduledJob>> {
-    // Spelled out rather than composed from SELECT_TASK: this query needs a column
-    // from the dynamics join, and appending a JOIN to a shared SELECT list silently
-    // leaves that column out of the result set.
+    // The filters live in the DISTINCT ON subquery so that "is this job schedulable"
+    // is judged against the head version. Filtering afterwards would let an older
+    // version that happened to be schedulable stand in for a head version that is not.
     const result = await this.pool.query<TaskRow & { target_agent_ids: string[] }>(
-      `SELECT t.*, h.updated_at AS head_updated_at, d.target_agent_ids
-       FROM task t
-       JOIN task_head h ON h.task_id = t.task_id AND h.version = t.version
-       JOIN task_dynamics d ON d.task_id = t.task_id
-       WHERE t.type = 'job'
+      `SELECT head.*, d.target_agent_ids
+       FROM (${SELECT_LATEST_TASKS} ORDER BY t.task_id, t.version DESC) AS head
+       JOIN task_dynamics d ON d.task_id = head.task_id
+       WHERE head.type = 'job'
          AND d.active = TRUE
-         AND t.first_launch_at IS NOT NULL
+         AND head.first_launch_at IS NOT NULL
          AND cardinality(d.target_agent_ids) > 0`,
     );
 

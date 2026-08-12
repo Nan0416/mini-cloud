@@ -23,8 +23,13 @@ specific bug, the bug is named — a rule you can't justify is a rule that gets 
    constructor, which is what makes components testable without setting environment
    variables.
 5. **Every setting has a default.** Importing a package must never throw for missing
-   configuration. The only exception is `MINI_CLOUD_AGENT_ID`, where a wrong default
-   is worse than no default: two agents sharing an id receive each other's commands.
+   configuration. The only value with no default is `MINI_CLOUD_AGENT_ID`, where a
+   wrong default is worse than none: two agents sharing an id would receive each
+   other's commands.
+5b. **Command-line overrides are resolved inside the config loader**, not applied by
+   the caller afterwards. `loadAgentConfig({ agentId })` decides flag-over-environment
+   precedence in one place — applying overrides after loading meant the loader
+   validated a value the flag was about to replace, and `--id` never worked.
 
 ## Types
 
@@ -60,9 +65,15 @@ specific bug, the bug is named — a rule you can't justify is a rule that gets 
 15. **Guards belong in the SQL, not around it.** A status update is one
     `UPDATE ... WHERE status_rank <= $new`, so a stale report cannot overwrite a newer
     one and no read-then-write race exists between concurrent agent reports.
-16. **Multi-statement writes run in a transaction.** Inserting a task version and
-    moving its head pointer are one unit; a crash in between would otherwise leave a
-    version nothing points at.
+16. **Multi-statement writes run in a transaction.** Deleting a task's versions and
+    its dynamics row is one unit; a crash in between would otherwise leave schedule
+    state pointing at a task that no longer exists.
+16b. **Derive rather than denormalise, unless a measurement says otherwise.** The head
+    version of a task is `MAX(version)`, not a pointer table — a second table would
+    have to be kept consistent on every write to save a lookup nothing has measured
+    as slow. `task_instance.status_rank` is the deliberate exception: it is
+    denormalised because it makes the status guard a single atomic statement, which
+    is correctness, not speed.
 17. **Migrations are append-only.** Numbered SQL files applied in filename order, each
     in its own transaction. Never edit one that has shipped.
 
@@ -102,9 +113,22 @@ specific bug, the bug is named — a rule you can't justify is a rule that gets 
 27. **A test name states the property, not the mechanics.** "fires exactly once per
     occurrence across contiguous windows", not "test shouldLaunchInWindow".
 
+## CLI
+
+28. **Commander owns the grammar; mini-cloud owns the meaning.** Command routing,
+    required options, repeatable flags and help text are commander's job. What counts
+    as a valid interval, timestamp or `KEY=VALUE` pair lives in `args.ts` and is
+    passed to commander as a parse callback, so a bad value is rejected before any
+    command body runs.
+29. **Never hand-maintain help text.** It drifts from the flags it documents. Every
+    description comes from the `.description()` and `.option()` calls themselves.
+30. **`--version` is reserved** by commander for the program's own version. A command
+    needing a version argument takes it positionally — `task get <taskId> [version]`
+    — rather than shadowing the flag and silently printing `1.0.0`.
+
 ## Style
 
-28. **Always brace `if` bodies.**
-29. **`import type` at the top of the file.** Never inline `import('pkg').Type`.
-30. **Comments explain why.** The code already says what it does; a comment earns its
+31. **Always brace `if` bodies.**
+32. **`import type` at the top of the file.** Never inline `import('pkg').Type`.
+33. **Comments explain why.** The code already says what it does; a comment earns its
     place by recording the reasoning that is not recoverable from reading it.

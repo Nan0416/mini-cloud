@@ -134,8 +134,7 @@ export class HealthMonitor {
     }
     instance.lastPingAt = now;
 
-    const url = `${check.domain.replace(/\/+$/, '')}${check.path ?? '/ping'}`;
-    const ok = await this.ping(url, Math.min(instance.periodMs, 3_000));
+    const ok = await this.ping(check.url, Math.min(instance.periodMs, 3_000));
 
     if (ok) {
       instance.consecutiveFailures = 0;

@@ -1,8 +1,11 @@
 -- Initial mini-cloud schema.
 --
--- Tasks are immutable and versioned: `task` holds every version ever written and
--- `task_head` points at the newest. A running instance therefore always resolves the
--- exact definition it was launched from, even after the task is edited.
+-- Tasks are immutable and versioned: `task` holds every version ever written, and the
+-- newest is simply the highest `version` for a `task_id`. A running instance therefore
+-- always resolves the exact definition it was launched from, even after the task is
+-- edited. There is no separate head-pointer table: at these row counts the index on
+-- the primary key makes "highest version" free, and a pointer would only add a second
+-- write to keep consistent.
 
 CREATE TABLE IF NOT EXISTS task (
   task_id         TEXT        NOT NULL,
@@ -23,13 +26,6 @@ CREATE TABLE IF NOT EXISTS task (
   first_launch_at TIMESTAMPTZ,
   created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
   PRIMARY KEY (task_id, version)
-);
-
-CREATE TABLE IF NOT EXISTS task_head (
-  task_id    TEXT PRIMARY KEY,
-  version    INTEGER     NOT NULL,
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  FOREIGN KEY (task_id, version) REFERENCES task (task_id, version) ON DELETE CASCADE
 );
 
 -- Kept separate from `task` so that pausing a schedule or retargeting agents does
@@ -72,12 +68,13 @@ CREATE INDEX IF NOT EXISTS task_instance_status_idx ON task_instance (status);
 CREATE INDEX IF NOT EXISTS task_instance_updated_idx ON task_instance (updated_at);
 CREATE INDEX IF NOT EXISTS task_instance_agent_idx ON task_instance (agent_id, status);
 
+-- `payload` is JSONB, which already distinguishes a string from an object, so there
+-- is no format discriminator to store alongside it.
 CREATE TABLE IF NOT EXISTS task_event (
   event_id    TEXT PRIMARY KEY,
   instance_id TEXT        NOT NULL REFERENCES task_instance (instance_id) ON DELETE CASCADE,
   source      TEXT        NOT NULL CHECK (source IN ('service', 'agent', 'task')),
   level       TEXT        NOT NULL CHECK (level IN ('success', 'warning', 'error')),
-  format      TEXT        NOT NULL CHECK (format IN ('string', 'json')),
   payload     JSONB       NOT NULL,
   occurred_at TIMESTAMPTZ NOT NULL
 );

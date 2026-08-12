@@ -89,7 +89,8 @@ mini-cloud instance list
 mini-cloud instance events <instanceId>
 ```
 
-Run `mini-cloud help` for the full command list.
+Run `mini-cloud --help` for the full command list, or `mini-cloud <command> --help`
+for one command's flags.
 
 ## Variable substitution
 

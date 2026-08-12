@@ -48,7 +48,15 @@ function parseHealthCheck(value: unknown): HealthCheck {
   }
 
   if (type === 'ping') {
-    return { type, domain: assertNonEmptyString(record['domain'], 'healthCheck.domain'), path: assertOptionalString(record['path'], 'healthCheck.path'), periodInMs };
+    const url = assertNonEmptyString(record['url'], 'healthCheck.url');
+    // Validated on the way in so a typo fails at task-creation time rather than
+    // silently failing every probe once the task is running.
+    try {
+      new URL(url);
+    } catch {
+      throw new InvalidRequestError(`healthCheck.url must be an absolute URL (got "${url}")`);
+    }
+    return { type, url, periodInMs };
   }
   return { type, periodInMs };
 }
@@ -186,13 +194,9 @@ export function parseReportInstancePidRequest(body: unknown): ReportInstancePidR
 
 export function parseReportTaskEventRequest(body: unknown): ReportTaskEventRequest {
   const record = assertRecord(body, 'body');
-  const format = assertOneOf(record['format'], 'format', ['string', 'json']);
   const payload = record['payload'];
-  if (format === 'string' && typeof payload !== 'string') {
-    throw new InvalidRequestError('payload must be a string when format is "string"');
-  }
-  if (format === 'json' && (typeof payload !== 'object' || payload === null)) {
-    throw new InvalidRequestError('payload must be an object when format is "json"');
+  if (payload === undefined) {
+    throw new InvalidRequestError('payload is required');
   }
 
   return {
@@ -200,7 +204,8 @@ export function parseReportTaskEventRequest(body: unknown): ReportTaskEventReque
     source: assertOneOf(record['source'], 'source', EXTERNAL_TASK_EVENT_SOURCES),
     timestamp: assertInteger(record['timestamp'], 'timestamp'),
     level: assertOneOf(record['level'], 'level', TASK_EVENT_LEVELS),
-    format,
+    // Any JSON value is acceptable; it is stored as JSONB and read back with its
+    // type intact, so a string stays a string and an object stays an object.
     payload,
   };
 }

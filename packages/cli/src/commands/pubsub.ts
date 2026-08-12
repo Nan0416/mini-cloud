@@ -1,49 +1,7 @@
 import { WsSubscriber } from '@mini-cloud/client';
-import { ParsedArgs, boolFlag, requirePositional } from '../args';
-import { createClient, resolveServiceUrl, resolveToken } from '../client-factory';
+import { Command } from 'commander';
+import { GlobalOptions, createClient, resolveServiceUrl, resolveToken } from '../client-factory';
 import { printJson, printTable } from '../output';
-
-export async function pubsubCommand(args: ParsedArgs): Promise<void> {
-  const subcommand = args.positionals[1] ?? 'status';
-
-  switch (subcommand) {
-    case 'status':
-      return status(args);
-    case 'publish':
-      return publish(args);
-    case 'watch':
-      return watch(args);
-    default:
-      throw new Error(`Unknown pubsub subcommand "${subcommand}". Try: status, publish, watch.`);
-  }
-}
-
-async function status(args: ParsedArgs): Promise<void> {
-  const { status: hubStatus } = await createClient(args).getHubStatus();
-  if (boolFlag(args, 'json')) {
-    printJson(hubStatus);
-    return;
-  }
-
-  console.log(`${hubStatus.subscriberCount} subscriber(s) connected.`);
-  const rows = Object.entries(hubStatus.topicToSubscriberCount).map(([topic, count]) => ({ topic, count }));
-  printTable(
-    rows,
-    [
-      { header: 'TOPIC', value: (row) => row.topic },
-      { header: 'SUBSCRIBERS', value: (row) => String(row.count) },
-    ],
-    'No topics have subscribers.',
-  );
-}
-
-async function publish(args: ParsedArgs): Promise<void> {
-  const topic = requirePositional(args, 2, 'topic');
-  const raw = args.positionals[3] ?? '{}';
-  const payload = parsePayload(raw);
-  const { deliveredTo } = await createClient(args).publish({ topic, payload });
-  console.log(`Published to ${topic}; delivered to ${deliveredTo} subscriber(s).`);
-}
 
 /** Accepts JSON when it parses, and treats anything else as a plain string. */
 function parsePayload(raw: string): unknown {
@@ -54,27 +12,68 @@ function parsePayload(raw: string): unknown {
   }
 }
 
-/** `mini-cloud pubsub watch <topic>` — tails a topic until interrupted. */
-async function watch(args: ParsedArgs): Promise<void> {
-  const topic = requirePositional(args, 2, 'topic');
-  const url = `${resolveServiceUrl(args).replace(/^http/, 'ws').replace(/\/+$/, '')}/ws`;
+export function buildPubSubCommand(): Command {
+  const pubsub = new Command('pubsub').description('inspect and use the message hub');
 
-  const subscriber = new WsSubscriber({
-    url,
-    token: resolveToken(args),
-    onEvent: (envelope) => {
-      const at = new Date(envelope.forwardedAt).toISOString();
-      console.log(`${at}  ${envelope.topic}  ${JSON.stringify(envelope.payload)}`);
-    },
-  });
+  pubsub
+    .command('status')
+    .description('show connected subscribers per topic')
+    .action(async function (this: Command) {
+      const global: GlobalOptions = this.optsWithGlobals();
+      const { status } = await createClient(global).getHubStatus();
+      if (global.json === true) {
+        printJson(status);
+        return;
+      }
 
-  await subscriber.connect();
-  await subscriber.subscribe(topic);
-  console.log(`Watching ${topic}. Press Ctrl-C to stop.`);
+      console.log(`${status.subscriberCount} subscriber(s) connected.`);
+      const rows = Object.entries(status.topicToSubscriberCount).map(([topic, count]) => ({ topic, count }));
+      printTable(
+        rows,
+        [
+          { header: 'TOPIC', value: (row) => row.topic },
+          { header: 'SUBSCRIBERS', value: (row) => String(row.count) },
+        ],
+        'No topics have subscribers.',
+      );
+    });
 
-  process.on('SIGINT', () => {
-    void subscriber.close().then(() => process.exit(0));
-  });
+  pubsub
+    .command('publish')
+    .description('publish one message')
+    .argument('<topic>')
+    .argument('[payload]', 'JSON, or plain text if it does not parse', '{}')
+    .action(async function (this: Command, topic: string, payload: string) {
+      const { deliveredTo } = await createClient(this.optsWithGlobals()).publish({ topic, payload: parsePayload(payload) });
+      console.log(`Published to ${topic}; delivered to ${deliveredTo} subscriber(s).`);
+    });
 
-  await new Promise<never>(() => {});
+  pubsub
+    .command('watch')
+    .description('tail a topic until interrupted')
+    .argument('<topic>')
+    .action(async function (this: Command, topic: string) {
+      const global: GlobalOptions = this.optsWithGlobals();
+      const url = `${resolveServiceUrl(global).replace(/^http/, 'ws').replace(/\/+$/, '')}/ws`;
+
+      const subscriber = new WsSubscriber({
+        url,
+        token: resolveToken(global),
+        onEvent: (envelope) => {
+          console.log(`${new Date(envelope.forwardedAt).toISOString()}  ${envelope.topic}  ${JSON.stringify(envelope.payload)}`);
+        },
+      });
+
+      await subscriber.connect();
+      await subscriber.subscribe(topic);
+      console.log(`Watching ${topic}. Press Ctrl-C to stop.`);
+
+      process.on('SIGINT', () => {
+        void subscriber.close().then(() => process.exit(0));
+      });
+
+      await new Promise<never>(() => {});
+    });
+
+  return pubsub;
 }

@@ -1,5 +1,5 @@
 import { TaskAgent } from '../models/agent';
-import { AgentReportedStatus, TaskEventFormat, TaskEventLevel, TaskEventSource } from '../models/task-instance';
+import { AgentReportedStatus, TaskEventLevel, TaskEventSource } from '../models/task-instance';
 
 /**
  * Agent -> service. Registers the agent on first call and keeps it marked online
@@ -31,7 +31,6 @@ export interface ReportTaskEventRequest {
   readonly source: TaskEventSource;
   readonly timestamp: number;
   readonly level: TaskEventLevel;
-  readonly format: TaskEventFormat;
   readonly payload: unknown;
 }
 
