@@ -1,62 +1,117 @@
-# MiniCloud
+# mini-cloud
 
-![release workflow](https://github.com/Nan0416/mini-cloud/actions/workflows/release.yml/badge.svg)
+![PR workflow](https://github.com/Nan0416/mini-cloud/actions/workflows/pr.yml/badge.svg)
 
-![Latest PR workflow](https://github.com/Nan0416/mini-cloud/actions/workflows/pr.yml/badge.svg)
+Turn the computers you already own into a small private cloud — schedule work across
+them, watch it run, and get told when it breaks. No hosting bill, no external
+dependency, one command to start.
 
+```
+mini-cloud serve                          # the control plane
+mini-cloud agent start --id laptop-1      # on each machine that should run work
+mini-cloud task create --name backup --cmd ./backup.sh --every 1d
+```
 
-**MiniCloud** turns your personal computers into a **private, home-based cloud platform** — your own *mini AWS*.
+## What it does
 
-Run distributed tasks, monitor metrics, and manage your fleet of machines — all locally, with zero ongoing costs.
+**Runs programs on a schedule, across machines.** A *job* runs to completion on an
+interval; a *service* stays up and is health-checked. Both are ordinary programs —
+mini-cloud does not ask you to package anything.
 
----
+**Watches what it started.** Every launch becomes an *instance* with a status and an
+event log, so "did last night's backup run?" is one command, not a hunt through logs.
 
-## 🌟 Highlights
+**Carries messages.** A topic-based pub/sub hub the service uses to reach agents, and
+that your own programs can use too.
 
-- 💸 **Zero operating cost** — Runs entirely on your own hardware.  
-- 🏠 **Fully local** — No external cloud dependencies or subscriptions.  
-- 🖥️ **Fleet management** — Control and coordinate multiple computers from a single dashboard.
+## How it fits together
 
----
+```
+  CLI ──HTTP──▶ ┌──────────────────────────────┐
+                │  service                     │
+                │  • task + instance store     │──▶ PostgreSQL
+                │  • scheduler                 │
+                │  • pub/sub hub (WebSocket)   │
+                └──────────────────────────────┘
+                    │  commands            ▲  reports
+                    │  (WebSocket)         │  (HTTP)
+                    ▼                      │
+                ┌──────────────────────────────┐
+                │  agent (one per machine)     │
+                │  • spawns processes          │
+                │  • health checks             │
+                └──────────────────────────────┘
+                    │ spawns          ▲ reports pid / exit / logs
+                    ▼                 │
+                  your program ───────┘   (optional: @mini-cloud/reporter)
+```
 
-## ⚙️ Core Features
+Commands travel out over WebSocket because they are one-way and need push delivery.
+Reports come back over HTTP because they need an acknowledgement the agent can retry.
 
-### ~~📨 Pub/Sub Messaging~~
-A lightweight publish/subscribe message service for inter-process or inter-node communication.
+An agent spawns tasks **detached**, so restarting or upgrading an agent never takes
+down the services it supervises. The cost is that the agent cannot observe an exit
+itself, which is why a task that wants accurate lifecycle tracking imports
+`@mini-cloud/reporter`. Without it, a task still runs — you just see less.
 
-### 🧩 Task Management
-- Schedule recurring jobs at specific cadences (similar to AWS EventBridge + Lambda).  
-- Launch and shut down long-running services on demand.  
-- Manage and monitor task execution across all connected nodes.
+## Packages
 
-### 📈 Metrics & Monitoring
-A unified monitoring service to collect and visualize CPU, memory, and service-level metrics across your MiniCloud fleet.
+| Package | What it is |
+| --- | --- |
+| `@mini-cloud/shared` | Domain models, API contracts, errors, utilities |
+| `@mini-cloud/service` | Control plane: HTTP API, pub/sub hub, scheduler, Postgres |
+| `@mini-cloud/client` | Typed HTTP + WebSocket client |
+| `@mini-cloud/agent` | Worker process for each machine |
+| `@mini-cloud/reporter` | Imported by launched programs to report their own lifecycle |
+| `@mini-cloud/cli` | The `mini-cloud` command |
 
-### Ticket Management
+## Getting started
 
-### 🌐 Web Control UI
-A modern web dashboard to control your MiniCloud environment.  
-With NAT mapping enabled, you can securely access and manage your private cloud from anywhere.
+See [dev.md](./dev.md) for setup, and [md/GUIDELINES.md](./md/GUIDELINES.md) for the
+conventions the code follows.
 
----
+```bash
+npm install
+npm run build
+mini-cloud migrate          # create the schema
+mini-cloud serve            # start the control plane
+```
 
-## 🚀 Vision
+Then, in another terminal:
 
-MiniCloud brings **cloud-like primitives** — compute orchestration, messaging, and observability — into the hands of individual developers and hobbyists using their own personal hardware.
+```bash
+mini-cloud agent start --id laptop-1
+mini-cloud agent list
 
-It’s designed for people who love to experiment, build home labs, or simply want full control over their computing environment without relying on third-party cloud providers.
+mini-cloud task create --name hello --cmd 'echo hello from mini-cloud'
+mini-cloud task launch <taskId> --agent laptop-1
+mini-cloud instance list
+mini-cloud instance events <instanceId>
+```
 
----
+Run `mini-cloud help` for the full command list.
 
-## 📍 Example Use Cases
+## Variable substitution
 
-- Run distributed or background tasks across your home computers.  
-- Host small applications or services on your personal hardware.  
-- Experiment with distributed systems or task orchestration locally.  
-- Centralize monitoring for multiple development machines.
+Fleet-wide values are stored in the service and substituted before a task is
+dispatched:
 
----
+```bash
+mini-cloud var set PROJECT_DIR=/srv/projects
+mini-cloud task create --name build --cmd '${PROJECT_DIR}/build.sh'
+```
 
-## 📜 License
+Agents then resolve host-local values on the machine where the task actually runs —
+`${HOME}`, `${HOSTNAME}`, `${AGENT_ID}`, `${AGENT_NAME}`, `${AGENT_DIR}`,
+`${STDOUT_DIR}`, `${STDERR_DIR}`, `${INSTANCE_ID}`, `${TASK_ID}`. Substitution runs in
+a single pass and leaves unknown placeholders alone, which is what lets the service's
+pass and the agent's pass compose without interfering.
 
-MIT License © 2025 Nan Qin
+## Status
+
+Task scheduling and pub/sub work end to end. Artifact storage, the issue tracker,
+metrics aggregation and the web UI are next.
+
+## License
+
+MIT © Nan Qin

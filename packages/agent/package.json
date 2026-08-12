@@ -1,0 +1,21 @@
+{
+  "name": "@mini-cloud/agent",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Runs on each worker host: launches tasks on command, health-checks them and reports back.",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc --project tsconfig.json",
+    "clean": "rm -rf dist tsconfig.tsbuildinfo"
+  },
+  "dependencies": {
+    "@mini-cloud/client": "1.0.0",
+    "@mini-cloud/shared": "1.0.0",
+    "express": "^5.1.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0"
+  },
+  "license": "MIT"
+}

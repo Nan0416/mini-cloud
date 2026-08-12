@@ -1,0 +1,22 @@
+{
+  "name": "@mini-cloud/cli",
+  "version": "1.0.0",
+  "private": true,
+  "description": "The mini-cloud command line: start the service, run an agent, manage tasks.",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "mini-cloud": "./bin/mini-cloud.js"
+  },
+  "scripts": {
+    "build": "tsc --project tsconfig.json",
+    "clean": "rm -rf dist tsconfig.tsbuildinfo"
+  },
+  "dependencies": {
+    "@mini-cloud/agent": "1.0.0",
+    "@mini-cloud/client": "1.0.0",
+    "@mini-cloud/service": "1.0.0",
+    "@mini-cloud/shared": "1.0.0"
+  },
+  "license": "MIT"
+}

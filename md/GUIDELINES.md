@@ -1,0 +1,110 @@
+# mini-cloud — engineering guidelines
+
+The conventions this codebase follows, and why. Where a rule exists to prevent a
+specific bug, the bug is named — a rule you can't justify is a rule that gets ignored.
+
+## Structure
+
+1. **One monorepo, six packages.** `shared` (models, contracts, utilities), `service`
+   (control plane), `client` (typed client), `agent` (worker), `reporter` (embedded in
+   launched programs), `cli` (the binary). A package exists when something needs to be
+   installed separately — `reporter` is separate because user programs import it and
+   should not pull in the service.
+2. **Dependencies point one way**: `cli` → `service`/`agent`/`client` → `shared`.
+   Nothing imports upward, and `shared` imports nothing of ours.
+3. **Layers within `service`**: `routes` parse and delegate, `services` hold the
+   logic, `data` talks to Postgres, `facades` talk to the outside world. A route
+   never touches a DAO.
+
+## Configuration
+
+4. **One file reads `process.env`.** `stage-config.ts` in the service,
+   `agent-config.ts` in the agent. Everything else receives configuration through its
+   constructor, which is what makes components testable without setting environment
+   variables.
+5. **Every setting has a default.** Importing a package must never throw for missing
+   configuration. The only exception is `MINI_CLOUD_AGENT_ID`, where a wrong default
+   is worse than no default: two agents sharing an id receive each other's commands.
+
+## Types
+
+6. **All interface properties are `readonly`.**
+7. **Never use `as`.** Validate at trust boundaries with the assertion helpers in
+   `@mini-cloud/shared` so a malformed payload fails at the edge with a 400 instead of
+   surfacing as a confusing `undefined` deep inside a handler. ESLint enforces this;
+   the three sanctioned exceptions each carry an inline justification.
+8. **Prefer explicit narrowing to truthiness.** `typeof x !== 'string'`, not `!x` —
+   `0` and `''` are valid values.
+9. **Named interfaces for structured returns.** No inline `Promise<{ a: string }>`.
+
+## API contracts
+
+10. **One Request and one Response interface per endpoint**, both in
+    `shared/src/api/`, both used by the service and every caller. Empty ones are
+    written as `{}` on purpose: naming the contract gives it somewhere to grow, so an
+    endpoint gaining a field is not a breaking signature change for callers.
+11. **Never return a bare array.** Wrap it: `{ tasks: [...] }`. An object can gain
+    pagination later; an array cannot.
+12. **The `Request` and `Response` suffixes are reserved** for those interfaces.
+    Shared nested types (`LaunchResult`, `TaskAgent`) use neither.
+
+## Data layer
+
+13. **DAO interface plus implementation, in separate files**, named for the class:
+    `task-dao.ts` declares `TaskDao`, `pg-task-dao.ts` implements `PgTaskDao`.
+14. **DAOs define their own input types** — flat, matching columns, not the API shape.
+    They *return* the shared domain model rather than a per-DAO copy of it: `Task` is
+    the common vocabulary across all six packages, and duplicating it per DAO would
+    add indirection without decoupling anything. This is a deliberate relaxation of
+    the usual rule.
+15. **Guards belong in the SQL, not around it.** A status update is one
+    `UPDATE ... WHERE status_rank <= $new`, so a stale report cannot overwrite a newer
+    one and no read-then-write race exists between concurrent agent reports.
+16. **Multi-statement writes run in a transaction.** Inserting a task version and
+    moving its head pointer are one unit; a crash in between would otherwise leave a
+    version nothing points at.
+17. **Migrations are append-only.** Numbered SQL files applied in filename order, each
+    in its own transaction. Never edit one that has shipped.
+
+## Errors
+
+18. **Throw a specific `AppError` subclass**, never a bare `Error`, for anything a
+    caller could plausibly cause. The global handler maps them to status codes; a bare
+    `Error` means a bug and always surfaces as a 500 with the detail logged, not
+    returned.
+19. **Error messages say what to do next.** "Instance has not reported a pid yet, so
+    it cannot be terminated. Wait for it to reach `running`." — not "invalid state".
+
+## Logging
+
+20. **Log at decision points**, not just failures: which branch was taken and why,
+    state transitions, before and after anything crossing the network.
+21. **Loggers are named after their class** (`LoggerFactory.getLogger('LaunchService')`),
+    which is what makes output greppable when the scheduler, hub and API all write at once.
+22. **Periodic work logs at `debug`.** A five-second timer at `info` drowns everything else.
+
+## Failure handling
+
+23. **A background loop never lets one failure kill the loop.** Catch, log, continue —
+    and only advance state after success, so a failed job tick retries its window
+    instead of silently skipping the launches inside it.
+24. **The agent survives the service being unreachable.** A failed report is logged and
+    dropped, never thrown: the running process is the source of truth and the service
+    catches up on the next report.
+25. **The reporter never throws.** A monitoring library that can crash the program it
+    monitors is worse than no monitoring. Undeliverable reports are buffered to disk.
+
+## Testing
+
+26. **Extract the logic worth testing into a pure function.** `job-window.ts` is
+    separate from `scheduler.ts` precisely so scheduling arithmetic can be tested
+    without timers or a database.
+27. **A test name states the property, not the mechanics.** "fires exactly once per
+    occurrence across contiguous windows", not "test shouldLaunchInWindow".
+
+## Style
+
+28. **Always brace `if` bodies.**
+29. **`import type` at the top of the file.** Never inline `import('pkg').Type`.
+30. **Comments explain why.** The code already says what it does; a comment earns its
+    place by recording the reasoning that is not recoverable from reading it.

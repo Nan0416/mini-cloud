@@ -1,0 +1,16 @@
+{
+  "name": "@mini-cloud/reporter",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Imported by programs mini-cloud launches, to report pid, exit, termination and log events back to the local agent.",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc --project tsconfig.json",
+    "clean": "rm -rf dist tsconfig.tsbuildinfo"
+  },
+  "dependencies": {
+    "@mini-cloud/shared": "1.0.0"
+  },
+  "license": "MIT"
+}

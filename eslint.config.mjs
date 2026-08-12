@@ -1,0 +1,34 @@
+import js from '@eslint/js';
+import tseslint from 'typescript-eslint';
+
+export default tseslint.config(
+  {
+    ignores: ['**/dist/**', '**/node_modules/**', '**/coverage/**'],
+  },
+  js.configs.recommended,
+  ...tseslint.configs.recommended,
+  {
+    rules: {
+      // Guideline: never cast with `as` — use the assertion helpers in @mini-cloud/shared.
+      '@typescript-eslint/consistent-type-assertions': ['error', { assertionStyle: 'never' }],
+      // Guideline: always brace `if` bodies.
+      curly: ['error', 'all'],
+      '@typescript-eslint/no-explicit-any': 'off',
+      '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
+      'no-console': 'off',
+    },
+  },
+  {
+    // The logger and assertion helpers are the sanctioned boundary where casting is unavoidable.
+    files: ['packages/shared/src/utils/assertions.ts', 'packages/shared/src/utils/logger.ts'],
+    rules: { '@typescript-eslint/consistent-type-assertions': 'off' },
+  },
+  {
+    // Every API method takes one Request and returns one Response, even when the
+    // payload is empty. `{}` is the point: it names the contract and gives the shape
+    // somewhere to grow, so an endpoint gaining a field is not a breaking signature
+    // change for every caller.
+    files: ['packages/shared/src/api/*.ts'],
+    rules: { '@typescript-eslint/no-empty-object-type': 'off' },
+  },
+);

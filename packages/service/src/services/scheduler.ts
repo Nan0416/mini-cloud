@@ -1,0 +1,174 @@
+import { LoggerFactory } from '@mini-cloud/shared';
+import { TaskDao } from '../data/task-dao';
+import { AgentCommander } from '../facades/agent-commander';
+import { AgentService } from './agent-service';
+import { InstanceService } from './instance-service';
+import { shouldLaunchInWindow } from './job-window';
+import { LaunchService } from './launch-service';
+import { TaskService } from './task-service';
+
+const logger = LoggerFactory.getLogger('Scheduler');
+
+export interface SchedulerConfig {
+  /** How often to look for jobs due to launch. Must be <= the shortest job interval. */
+  readonly jobTickMs: number;
+  /** How often to probe agents and sweep stuck instances. */
+  readonly maintenanceTickMs: number;
+  /** Silence after which an agent is considered offline. */
+  readonly agentOfflineAfterMs: number;
+  /** How long an instance may sit at `initiated` before the agent is presumed unreachable. */
+  readonly launchTimeoutMs: number;
+  /** How long an instance may sit at `launched` before the process is presumed stillborn. */
+  readonly startTimeoutMs: number;
+  readonly retentionDays: number;
+  readonly retentionTickMs: number;
+}
+
+export interface SchedulerProps {
+  readonly taskDao: TaskDao;
+  readonly taskService: TaskService;
+  readonly launchService: LaunchService;
+  readonly instanceService: InstanceService;
+  readonly agentService: AgentService;
+  readonly agentCommander: AgentCommander;
+  readonly config: SchedulerConfig;
+}
+
+/**
+ * The service's background loops: launching due jobs, probing agent liveness,
+ * failing instances that got stuck mid-launch, and pruning old history.
+ */
+export class Scheduler {
+  private readonly props: SchedulerProps;
+  private jobTimer?: NodeJS.Timeout;
+  private maintenanceTimer?: NodeJS.Timeout;
+  private retentionTimer?: NodeJS.Timeout;
+
+  /** Start of the next launch window. Undefined until the first tick establishes it. */
+  private windowStart?: number;
+
+  // A slow tick must not overlap the next one: two concurrent job ticks sharing a
+  // window would launch the same job twice.
+  private jobTickRunning = false;
+  private maintenanceTickRunning = false;
+
+  constructor(props: SchedulerProps) {
+    this.props = props;
+  }
+
+  start(): void {
+    const { config } = this.props;
+    logger.info(`Starting scheduler: job tick ${config.jobTickMs}ms, maintenance tick ${config.maintenanceTickMs}ms, retention ${config.retentionDays} days.`);
+
+    this.windowStart = Date.now();
+    this.jobTimer = setInterval(() => void this.runJobTick(), config.jobTickMs);
+    this.maintenanceTimer = setInterval(() => void this.runMaintenanceTick(), config.maintenanceTickMs);
+    this.retentionTimer = setInterval(() => void this.runRetentionTick(), config.retentionTickMs);
+  }
+
+  stop(): void {
+    logger.info('Stopping scheduler.');
+    for (const timer of [this.jobTimer, this.maintenanceTimer, this.retentionTimer]) {
+      if (timer !== undefined) {
+        clearInterval(timer);
+      }
+    }
+    this.jobTimer = undefined;
+    this.maintenanceTimer = undefined;
+    this.retentionTimer = undefined;
+  }
+
+  /**
+   * Launches every active job whose next occurrence falls in `[windowStart, now)`.
+   *
+   * Windows are contiguous and never overlap, so a job fires exactly once per
+   * occurrence even though the tick interval and the job interval are unrelated.
+   */
+  async runJobTick(): Promise<void> {
+    if (this.jobTickRunning) {
+      logger.warn('Skipping job tick: the previous one is still running.');
+      return;
+    }
+    this.jobTickRunning = true;
+
+    const from = this.windowStart ?? Date.now();
+    const to = Date.now();
+    try {
+      const scheduled = await this.props.taskDao.listScheduledJobs();
+      const due = scheduled.filter((entry) => shouldLaunchInWindow(entry.job, { from, to }));
+      if (due.length > 0) {
+        // Read the variable set once per tick rather than once per job.
+        const variables = await this.props.taskService.listVariables();
+        for (const entry of due) {
+          logger.info(`Job ${entry.job.taskId} ("${entry.job.name}") is due; launching on ${entry.targetAgentIds.length} agent(s).`);
+          await this.props.launchService.launchScheduledJob(entry.job, entry.targetAgentIds, variables);
+        }
+      }
+      // Only advance after a successful tick, so a transient database error retries
+      // the same window instead of silently skipping the launches inside it.
+      this.windowStart = to;
+    } catch (err) {
+      logger.error(`Job tick for window [${new Date(from).toISOString()}, ${new Date(to).toISOString()}) failed; the window will be retried.`, err);
+    } finally {
+      this.jobTickRunning = false;
+    }
+  }
+
+  async runMaintenanceTick(): Promise<void> {
+    if (this.maintenanceTickRunning) {
+      return;
+    }
+    this.maintenanceTickRunning = true;
+    try {
+      this.props.agentCommander.requestHeartbeat();
+      await this.props.agentService.expireAgents(Date.now() - this.props.config.agentOfflineAfterMs);
+      await this.failStuckInstances();
+    } catch (err) {
+      logger.error('Maintenance tick failed.', err);
+    } finally {
+      this.maintenanceTickRunning = false;
+    }
+  }
+
+  /**
+   * Instances that stopped progressing get a terminal-ish status and an event saying
+   * where they stalled, so a launch that vanished is visible instead of sitting at
+   * `initiated` forever.
+   */
+  private async failStuckInstances(): Promise<void> {
+    const now = Date.now();
+    const { launchTimeoutMs, startTimeoutMs } = this.props.config;
+
+    const neverAcknowledged = await this.props.instanceService.listStaleInstances('initiated', now - launchTimeoutMs);
+    for (const instance of neverAcknowledged) {
+      await this.props.instanceService.recordStatusWithEvent(
+        instance.instanceId,
+        'launching_timeout',
+        'error',
+        `Agent ${instance.agentId} did not acknowledge the launch within ${launchTimeoutMs}ms.`,
+      );
+    }
+
+    const neverStarted = await this.props.instanceService.listStaleInstances('launched', now - startTimeoutMs);
+    for (const instance of neverStarted) {
+      await this.props.instanceService.recordStatusWithEvent(
+        instance.instanceId,
+        'start_timeout',
+        'error',
+        `The process was spawned but never reported a pid within ${startTimeoutMs}ms. Check the task's cwd, command and stderr.`,
+      );
+    }
+  }
+
+  async runRetentionTick(): Promise<void> {
+    const before = Date.now() - this.props.config.retentionDays * 24 * 3600_000;
+    try {
+      const deleted = await this.props.instanceService.pruneInstancesUpdatedBefore(before);
+      if (deleted > 0) {
+        logger.info(`Retention removed ${deleted} instance(s) last updated before ${new Date(before).toISOString()}.`);
+      }
+    } catch (err) {
+      logger.error('Retention tick failed.', err);
+    }
+  }
+}
