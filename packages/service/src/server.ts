@@ -5,8 +5,8 @@ import { Pool } from 'pg';
 import { migrate } from './data/migrate';
 import { createPool } from './data/pool';
 import { DependencyFactory } from './dependencies/dependency-factory';
+import { WsMessageHub } from './facades/message-hub';
 import { Scheduler } from './facades/scheduler';
-import { WsMessageHub } from './pubsub/ws-message-hub';
 import { Service } from './service';
 import { ServiceConfig } from './stage-config';
 

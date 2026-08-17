@@ -3,7 +3,6 @@ export * from './service';
 export * from './stage-config';
 export * from './dependencies';
 export * from './data';
-export * from './pubsub';
 export * from './services';
 export * from './facades';
 export * from './routes';

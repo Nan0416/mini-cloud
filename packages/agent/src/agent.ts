@@ -148,7 +148,7 @@ export class MiniCloudAgent {
   private onEnvelope(envelope: EventEnvelope): void {
     const command = this.toCommand(envelope.payload);
     if (command === undefined) {
-      logger.warn(`Ignoring an unrecognised message on topic ${envelope.topic}.`);
+      logger.warn(`Ignoring an unrecognised message addressed to ${envelope.target.to}.`);
       return;
     }
     this.commandQueue.enqueue(command);

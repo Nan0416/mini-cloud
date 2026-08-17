@@ -1,4 +1,6 @@
 import {
+  BroadcastRequest,
+  BroadcastResponse,
   CreateTaskRequest,
   CreateTaskResponse,
   DeleteTaskRequest,
@@ -27,14 +29,14 @@ import {
   ListTaskInstancesResponse,
   ListTasksRequest,
   ListTasksResponse,
-  PublishRequest,
-  PublishResponse,
   ReportInstancePidRequest,
   ReportInstancePidResponse,
   ReportInstanceStatusRequest,
   ReportInstanceStatusResponse,
   ReportTaskEventRequest,
   ReportTaskEventResponse,
+  SendToRequest,
+  SendToResponse,
   SetReplacementVariablesRequest,
   SetReplacementVariablesResponse,
   SetTaskActiveRequest,
@@ -166,8 +168,20 @@ export class MiniCloudClient {
 
   // ---- pub/sub ----
 
-  async publish(request: PublishRequest): Promise<PublishResponse> {
-    return this.http.request('POST', '/pubsub/publish', { body: request });
+  /**
+   * Fans a message out to every subscriber of a topic.
+   *
+   * `publishedAt` is stamped here rather than by the service so that the envelope
+   * measures the whole journey, network included. A caller that already has a
+   * timestamp — replaying a buffered message, say — passes its own.
+   */
+  async broadcast(request: BroadcastRequest): Promise<BroadcastResponse> {
+    return this.http.request('POST', '/pubsub/broadcast', { body: { ...request, publishedAt: request.publishedAt ?? Date.now() } });
+  }
+
+  /** Sends a message to one subscriber. `deliveredTo: 0` means it is not connected. */
+  async sendTo(request: SendToRequest): Promise<SendToResponse> {
+    return this.http.request('POST', '/pubsub/p2p', { body: { ...request, publishedAt: request.publishedAt ?? Date.now() } });
   }
 
   async getHubStatus(_request: GetHubStatusRequest): Promise<GetHubStatusResponse> {

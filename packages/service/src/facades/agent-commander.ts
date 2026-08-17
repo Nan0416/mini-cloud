@@ -1,5 +1,5 @@
 import { AGENT_BROADCAST_TOPIC, AgentCommand, LaunchInstruction, LoggerFactory, agentTopic } from '@mini-cloud/shared';
-import { MessageHub } from '../pubsub';
+import { MessageHub } from './message-hub';
 
 const logger = LoggerFactory.getLogger('AgentCommander');
 
@@ -44,6 +44,8 @@ export class HubAgentCommander implements AgentCommander {
   }
 
   private send(topic: string, command: AgentCommand): number {
-    return this.hub.publish(topic, command);
+    // The service is on the same process as the hub, so "published" and "sent" are
+    // the same instant; stamping here still gives the agent a real transit time.
+    return this.hub.publish({ method: 'broadcast', to: topic }, { payload: command, publishedAt: Date.now() });
   }
 }

@@ -11,6 +11,12 @@ export interface WsSubscriberProps {
   readonly token?: string;
   readonly onEvent?: (envelope: EventEnvelope) => void;
   readonly onStateChange?: (state: ConnectionState) => void;
+  /**
+   * Called with the id the hub assigned, which is the address others send p2p
+   * messages to. Fires again after every reconnect, because the hub issues a fresh
+   * id each time — anyone holding the old one is now talking to nobody.
+   */
+  readonly onWelcome?: (subscriberId: string) => void;
 }
 
 /**
@@ -62,11 +68,28 @@ export class WsSubscriber {
     }
   }
 
-  async publish(topic: string, payload: unknown): Promise<void> {
+  /**
+   * Fans a message out to every subscriber of a topic.
+   *
+   * `publishedAt` is stamped at the call rather than by the hub, so the envelope the
+   * recipient sees measures the real time in flight.
+   */
+  async broadcast(topic: string, payload: unknown): Promise<void> {
     if (this.state !== 'connected') {
-      throw new Error(`Cannot publish to ${topic}: the subscriber is ${this.state}.`);
+      throw new Error(`Cannot broadcast to ${topic}: the subscriber is ${this.state}.`);
     }
-    this.send({ action: 'publish', topic, payload });
+    this.send({ action: 'broadcast', topic, publishedAt: Date.now(), payload });
+  }
+
+  /**
+   * Sends a message to one subscriber — typically the `senderId` off an envelope
+   * that just arrived, which is how a reply finds its way back.
+   */
+  async sendTo(recipientId: string, payload: unknown): Promise<void> {
+    if (this.state !== 'connected') {
+      throw new Error(`Cannot send to ${recipientId}: the subscriber is ${this.state}.`);
+    }
+    this.send({ action: 'p2p', recipientId, publishedAt: Date.now(), payload });
   }
 
   async close(): Promise<void> {
@@ -161,12 +184,13 @@ export class WsSubscriber {
       case 'welcome':
         this.subscriberId = message.subscriberId;
         logger.debug(`Hub assigned subscriber id ${message.subscriberId}.`);
+        this.props.onWelcome?.(message.subscriberId);
         return;
       case 'event':
         this.props.onEvent?.(message.envelope);
         return;
       case 'ack':
-        logger.debug(`Hub acknowledged ${message.action} ${message.topic}.`);
+        logger.debug(`Hub acknowledged ${message.action} ${message.to}.`);
         return;
       case 'error':
         logger.warn(`Hub reported an error: ${message.message}`);
@@ -177,7 +201,7 @@ export class WsSubscriber {
   private send(request: SubscriberRequest): void {
     this.socket?.send(JSON.stringify(request), (err) => {
       if (err !== undefined && err !== null) {
-        logger.warn(`Failed to send ${request.action} for ${request.topic}.`, err);
+        logger.warn(`Failed to send ${request.action} request.`, err);
       }
     });
   }
