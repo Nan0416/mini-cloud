@@ -8,6 +8,8 @@ import { PgTaskEventDao } from '../data/pg-task-event-dao';
 import { PgTaskInstanceDao } from '../data/pg-task-instance-dao';
 import { PgVariableDao } from '../data/pg-variable-dao';
 import { HubAgentCommander } from '../facades/agent-commander';
+import { Scheduler } from '../facades/scheduler';
+import { TaskDispatcher } from '../facades/task-dispatcher';
 import { bearerTokenAuth } from '../middleware/auth';
 import { errorHandler } from '../middleware/error-handler';
 import { requestLogger } from '../middleware/request-logger';
@@ -18,9 +20,6 @@ import { HealthEndpoints } from '../routes/health-endpoints';
 import { PubSubEndpoints } from '../routes/pubsub-endpoints';
 import { TaskEndpoints } from '../routes/task-endpoints';
 import { AgentService } from '../services/agent-service';
-import { InstanceService } from '../services/instance-service';
-import { LaunchService } from '../services/launch-service';
-import { Scheduler } from '../services/scheduler';
 import { TaskService } from '../services/task-service';
 import { ServiceConfig } from '../stage-config';
 
@@ -32,9 +31,7 @@ export interface Dependencies {
   readonly errorHandler: ErrorRequestHandler;
   readonly scheduler: Scheduler;
   readonly taskService: TaskService;
-  readonly instanceService: InstanceService;
   readonly agentService: AgentService;
-  readonly launchService: LaunchService;
 }
 
 export interface DependencyFactoryProps {
@@ -65,19 +62,19 @@ export class DependencyFactory {
     const variableDao = new PgVariableDao(pool);
 
     const agentCommander = new HubAgentCommander(messageHub);
+    const taskDispatcher = new TaskDispatcher({ taskInstanceDao, taskEventDao, agentCommander });
 
-    const taskService = new TaskService({ taskDao, taskDynamicsDao, variableDao });
-    const instanceService = new InstanceService({ taskInstanceDao, taskEventDao });
+    const taskService = new TaskService({ taskDao, taskDynamicsDao, taskInstanceDao, taskEventDao, variableDao, agentCommander, taskDispatcher });
     const agentService = new AgentService({ agentDao, agentCommander });
-    const launchService = new LaunchService({ taskService, instanceService, agentCommander });
 
     const scheduler = new Scheduler({
       taskDao,
-      taskService,
-      launchService,
-      instanceService,
-      agentService,
+      taskInstanceDao,
+      taskEventDao,
+      agentDao,
+      variableDao,
       agentCommander,
+      taskDispatcher,
       config: config.scheduler,
     });
 
@@ -91,11 +88,11 @@ export class DependencyFactory {
 
     const endpoints: Endpoints[] = [
       new HealthEndpoints({ pool }),
-      new TaskEndpoints({ taskService, instanceService, launchService }),
-      new AgentEndpoints({ agentService, instanceService, taskService }),
+      new TaskEndpoints({ taskService }),
+      new AgentEndpoints({ agentService, taskService }),
       new PubSubEndpoints({ messageHub }),
     ];
 
-    return { middleware, endpoints, errorHandler, scheduler, taskService, instanceService, agentService, launchService };
+    return { middleware, endpoints, errorHandler, scheduler, taskService, agentService };
   }
 }

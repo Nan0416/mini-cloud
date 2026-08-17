@@ -12,9 +12,11 @@ specific bug, the bug is named — a rule you can't justify is a rule that gets 
    should not pull in the service.
 2. **Dependencies point one way**: `cli` → `service`/`agent`/`client` → `shared`.
    Nothing imports upward, and `shared` imports nothing of ours.
-3. **Layers within `service`**: `routes` parse and delegate, `services` hold the
-   logic, `data` talks to Postgres, `facades` talk to the outside world. A route
-   never touches a DAO.
+3. **Layers within `service`**: `routes` parse and delegate, `services` answer
+   requests, `facades` carry out work that no request waits on — dispatching a
+   launch, the background ticks — `data` talks to Postgres, `utils` holds pure
+   helpers. A route never touches a DAO. A facade never calls a service: it takes
+   the DAOs it needs, so the dependency only ever points service → facade.
 
 ## Configuration
 
@@ -44,10 +46,13 @@ specific bug, the bug is named — a rule you can't justify is a rule that gets 
 
 ## API contracts
 
-10. **One Request and one Response interface per endpoint**, both in
-    `shared/src/api/`, both used by the service and every caller. Empty ones are
-    written as `{}` on purpose: naming the contract gives it somewhere to grow, so an
-    endpoint gaining a field is not a breaking signature change for callers.
+10. **One Request and one Response interface per public service method**, both in
+    `shared/src/api/`, both used by the service and every caller. Every public service
+    method is an endpoint: an operation with no route is a private helper taking
+    positional arguments, not a contract. Empty ones are written as `{}` on purpose:
+    naming the contract gives it somewhere to grow, so an operation gaining a field is
+    not a breaking signature change for callers. A method with no input still takes
+    one, defaulted: `listTasks(_request: ListTasksRequest = {})`.
 11. **Never return a bare array.** Wrap it: `{ tasks: [...] }`. An object can gain
     pagination later; an array cannot.
 12. **The `Request` and `Response` suffixes are reserved** for those interfaces.
@@ -95,7 +100,7 @@ specific bug, the bug is named — a rule you can't justify is a rule that gets 
 
 20. **Log at decision points**, not just failures: which branch was taken and why,
     state transitions, before and after anything crossing the network.
-21. **Loggers are named after their class** (`LoggerFactory.getLogger('LaunchService')`),
+21. **Loggers are named after their class** (`LoggerFactory.getLogger('TaskService')`),
     which is what makes output greppable when the scheduler, hub and API all write at once.
 22. **Periodic work logs at `debug`.** A five-second timer at `info` drowns everything else.
 

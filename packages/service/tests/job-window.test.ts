@@ -1,4 +1,4 @@
-import { nextLaunchAtOrAfter, shouldLaunchInWindow } from '../src/services/job-window';
+import { nextLaunchAtOrAfter, shouldLaunchInWindow } from '../src/utils/job-window';
 
 describe('nextLaunchAtOrAfter', () => {
   it('returns nothing for a job with no schedule', () => {

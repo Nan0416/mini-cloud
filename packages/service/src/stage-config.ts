@@ -1,5 +1,5 @@
 import { getenv, getenvInteger, getenvOneOf } from '@mini-cloud/shared';
-import { SchedulerConfig } from './services/scheduler';
+import { SchedulerConfig } from './facades/scheduler';
 
 export type Stage = 'beta' | 'prod';
 export const STAGES: ReadonlyArray<Stage> = ['beta', 'prod'];

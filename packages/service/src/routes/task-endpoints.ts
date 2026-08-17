@@ -19,8 +19,6 @@ import {
 } from '@mini-cloud/shared';
 import { Router } from 'express';
 import type { Express } from 'express';
-import { InstanceService } from '../services/instance-service';
-import { LaunchService } from '../services/launch-service';
 import { TaskService } from '../services/task-service';
 import {
   optionalLimitParam,
@@ -39,8 +37,6 @@ const logger = LoggerFactory.getLogger('TaskEndpoints');
 
 export interface TaskEndpointsProps {
   readonly taskService: TaskService;
-  readonly instanceService: InstanceService;
-  readonly launchService: LaunchService;
 }
 
 /**
@@ -50,12 +46,15 @@ export interface TaskEndpointsProps {
  * Resource ids live in the path; the rest of each request is the body. Handlers are
  * async and simply throw — Express 5 forwards a rejected promise to the error
  * handler, so there is no try/catch/next boilerplate here.
+ *
+ * Every service method takes one Request and returns one Response, so a handler's
+ * whole job is parsing the former and choosing a status code for the latter.
  */
 export class TaskEndpoints implements Endpoints {
   private readonly router: Router;
 
   constructor(props: TaskEndpointsProps) {
-    const { taskService, instanceService, launchService } = props;
+    const { taskService } = props;
     this.router = Router();
 
     this.router.post('/tasks', async (req, res) => {
@@ -66,13 +65,13 @@ export class TaskEndpoints implements Endpoints {
     });
 
     this.router.get('/tasks', async (_req, res) => {
-      const response: ListTasksResponse = { tasks: await taskService.listTasks() };
+      const response: ListTasksResponse = await taskService.listTasks({});
       res.status(200).json(response);
     });
 
     this.router.get('/tasks/:taskId', async (req, res) => {
       const version = optionalVersionParam(req.query);
-      const response: GetTaskResponse = { task: await taskService.getTask(req.params.taskId, version) };
+      const response: GetTaskResponse = await taskService.getTask({ taskId: req.params.taskId, version });
       res.status(200).json(response);
     });
 
@@ -85,67 +84,65 @@ export class TaskEndpoints implements Endpoints {
 
     this.router.delete('/tasks/:taskId', async (req, res) => {
       logger.info(`Delete task ${req.params.taskId}.`);
-      await taskService.deleteTask(req.params.taskId);
-      const response: DeleteTaskResponse = {};
+      const response: DeleteTaskResponse = await taskService.deleteTask({ taskId: req.params.taskId });
       res.status(200).json(response);
     });
 
     this.router.get('/tasks/:taskId/dynamics', async (req, res) => {
-      const response: GetTaskDynamicsResponse = { dynamics: await taskService.getDynamics(req.params.taskId) };
+      const response: GetTaskDynamicsResponse = await taskService.getDynamics({ taskId: req.params.taskId });
       res.status(200).json(response);
     });
 
     this.router.put('/tasks/:taskId/active', async (req, res) => {
       const request = parseSetTaskActiveRequest({ ...assertRecord(req.body, 'body'), taskId: req.params.taskId });
-      const response: SetTaskActiveResponse = { dynamics: await taskService.setActive(request.taskId, request.active) };
+      const response: SetTaskActiveResponse = await taskService.setActive(request);
       res.status(200).json(response);
     });
 
     this.router.put('/tasks/:taskId/target-agents', async (req, res) => {
       const request = parseSetTaskTargetAgentsRequest({ ...assertRecord(req.body, 'body'), taskId: req.params.taskId });
-      const response: SetTaskTargetAgentsResponse = { dynamics: await taskService.setTargetAgents(request.taskId, request.targetAgentIds) };
+      const response: SetTaskTargetAgentsResponse = await taskService.setTargetAgents(request);
       res.status(200).json(response);
     });
 
     this.router.post('/tasks/:taskId/launch', async (req, res) => {
       const request = parseLaunchTaskRequest({ ...assertRecord(req.body, 'body'), taskId: req.params.taskId });
       logger.info(`Launch task ${request.taskId}.`);
-      const response: LaunchTaskResponse = { results: await launchService.launchTask(request.taskId, request.targetAgentIds, request.arguments) };
+      const response: LaunchTaskResponse = await taskService.launchTask(request);
       res.status(200).json(response);
     });
 
     this.router.get('/instances', async (req, res) => {
       const request = parseListTaskInstancesQuery(req.query);
-      const response: ListTaskInstancesResponse = { instances: await instanceService.listInstances(request) };
+      const response: ListTaskInstancesResponse = await taskService.listInstances(request);
       res.status(200).json(response);
     });
 
     this.router.get('/instances/:instanceId', async (req, res) => {
-      const response: GetTaskInstanceResponse = { instance: await instanceService.getInstance(req.params.instanceId) };
+      const response: GetTaskInstanceResponse = await taskService.getInstance({ instanceId: req.params.instanceId });
       res.status(200).json(response);
     });
 
     this.router.post('/instances/:instanceId/terminate', async (req, res) => {
       logger.info(`Terminate instance ${req.params.instanceId}.`);
-      await launchService.terminateInstance(req.params.instanceId);
-      const response: TerminateTaskInstanceResponse = {};
+      const response: TerminateTaskInstanceResponse = await taskService.terminateInstance({ instanceId: req.params.instanceId });
       res.status(200).json(response);
     });
 
     this.router.get('/instances/:instanceId/events', async (req, res) => {
       const limit = optionalLimitParam(req.query);
-      const response: ListTaskEventsResponse = { events: await instanceService.listEvents(req.params.instanceId, limit) };
+      const response: ListTaskEventsResponse = await taskService.listEvents({ instanceId: req.params.instanceId, limit });
       res.status(200).json(response);
     });
 
     this.router.get('/variables', async (_req, res) => {
-      const response: ListReplacementVariablesResponse = { variables: await taskService.listVariables() };
+      const response: ListReplacementVariablesResponse = await taskService.listVariables({});
       res.status(200).json(response);
     });
 
     this.router.put('/variables', async (req, res) => {
       const request = parseSetReplacementVariablesRequest(req.body);
-      const response: SetReplacementVariablesResponse = { variables: await taskService.setVariables(request.variables) };
+      const response: SetReplacementVariablesResponse = await taskService.setVariables(request);
       res.status(200).json(response);
     });
   }
