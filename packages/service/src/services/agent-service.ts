@@ -1,4 +1,14 @@
-import { LoggerFactory, NotFoundError, TaskAgent } from '@mini-cloud/shared';
+import {
+  HeartbeatRequest,
+  HeartbeatResponse,
+  ListAgentsRequest,
+  ListAgentsResponse,
+  LoggerFactory,
+  NotFoundError,
+  TaskAgent,
+  TerminateAgentRequest,
+  TerminateAgentResponse,
+} from '@mini-cloud/shared';
 import { AgentDao } from '../data/agent-dao';
 import { AgentCommander } from '../facades/agent-commander';
 
@@ -20,44 +30,38 @@ export class AgentService {
   }
 
   /** First heartbeat registers the agent; later ones just refresh its liveness. */
-  async recordHeartbeat(agentId: string, name: string): Promise<TaskAgent> {
+  async recordHeartbeat(request: HeartbeatRequest): Promise<HeartbeatResponse> {
+    const { agentId, name } = request;
     const existing = await this.agentDao.getAgent(agentId);
-    const agent = await this.agentDao.recordHeartbeat(agentId, name);
+    await this.agentDao.recordHeartbeat(agentId, name);
     if (existing === null) {
       logger.info(`Registered new agent ${agentId} ("${name}").`);
     } else if (existing.status === 'offline') {
       logger.info(`Agent ${agentId} ("${name}") is back online.`);
     }
-    return agent;
+    return {};
   }
 
-  async listAgents(): Promise<ReadonlyArray<TaskAgent>> {
-    return this.agentDao.listAgents();
+  async listAgents(_request: ListAgentsRequest = {}): Promise<ListAgentsResponse> {
+    return { agents: await this.agentDao.listAgents() };
   }
 
-  async getAgent(agentId: string): Promise<TaskAgent> {
-    const agent = await this.agentDao.getAgent(agentId);
-    if (agent === null) {
-      throw new NotFoundError(`Agent ${agentId} is not registered.`);
-    }
-    return agent;
-  }
-
-  async terminateAgent(agentId: string): Promise<void> {
-    const agent = await this.getAgent(agentId);
+  async terminateAgent(request: TerminateAgentRequest): Promise<TerminateAgentResponse> {
+    const { agentId } = request;
+    const agent = await this.requireAgent(agentId);
     const delivered = this.agentCommander.terminateAgent(agentId);
     if (delivered === 0) {
       logger.info(`Agent ${agentId} ("${agent.name}") is not connected; marking it offline without sending a shutdown command.`);
     }
     await this.agentDao.setStatus(agentId, 'offline');
+    return {};
   }
 
-  /** Marks agents that stopped heartbeating as offline. Returns the ones it changed. */
-  async expireAgents(unseenSince: number): Promise<ReadonlyArray<TaskAgent>> {
-    const expired = await this.agentDao.expireAgents(unseenSince);
-    for (const agent of expired) {
-      logger.warn(`Agent ${agent.agentId} ("${agent.name}") stopped heartbeating; marked offline.`);
+  private async requireAgent(agentId: string): Promise<TaskAgent> {
+    const agent = await this.agentDao.getAgent(agentId);
+    if (agent === null) {
+      throw new NotFoundError(`Agent ${agentId} is not registered.`);
     }
-    return expired;
+    return agent;
   }
 }

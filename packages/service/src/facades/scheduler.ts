@@ -1,11 +1,13 @@
-import { LoggerFactory } from '@mini-cloud/shared';
+import { LoggerFactory, TaskInstanceStatus } from '@mini-cloud/shared';
+import { AgentDao } from '../data/agent-dao';
 import { TaskDao } from '../data/task-dao';
-import { AgentCommander } from '../facades/agent-commander';
-import { AgentService } from './agent-service';
-import { InstanceService } from './instance-service';
-import { shouldLaunchInWindow } from './job-window';
-import { LaunchService } from './launch-service';
-import { TaskService } from './task-service';
+import { TaskEventDao } from '../data/task-event-dao';
+import { TaskInstanceDao } from '../data/task-instance-dao';
+import { VariableDao } from '../data/variable-dao';
+import { generateEventId } from '../utils/ids';
+import { shouldLaunchInWindow } from '../utils/job-window';
+import { AgentCommander } from './agent-commander';
+import { TaskDispatcher } from './task-dispatcher';
 
 const logger = LoggerFactory.getLogger('Scheduler');
 
@@ -26,17 +28,23 @@ export interface SchedulerConfig {
 
 export interface SchedulerProps {
   readonly taskDao: TaskDao;
-  readonly taskService: TaskService;
-  readonly launchService: LaunchService;
-  readonly instanceService: InstanceService;
-  readonly agentService: AgentService;
+  readonly taskInstanceDao: TaskInstanceDao;
+  readonly taskEventDao: TaskEventDao;
+  readonly agentDao: AgentDao;
+  readonly variableDao: VariableDao;
   readonly agentCommander: AgentCommander;
+  readonly taskDispatcher: TaskDispatcher;
   readonly config: SchedulerConfig;
 }
 
 /**
  * The service's background loops: launching due jobs, probing agent liveness,
  * failing instances that got stuck mid-launch, and pruning old history.
+ *
+ * Reads and writes through the DAOs rather than through `TaskService`. Nothing here
+ * answers a request, so there is no contract to honour — a tick decides what to do
+ * from rows it reads itself, and the one thing it does not do itself, dispatching a
+ * launch, goes through `TaskDispatcher` like every other launch.
  */
 export class Scheduler {
   private readonly props: SchedulerProps;
@@ -98,10 +106,10 @@ export class Scheduler {
       const due = scheduled.filter((entry) => shouldLaunchInWindow(entry.job, { from, to }));
       if (due.length > 0) {
         // Read the variable set once per tick rather than once per job.
-        const variables = await this.props.taskService.listVariables();
+        const variables = await this.props.variableDao.listVariables();
         for (const entry of due) {
           logger.info(`Job ${entry.job.taskId} ("${entry.job.name}") is due; launching on ${entry.targetAgentIds.length} agent(s).`);
-          await this.props.launchService.launchScheduledJob(entry.job, entry.targetAgentIds, variables);
+          await this.props.taskDispatcher.dispatch({ task: entry.job, agentIds: entry.targetAgentIds, variables });
         }
       }
       // Only advance after a successful tick, so a transient database error retries
@@ -121,12 +129,32 @@ export class Scheduler {
     this.maintenanceTickRunning = true;
     try {
       this.props.agentCommander.requestHeartbeat();
-      await this.props.agentService.expireAgents(Date.now() - this.props.config.agentOfflineAfterMs);
+      await this.expireAgents();
       await this.failStuckInstances();
     } catch (err) {
       logger.error('Maintenance tick failed.', err);
     } finally {
       this.maintenanceTickRunning = false;
+    }
+  }
+
+  async runRetentionTick(): Promise<void> {
+    const before = Date.now() - this.props.config.retentionDays * 24 * 3600_000;
+    try {
+      const deletedCount = await this.props.taskInstanceDao.deleteInstancesUpdatedBefore(before);
+      if (deletedCount > 0) {
+        logger.info(`Retention removed ${deletedCount} instance(s) last updated before ${new Date(before).toISOString()}.`);
+      }
+    } catch (err) {
+      logger.error('Retention tick failed.', err);
+    }
+  }
+
+  /** Marks agents that stopped heartbeating as offline. */
+  private async expireAgents(): Promise<void> {
+    const expired = await this.props.agentDao.expireAgents(Date.now() - this.props.config.agentOfflineAfterMs);
+    for (const agent of expired) {
+      logger.warn(`Agent ${agent.agentId} ("${agent.name}") stopped heartbeating; marked offline.`);
     }
   }
 
@@ -139,36 +167,33 @@ export class Scheduler {
     const now = Date.now();
     const { launchTimeoutMs, startTimeoutMs } = this.props.config;
 
-    const neverAcknowledged = await this.props.instanceService.listStaleInstances('initiated', now - launchTimeoutMs);
+    const neverAcknowledged = await this.props.taskInstanceDao.listStaleInstances('initiated', now - launchTimeoutMs);
     for (const instance of neverAcknowledged) {
-      await this.props.instanceService.recordStatusWithEvent(
-        instance.instanceId,
-        'launching_timeout',
-        'error',
-        `Agent ${instance.agentId} did not acknowledge the launch within ${launchTimeoutMs}ms.`,
-      );
+      await this.failInstance(instance.instanceId, 'launching_timeout', `Agent ${instance.agentId} did not acknowledge the launch within ${launchTimeoutMs}ms.`);
     }
 
-    const neverStarted = await this.props.instanceService.listStaleInstances('launched', now - startTimeoutMs);
+    const neverStarted = await this.props.taskInstanceDao.listStaleInstances('launched', now - startTimeoutMs);
     for (const instance of neverStarted) {
-      await this.props.instanceService.recordStatusWithEvent(
-        instance.instanceId,
-        'start_timeout',
-        'error',
-        `The process was spawned but never reported a pid within ${startTimeoutMs}ms. Check the task's cwd, command and stderr.`,
-      );
+      const message = `The process was spawned but never reported a pid within ${startTimeoutMs}ms. Check the task's cwd, command and stderr.`;
+      await this.failInstance(instance.instanceId, 'start_timeout', message);
     }
   }
 
-  async runRetentionTick(): Promise<void> {
-    const before = Date.now() - this.props.config.retentionDays * 24 * 3600_000;
-    try {
-      const deleted = await this.props.instanceService.pruneInstancesUpdatedBefore(before);
-      if (deleted > 0) {
-        logger.info(`Retention removed ${deleted} instance(s) last updated before ${new Date(before).toISOString()}.`);
-      }
-    } catch (err) {
-      logger.error('Retention tick failed.', err);
-    }
+  /**
+   * Writes the timeout status and the event explaining it.
+   *
+   * An instance that disappeared between the listing and the write is not an error
+   * here: a sweep must not abort partway because retention pruned a row underneath it.
+   */
+  private async failInstance(instanceId: string, status: TaskInstanceStatus, message: string): Promise<void> {
+    await this.props.taskInstanceDao.updateStatus(instanceId, status);
+    await this.props.taskEventDao.createEvent({
+      eventId: generateEventId(),
+      instanceId,
+      source: 'service',
+      level: 'error',
+      payload: message,
+      timestamp: Date.now(),
+    });
   }
 }
