@@ -24,11 +24,12 @@ export default tseslint.config(
     rules: { '@typescript-eslint/consistent-type-assertions': 'off' },
   },
   {
-    // Every API method takes one Request and returns one Response, even when the
-    // payload is empty. `{}` is the point: it names the contract and gives the shape
-    // somewhere to grow, so an endpoint gaining a field is not a breaking signature
-    // change for every caller.
-    files: ['packages/shared/src/api/*.ts'],
+    // Every API method takes one Request and returns one Response, and every DAO
+    // method one Input and one Output, even when the payload is empty. `{}` is the
+    // point: it names the contract and gives the shape somewhere to grow, so an
+    // endpoint or query gaining a field is not a breaking signature change for every
+    // caller.
+    files: ['packages/shared/src/api/*.ts', 'packages/service/src/data/*-dao.ts'],
     rules: { '@typescript-eslint/no-empty-object-type': 'off' },
   },
 );

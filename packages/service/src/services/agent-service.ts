@@ -32,8 +32,8 @@ export class AgentService {
   /** First heartbeat registers the agent; later ones just refresh its liveness. */
   async recordHeartbeat(request: HeartbeatRequest): Promise<HeartbeatResponse> {
     const { agentId, name } = request;
-    const existing = await this.agentDao.getAgent(agentId);
-    await this.agentDao.recordHeartbeat(agentId, name);
+    const { agent: existing } = await this.agentDao.getAgent({ agentId });
+    await this.agentDao.recordHeartbeat({ agentId, name });
     if (existing === null) {
       logger.info(`Registered new agent ${agentId} ("${name}").`);
     } else if (existing.status === 'offline') {
@@ -42,8 +42,9 @@ export class AgentService {
     return {};
   }
 
-  async listAgents(_request: ListAgentsRequest = {}): Promise<ListAgentsResponse> {
-    return { agents: await this.agentDao.listAgents() };
+  async listAgents(_request: ListAgentsRequest): Promise<ListAgentsResponse> {
+    const { agents } = await this.agentDao.listAgents({});
+    return { agents };
   }
 
   async terminateAgent(request: TerminateAgentRequest): Promise<TerminateAgentResponse> {
@@ -53,12 +54,12 @@ export class AgentService {
     if (delivered === 0) {
       logger.info(`Agent ${agentId} ("${agent.name}") is not connected; marking it offline without sending a shutdown command.`);
     }
-    await this.agentDao.setStatus(agentId, 'offline');
+    await this.agentDao.setStatus({ agentId, status: 'offline' });
     return {};
   }
 
   private async requireAgent(agentId: string): Promise<TaskAgent> {
-    const agent = await this.agentDao.getAgent(agentId);
+    const { agent } = await this.agentDao.getAgent({ agentId });
     if (agent === null) {
       throw new NotFoundError(`Agent ${agentId} is not registered.`);
     }

@@ -1,6 +1,6 @@
 import { InternalServiceError, TaskDynamics } from '@mini-cloud/shared';
 import { Pool } from 'pg';
-import { TaskDynamicsDao } from './task-dynamics-dao';
+import { GetDynamicsInput, GetDynamicsOutput, SetActiveInput, SetActiveOutput, SetTargetAgentsInput, SetTargetAgentsOutput, TaskDynamicsDao } from './task-dynamics-dao';
 
 interface DynamicsRow {
   readonly task_id: string;
@@ -15,30 +15,30 @@ function toDynamics(row: DynamicsRow): TaskDynamics {
 export class PgTaskDynamicsDao implements TaskDynamicsDao {
   constructor(private readonly pool: Pool) {}
 
-  async getDynamics(taskId: string): Promise<TaskDynamics | null> {
-    const result = await this.pool.query<DynamicsRow>('SELECT task_id, active, target_agent_ids FROM task_dynamics WHERE task_id = $1', [taskId]);
+  async getDynamics(input: GetDynamicsInput): Promise<GetDynamicsOutput> {
+    const result = await this.pool.query<DynamicsRow>('SELECT task_id, active, target_agent_ids FROM task_dynamics WHERE task_id = $1', [input.taskId]);
     const row = result.rows[0];
-    return row === undefined ? null : toDynamics(row);
+    return { dynamics: row === undefined ? null : toDynamics(row) };
   }
 
-  async setActive(taskId: string, active: boolean): Promise<TaskDynamics> {
+  async setActive(input: SetActiveInput): Promise<SetActiveOutput> {
     const result = await this.pool.query<DynamicsRow>(
       `INSERT INTO task_dynamics (task_id, active) VALUES ($1, $2)
        ON CONFLICT (task_id) DO UPDATE SET active = EXCLUDED.active, updated_at = now()
        RETURNING task_id, active, target_agent_ids`,
-      [taskId, active],
+      [input.taskId, input.active],
     );
-    return this.expectRow(result.rows[0], taskId);
+    return { dynamics: this.expectRow(result.rows[0], input.taskId) };
   }
 
-  async setTargetAgents(taskId: string, targetAgentIds: ReadonlyArray<string>): Promise<TaskDynamics> {
+  async setTargetAgents(input: SetTargetAgentsInput): Promise<SetTargetAgentsOutput> {
     const result = await this.pool.query<DynamicsRow>(
       `INSERT INTO task_dynamics (task_id, target_agent_ids) VALUES ($1, $2)
        ON CONFLICT (task_id) DO UPDATE SET target_agent_ids = EXCLUDED.target_agent_ids, updated_at = now()
        RETURNING task_id, active, target_agent_ids`,
-      [taskId, [...targetAgentIds]],
+      [input.taskId, [...input.targetAgentIds]],
     );
-    return this.expectRow(result.rows[0], taskId);
+    return { dynamics: this.expectRow(result.rows[0], input.taskId) };
   }
 
   private expectRow(row: DynamicsRow | undefined, taskId: string): TaskDynamics {

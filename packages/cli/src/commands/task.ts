@@ -124,7 +124,7 @@ export function buildTaskCommand(): Command {
     .description('list every task at its latest version')
     .action(async function (this: Command) {
       const global: GlobalOptions = this.optsWithGlobals();
-      const { tasks } = await createClient(global).listTasks();
+      const { tasks } = await createClient(global).listTasks({});
       if (global.json === true) {
         printJson(tasks);
         return;

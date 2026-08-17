@@ -1,6 +1,6 @@
 import { ReplacementVariables } from '@mini-cloud/shared';
 import { Pool } from 'pg';
-import { VariableDao } from './variable-dao';
+import { ListVariablesInput, ListVariablesOutput, ReplaceVariablesInput, ReplaceVariablesOutput, VariableDao } from './variable-dao';
 
 interface VariableRow {
   readonly name: string;
@@ -23,12 +23,13 @@ function toVariables(rows: ReadonlyArray<VariableRow>): ReplacementVariables {
 export class PgVariableDao implements VariableDao {
   constructor(private readonly pool: Pool) {}
 
-  async listVariables(): Promise<ReplacementVariables> {
+  async listVariables(_input: ListVariablesInput): Promise<ListVariablesOutput> {
     const result = await this.pool.query<VariableRow>('SELECT name, value FROM replacement_variable ORDER BY name ASC');
-    return toVariables(result.rows);
+    return { variables: toVariables(result.rows) };
   }
 
-  async replaceVariables(variables: ReplacementVariables): Promise<ReplacementVariables> {
+  async replaceVariables(input: ReplaceVariablesInput): Promise<ReplaceVariablesOutput> {
+    const { variables } = input;
     const names = Object.keys(variables);
     const values = names.map((name) => variables[name]);
 
@@ -54,6 +55,6 @@ export class PgVariableDao implements VariableDao {
       client.release();
     }
 
-    return this.listVariables();
+    return this.listVariables({});
   }
 }

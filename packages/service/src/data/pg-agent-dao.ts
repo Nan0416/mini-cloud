@@ -1,6 +1,18 @@
 import { InternalServiceError, TaskAgent } from '@mini-cloud/shared';
 import { Pool } from 'pg';
-import { AgentDao } from './agent-dao';
+import {
+  AgentDao,
+  ExpireAgentsInput,
+  ExpireAgentsOutput,
+  GetAgentInput,
+  GetAgentOutput,
+  ListAgentsInput,
+  ListAgentsOutput,
+  RecordHeartbeatInput,
+  RecordHeartbeatOutput,
+  SetStatusInput,
+  SetStatusOutput,
+} from './agent-dao';
 import { toAgentStatus } from './row-parsers';
 
 interface AgentRow {
@@ -26,42 +38,43 @@ const SELECT_COLUMNS = 'agent_id, name, status, last_seen_at, registered_at';
 export class PgAgentDao implements AgentDao {
   constructor(private readonly pool: Pool) {}
 
-  async recordHeartbeat(agentId: string, name: string): Promise<TaskAgent> {
+  async recordHeartbeat(input: RecordHeartbeatInput): Promise<RecordHeartbeatOutput> {
     const result = await this.pool.query<AgentRow>(
       `INSERT INTO agent (agent_id, name, status, last_seen_at) VALUES ($1, $2, 'online', now())
        ON CONFLICT (agent_id) DO UPDATE SET name = EXCLUDED.name, status = 'online', last_seen_at = now()
        RETURNING ${SELECT_COLUMNS}`,
-      [agentId, name],
+      [input.agentId, input.name],
     );
     const row = result.rows[0];
     if (row === undefined) {
-      throw new InternalServiceError(`Heartbeat upsert for agent ${agentId} returned no row.`);
+      throw new InternalServiceError(`Heartbeat upsert for agent ${input.agentId} returned no row.`);
     }
-    return toAgent(row);
+    return { agent: toAgent(row) };
   }
 
-  async getAgent(agentId: string): Promise<TaskAgent | null> {
-    const result = await this.pool.query<AgentRow>(`SELECT ${SELECT_COLUMNS} FROM agent WHERE agent_id = $1`, [agentId]);
+  async getAgent(input: GetAgentInput): Promise<GetAgentOutput> {
+    const result = await this.pool.query<AgentRow>(`SELECT ${SELECT_COLUMNS} FROM agent WHERE agent_id = $1`, [input.agentId]);
     const row = result.rows[0];
-    return row === undefined ? null : toAgent(row);
+    return { agent: row === undefined ? null : toAgent(row) };
   }
 
-  async listAgents(): Promise<ReadonlyArray<TaskAgent>> {
+  async listAgents(_input: ListAgentsInput): Promise<ListAgentsOutput> {
     const result = await this.pool.query<AgentRow>(`SELECT ${SELECT_COLUMNS} FROM agent ORDER BY name ASC`);
-    return result.rows.map(toAgent);
+    return { agents: result.rows.map(toAgent) };
   }
 
-  async setStatus(agentId: string, status: 'online' | 'offline'): Promise<void> {
-    await this.pool.query('UPDATE agent SET status = $2 WHERE agent_id = $1', [agentId, status]);
+  async setStatus(input: SetStatusInput): Promise<SetStatusOutput> {
+    await this.pool.query('UPDATE agent SET status = $2 WHERE agent_id = $1', [input.agentId, input.status]);
+    return {};
   }
 
-  async expireAgents(before: number): Promise<ReadonlyArray<TaskAgent>> {
+  async expireAgents(input: ExpireAgentsInput): Promise<ExpireAgentsOutput> {
     const result = await this.pool.query<AgentRow>(
       `UPDATE agent SET status = 'offline'
        WHERE status = 'online' AND (last_seen_at IS NULL OR last_seen_at < $1)
        RETURNING ${SELECT_COLUMNS}`,
-      [new Date(before)],
+      [new Date(input.before)],
     );
-    return result.rows.map(toAgent);
+    return { agents: result.rows.map(toAgent) };
   }
 }

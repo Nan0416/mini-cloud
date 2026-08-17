@@ -108,7 +108,7 @@ export class TaskService {
   }
 
   async updateTask(request: UpdateTaskRequest): Promise<UpdateTaskResponse> {
-    const current = await this.taskDao.getLatestTask(request.taskId);
+    const { task: current } = await this.taskDao.getLatestTask({ taskId: request.taskId });
     if (current === null) {
       throw new NotFoundError(`Task ${request.taskId} does not exist.`);
     }
@@ -125,31 +125,33 @@ export class TaskService {
   }
 
   async deleteTask(request: DeleteTaskRequest): Promise<DeleteTaskResponse> {
-    const existing = await this.taskDao.getLatestVersionNumber(request.taskId);
+    const { version: existing } = await this.taskDao.getLatestVersionNumber({ taskId: request.taskId });
     if (existing === null) {
       throw new NotFoundError(`Task ${request.taskId} does not exist.`);
     }
     // Instances outlive the task on purpose: their history stays readable until
     // retention prunes it.
-    await this.taskDao.deleteTask(request.taskId);
+    await this.taskDao.deleteTask({ taskId: request.taskId });
     return {};
   }
 
   async getTask(request: GetTaskRequest): Promise<GetTaskResponse> {
     const { taskId, version } = request;
-    const task = version === undefined ? await this.taskDao.getLatestTask(taskId) : await this.taskDao.getTaskVersion(taskId, version);
+    const { task } = version === undefined ? await this.taskDao.getLatestTask({ taskId }) : await this.taskDao.getTaskVersion({ taskId, version });
     if (task === null) {
       throw new NotFoundError(version === undefined ? `Task ${taskId} does not exist.` : `Task ${taskId} version ${version} does not exist.`);
     }
     return { task };
   }
 
-  async listTasks(_request: ListTasksRequest = {}): Promise<ListTasksResponse> {
-    return { tasks: await this.taskDao.listLatestTasks() };
+  async listTasks(_request: ListTasksRequest): Promise<ListTasksResponse> {
+    const { tasks } = await this.taskDao.listLatestTasks({});
+    return { tasks };
   }
 
   async listHealthChecks(request: ListHealthChecksRequest): Promise<ListHealthChecksResponse> {
-    return { healthChecks: await this.taskDao.listHealthChecks(request.taskIdentifiers) };
+    const { healthChecks } = await this.taskDao.listHealthChecks({ identifiers: request.taskIdentifiers });
+    return { healthChecks };
   }
 
   // ---------------------------------------------------------------------------
@@ -161,7 +163,7 @@ export class TaskService {
    * and reading it materialises the defaults rather than returning null.
    */
   async getDynamics(request: GetTaskDynamicsRequest): Promise<GetTaskDynamicsResponse> {
-    const existing = await this.taskDynamicsDao.getDynamics(request.taskId);
+    const { dynamics: existing } = await this.taskDynamicsDao.getDynamics({ taskId: request.taskId });
     if (existing !== null) {
       return { dynamics: existing };
     }
@@ -173,23 +175,27 @@ export class TaskService {
     const { taskId, active } = request;
     await this.assertTaskExists(taskId);
     logger.info(`Setting task ${taskId} active=${active}.`);
-    return { dynamics: await this.taskDynamicsDao.setActive(taskId, active) };
+    const { dynamics } = await this.taskDynamicsDao.setActive({ taskId, active });
+    return { dynamics };
   }
 
   async setTargetAgents(request: SetTaskTargetAgentsRequest): Promise<SetTaskTargetAgentsResponse> {
     const { taskId, targetAgentIds } = request;
     await this.assertTaskExists(taskId);
     logger.info(`Setting task ${taskId} target agents to [${targetAgentIds.join(', ')}].`);
-    return { dynamics: await this.taskDynamicsDao.setTargetAgents(taskId, targetAgentIds) };
+    const { dynamics } = await this.taskDynamicsDao.setTargetAgents({ taskId, targetAgentIds });
+    return { dynamics };
   }
 
-  async listVariables(_request: ListReplacementVariablesRequest = {}): Promise<ListReplacementVariablesResponse> {
-    return { variables: await this.variableDao.listVariables() };
+  async listVariables(_request: ListReplacementVariablesRequest): Promise<ListReplacementVariablesResponse> {
+    const { variables } = await this.variableDao.listVariables({});
+    return { variables };
   }
 
   async setVariables(request: SetReplacementVariablesRequest): Promise<SetReplacementVariablesResponse> {
     logger.info(`Replacing the replacement-variable set with ${Object.keys(request.variables).length} entries.`);
-    return { variables: await this.variableDao.replaceVariables(request.variables) };
+    const { variables } = await this.variableDao.replaceVariables({ variables: request.variables });
+    return { variables };
   }
 
   // ---------------------------------------------------------------------------
@@ -197,15 +203,16 @@ export class TaskService {
   // ---------------------------------------------------------------------------
 
   async getInstance(request: GetTaskInstanceRequest): Promise<GetTaskInstanceResponse> {
-    const instance = await this.taskInstanceDao.getInstance(request.instanceId);
+    const { instance } = await this.taskInstanceDao.getInstance({ instanceId: request.instanceId });
     if (instance === null) {
       throw new NotFoundError(`Task instance ${request.instanceId} does not exist.`);
     }
     return { instance };
   }
 
-  async listInstances(request: ListTaskInstancesRequest = {}): Promise<ListTaskInstancesResponse> {
-    return { instances: await this.taskInstanceDao.listInstances(request) };
+  async listInstances(request: ListTaskInstancesRequest): Promise<ListTaskInstancesResponse> {
+    const { instances } = await this.taskInstanceDao.listInstances(request);
+    return { instances };
   }
 
   /**
@@ -215,8 +222,8 @@ export class TaskService {
    * older one loses, so the caller is told nothing beyond the instance existing.
    */
   async recordStatus(request: ReportInstanceStatusRequest): Promise<ReportInstanceStatusResponse> {
-    const result = await this.taskInstanceDao.updateStatus(request.instanceId, request.status);
-    if (!result.found) {
+    const { found } = await this.taskInstanceDao.updateStatus({ instanceId: request.instanceId, status: request.status });
+    if (!found) {
       throw new NotFoundError(`Task instance ${request.instanceId} does not exist.`);
     }
     return {};
@@ -224,8 +231,8 @@ export class TaskService {
 
   async recordPid(request: ReportInstancePidRequest): Promise<ReportInstancePidResponse> {
     const { instanceId, pid } = request;
-    const updated = await this.taskInstanceDao.setPid(instanceId, pid);
-    if (!updated) {
+    const { found } = await this.taskInstanceDao.setPid({ instanceId, pid });
+    if (!found) {
       throw new NotFoundError(`Task instance ${instanceId} does not exist.`);
     }
     logger.info(`Instance ${instanceId} is running as pid ${pid}.`);
@@ -242,7 +249,8 @@ export class TaskService {
   }
 
   async listEvents(request: ListTaskEventsRequest): Promise<ListTaskEventsResponse> {
-    return { events: await this.taskEventDao.listEvents(request.instanceId, request.limit ?? DEFAULT_EVENT_LIMIT) };
+    const { events } = await this.taskEventDao.listEvents({ instanceId: request.instanceId, limit: request.limit ?? DEFAULT_EVENT_LIMIT });
+    return { events };
   }
 
   // ---------------------------------------------------------------------------
@@ -257,7 +265,7 @@ export class TaskService {
     if (agentIds.length === 0) {
       throw new InvalidRequestError(`Task ${taskId} has no target agents. Pass targetAgentIds or configure them on the task first.`);
     }
-    const { variables } = await this.listVariables();
+    const { variables } = await this.listVariables({});
     return this.taskDispatcher.dispatch({ task, agentIds, variables, extraArguments });
   }
 
@@ -298,7 +306,7 @@ export class TaskService {
    * agent is allowed to report.
    */
   private async recordStatusWithEvent(instanceId: string, status: TaskInstanceStatus, level: TaskEventLevel, message: string): Promise<void> {
-    await this.taskInstanceDao.updateStatus(instanceId, status);
+    await this.taskInstanceDao.updateStatus({ instanceId, status });
     await this.taskEventDao.createEvent({
       eventId: generateEventId(),
       instanceId,
@@ -310,7 +318,7 @@ export class TaskService {
   }
 
   private async assertTaskExists(taskId: string): Promise<void> {
-    const version = await this.taskDao.getLatestVersionNumber(taskId);
+    const { version } = await this.taskDao.getLatestVersionNumber({ taskId });
     if (version === null) {
       throw new NotFoundError(`Task ${taskId} does not exist.`);
     }
