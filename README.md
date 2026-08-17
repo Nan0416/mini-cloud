@@ -72,21 +72,28 @@ conventions the code follows.
 
 ```bash
 npm install
-npm run build
-mini-cloud migrate          # create the schema
-mini-cloud serve            # start the control plane
+createdb mini_cloud_beta    # one-time; see dev.md for installing PostgreSQL
+npm start                   # builds, applies the schema, starts the control plane
 ```
 
 Then, in another terminal:
 
 ```bash
-mini-cloud agent start --id laptop-1
-mini-cloud agent list
+npm run start:agent -- --id laptop-1
 
-mini-cloud task create --name hello --cmd 'echo hello from mini-cloud'
-mini-cloud task launch <taskId> --agent laptop-1
-mini-cloud instance list
-mini-cloud instance events <instanceId>
+npm run cli -- agent list
+npm run cli -- task create --name hello --cmd 'echo hello from mini-cloud'
+npm run cli -- task launch <taskId> --agent laptop-1
+npm run cli -- instance list
+npm run cli -- instance events <instanceId>
+```
+
+`npm run cli -- <args>` gets tedious. Put `mini-cloud` on your PATH once and drop the
+prefix everywhere:
+
+```bash
+npm link -w @mini-cloud/cli
+mini-cloud agent list
 ```
 
 Run `mini-cloud --help` for the full command list, or `mini-cloud <command> --help`
