@@ -74,8 +74,13 @@ specific bug, the bug is named — a rule you can't justify is a rule that gets 
     as slow. `task_instance.status_rank` is the deliberate exception: it is
     denormalised because it makes the status guard a single atomic statement, which
     is correctness, not speed.
-17. **Migrations are append-only.** Numbered SQL files applied in filename order, each
-    in its own transaction. Never edit one that has shipped.
+17. **Migrations are append-only.** `<sequence>_<name>.sql`, applied in ascending
+    sequence order, each in its own transaction together with its bookkeeping row so
+    a failure can never record a migration that did not fully apply. Never edit one
+    that has shipped. The runner parses the sequence as a number and rejects
+    unparseable or duplicated ones, because the two ways to get this silently wrong —
+    `readdirSync` order varying by filesystem, and `.sort()` putting `10_` before
+    `2_` — both produce a schema that differs between machines rather than an error.
 
 ## Errors
 
@@ -125,10 +130,16 @@ specific bug, the bug is named — a rule you can't justify is a rule that gets 
 30. **`--version` is reserved** by commander for the program's own version. A command
     needing a version argument takes it positionally — `task get <taskId> [version]`
     — rather than shadowing the flag and silently printing `1.0.0`.
+31. **An npm script that forwards arguments must end in the real binary**, never in
+    another `npm run`. npm appends the caller's arguments to the end of the script
+    string, so `"start": "npm run build && npm run serve"` turns
+    `npm start -- --port 4000` into `npm run serve --port 4000`, where npm eats
+    `--port` as its own flag and the command receives a bare `4000`. Chaining to
+    `node packages/cli/bin/mini-cloud.js serve` puts the arguments where they belong.
 
 ## Style
 
-31. **Always brace `if` bodies.**
-32. **`import type` at the top of the file.** Never inline `import('pkg').Type`.
-33. **Comments explain why.** The code already says what it does; a comment earns its
+32. **Always brace `if` bodies.**
+33. **`import type` at the top of the file.** Never inline `import('pkg').Type`.
+34. **Comments explain why.** The code already says what it does; a comment earns its
     place by recording the reasoning that is not recoverable from reading it.

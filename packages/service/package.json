@@ -7,8 +7,7 @@
   "types": "./dist/index.d.ts",
   "scripts": {
     "build": "tsc --project tsconfig.json",
-    "clean": "rm -rf dist tsconfig.tsbuildinfo",
-    "migrate": "ts-node src/data/migrate-cli.ts"
+    "clean": "rm -rf dist tsconfig.tsbuildinfo"
   },
   "dependencies": {
     "@mini-cloud/shared": "1.0.0",

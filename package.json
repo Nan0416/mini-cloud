@@ -12,12 +12,17 @@
   "scripts": {
     "build": "npm run build -w @mini-cloud/shared && npm run build -w @mini-cloud/client -w @mini-cloud/reporter && npm run build -w @mini-cloud/service -w @mini-cloud/agent && npm run build -w @mini-cloud/cli",
     "clean": "rm -rf packages/*/dist packages/*/tsconfig.tsbuildinfo",
+    "start": "npm run build && node packages/cli/bin/mini-cloud.js serve",
+    "start:agent": "npm run build && node packages/cli/bin/mini-cloud.js agent start",
+    "serve": "node packages/cli/bin/mini-cloud.js serve",
+    "agent": "node packages/cli/bin/mini-cloud.js agent start",
+    "cli": "node packages/cli/bin/mini-cloud.js",
+    "migrate": "npm run build && node packages/cli/bin/mini-cloud.js migrate",
     "test": "jest --config jest.config.js",
     "format:fix": "prettier --write \"packages/*/src/**/*.ts\"",
     "format:lint": "prettier --check \"packages/*/src/**/*.ts\"",
     "lint": "eslint \"packages/*/src/**/*.ts\"",
-    "lint:fix": "eslint --fix \"packages/*/src/**/*.ts\"",
-    "migrate": "npm run migrate -w @mini-cloud/service"
+    "lint:fix": "eslint --fix \"packages/*/src/**/*.ts\""
   },
   "repository": {
     "type": "git",
@@ -36,7 +41,6 @@
     "jest": "^29.7.0",
     "prettier": "^3.4.2",
     "ts-jest": "^29.2.5",
-    "ts-node": "^10.9.2",
     "typescript": "^5.7.3",
     "typescript-eslint": "^8.20.0"
   }

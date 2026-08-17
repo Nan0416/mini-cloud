@@ -38,13 +38,19 @@ export MINI_CLOUD_DATABASE_URL=postgres://minicloud:minicloud@127.0.0.1:5432/min
 
 ```bash
 npm install
-npm run build
-
-npm run migrate                    # or: mini-cloud migrate
-node packages/cli/bin/mini-cloud.js serve
+npm start
 ```
 
-To get `mini-cloud` on your PATH while developing:
+`npm start` builds every package, applies any pending migrations, and runs the
+control plane in the foreground. Ctrl-C shuts it down cleanly.
+
+In another terminal, start a worker agent:
+
+```bash
+npm run start:agent -- --id laptop-1
+```
+
+To get `mini-cloud` on your PATH and stop typing `npm run cli --`:
 
 ```bash
 npm link -w @mini-cloud/cli
@@ -54,6 +60,11 @@ npm link -w @mini-cloud/cli
 
 | Command | What it does |
 | --- | --- |
+| `npm start` | Build, then run the control plane |
+| `npm run start:agent` | Build, then run a worker agent on this machine |
+| `npm run cli -- <args>` | Run any CLI command, e.g. `npm run cli -- task list` |
+| `npm run migrate` | Build, then apply pending migrations and exit |
+| `npm run serve` / `npm run agent` | Same as the `start` pair, but skip the build |
 | `npm run build` | Build every package, in dependency order |
 | `npm test` | Run unit tests across all packages |
 | `npm run lint` | ESLint |
@@ -61,7 +72,22 @@ npm link -w @mini-cloud/cli
 | `npm run clean` | Remove build output |
 
 Packages build in dependency order, so `npm run build` after touching `shared` is
-what makes the change visible to everything downstream.
+what makes the change visible to everything downstream. The `start` scripts build
+first — it costs under two seconds and means you never run stale code. `serve` and
+`agent` skip it for when you know the build is current.
+
+### Passing flags
+
+Everything after `--` goes to the command, not to npm:
+
+```bash
+npm start -- --port 4000
+npm run start:agent -- --id laptop-1 --name "mac mini"
+npm run cli -- instance list --status running
+```
+
+The `--` matters. Without it npm consumes the flags itself, so `npm start --port 4000`
+reaches the service as a bare `4000` and fails.
 
 ## Configuration
 
@@ -98,11 +124,25 @@ Every value has a default; nothing is required to run locally.
 
 ## Database schema
 
-Migrations are plain SQL in `packages/service/migrations/`, applied in filename order,
-each in its own transaction, tracked in `schema_migration`. `mini-cloud serve` applies
-pending migrations on startup; `--skip-migrations` opts out.
+Migrations are plain SQL in `packages/service/migrations/`, named
+`<sequence>_<name>.sql` and applied in ascending sequence order, each in its own
+transaction, tracked in `schema_migration`. `mini-cloud serve` applies pending
+migrations on startup; `--skip-migrations` opts out.
 
-To add one, create the next numbered file — never edit a migration that has shipped.
+To add one, create the next numbered file — never edit a migration that has shipped,
+because it has already run against every database that applied it.
+
+```
+packages/service/migrations/
+  001_initial.sql
+  002_add_artifacts.sql     ← the next one
+```
+
+The sequence is compared as a number, so `2_x.sql` and `002_x.sql` sort the same and
+zero padding is only cosmetic (`001_` is the house style). The runner refuses to start
+if a filename has no sequence number, or if two migrations share one — the latter is
+the merge collision where two branches each add an `002_`, and picking a winner by
+filesystem order would give the two developers different schemas.
 
 ## Reporting from your own programs
 
