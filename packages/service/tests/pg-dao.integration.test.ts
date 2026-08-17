@@ -67,11 +67,11 @@ describeIfDatabase('PostgreSQL DAOs', () => {
       await taskDao.createTaskVersion(jobInput('t1', 1, { name: 'first' }));
       await taskDao.createTaskVersion(jobInput('t1', 2, { name: 'second' }));
 
-      expect(await taskDao.getLatestVersionNumber('t1')).toBe(2);
-      expect((await taskDao.getLatestTask('t1'))?.name).toBe('second');
+      expect((await taskDao.getLatestVersionNumber({ taskId: 't1' })).version).toBe(2);
+      expect((await taskDao.getLatestTask({ taskId: 't1' })).task?.name).toBe('second');
       // The old version is still resolvable, which is what lets a running instance
       // report against the definition it was launched from.
-      expect((await taskDao.getTaskVersion('t1', 1))?.name).toBe('first');
+      expect((await taskDao.getTaskVersion({ taskId: 't1', version: 1 })).task?.name).toBe('first');
     });
 
     it('reports createdAt as when the task first existed and lastUpdatedAt as when the head was written', async () => {
@@ -79,7 +79,7 @@ describeIfDatabase('PostgreSQL DAOs', () => {
       await pool.query("UPDATE task SET created_at = now() - interval '2 days' WHERE task_id = 't1' AND version = 1");
       await taskDao.createTaskVersion(jobInput('t1', 2));
 
-      const task = await taskDao.getLatestTask('t1');
+      const { task } = await taskDao.getLatestTask({ taskId: 't1' });
       expect(task).not.toBeNull();
       // Without the MIN(created_at) window the head's own timestamp would be
       // reported as the task's creation date, losing when it was first defined.
@@ -91,7 +91,7 @@ describeIfDatabase('PostgreSQL DAOs', () => {
       await taskDao.createTaskVersion(jobInput('t1', 2));
       await taskDao.createTaskVersion(jobInput('t2', 1));
 
-      const tasks = await taskDao.listLatestTasks();
+      const { tasks } = await taskDao.listLatestTasks({});
       expect(tasks).toHaveLength(2);
       expect(tasks.map((task) => `${task.taskId}v${task.version}`).sort()).toEqual(['t1v2', 't2v1']);
     });
@@ -109,7 +109,7 @@ describeIfDatabase('PostgreSQL DAOs', () => {
         healthCheck: { type: 'ping', url: 'http://localhost:8080/healthz', periodInMs: 3000 },
       });
 
-      const task = await taskDao.getLatestTask('s1');
+      const { task } = await taskDao.getLatestTask({ taskId: 's1' });
       expect(task?.arguments).toEqual(['--port', '8080']);
       expect(task?.env).toEqual({ STAGE: 'beta' });
       expect(task?.type === 'service' && task.healthCheck).toEqual({ type: 'ping', url: 'http://localhost:8080/healthz', periodInMs: 3000 });
@@ -118,13 +118,13 @@ describeIfDatabase('PostgreSQL DAOs', () => {
     it('deletes every version along with its head and dynamics', async () => {
       await taskDao.createTaskVersion(jobInput('t1', 1));
       await taskDao.createTaskVersion(jobInput('t1', 2));
-      await dynamicsDao.setActive('t1', true);
+      await dynamicsDao.setActive({ taskId: 't1', active: true });
 
-      await taskDao.deleteTask('t1');
+      await taskDao.deleteTask({ taskId: 't1' });
 
-      expect(await taskDao.getLatestVersionNumber('t1')).toBeNull();
-      expect(await taskDao.getTaskVersion('t1', 1)).toBeNull();
-      expect(await dynamicsDao.getDynamics('t1')).toBeNull();
+      expect((await taskDao.getLatestVersionNumber({ taskId: 't1' })).version).toBeNull();
+      expect((await taskDao.getTaskVersion({ taskId: 't1', version: 1 })).task).toBeNull();
+      expect((await dynamicsDao.getDynamics({ taskId: 't1' })).dynamics).toBeNull();
     });
   });
 
@@ -133,14 +133,14 @@ describeIfDatabase('PostgreSQL DAOs', () => {
       // Regression: the query once appended a JOIN to a shared SELECT list, so
       // target_agent_ids was never selected and arrived undefined.
       await taskDao.createTaskVersion(jobInput('j1', 1, { durationMs: 5000, firstLaunchAt: Date.now() }));
-      await dynamicsDao.setTargetAgents('j1', ['agent-a', 'agent-b']);
-      await dynamicsDao.setActive('j1', true);
+      await dynamicsDao.setTargetAgents({ taskId: 'j1', targetAgentIds: ['agent-a', 'agent-b'] });
+      await dynamicsDao.setActive({ taskId: 'j1', active: true });
 
-      const scheduled = await taskDao.listScheduledJobs();
-      expect(scheduled).toHaveLength(1);
-      expect(scheduled[0].targetAgentIds).toEqual(['agent-a', 'agent-b']);
-      expect(scheduled[0].job.duration).toBe(5000);
-      expect(scheduled[0].job.firstLaunchAt).toBeGreaterThan(0);
+      const { scheduledJobs } = await taskDao.listScheduledJobs({});
+      expect(scheduledJobs).toHaveLength(1);
+      expect(scheduledJobs[0].targetAgentIds).toEqual(['agent-a', 'agent-b']);
+      expect(scheduledJobs[0].job.duration).toBe(5000);
+      expect(scheduledJobs[0].job.firstLaunchAt).toBeGreaterThan(0);
     });
 
     it('judges schedulability against the head version, not any version', async () => {
@@ -149,42 +149,42 @@ describeIfDatabase('PostgreSQL DAOs', () => {
       // head version that is no longer supposed to run.
       await taskDao.createTaskVersion(jobInput('j1', 1, { durationMs: 5000, firstLaunchAt: Date.now() }));
       await taskDao.createTaskVersion(jobInput('j1', 2));
-      await dynamicsDao.setTargetAgents('j1', ['agent-a']);
-      await dynamicsDao.setActive('j1', true);
+      await dynamicsDao.setTargetAgents({ taskId: 'j1', targetAgentIds: ['agent-a'] });
+      await dynamicsDao.setActive({ taskId: 'j1', active: true });
 
-      expect(await taskDao.listScheduledJobs()).toHaveLength(0);
+      expect((await taskDao.listScheduledJobs({})).scheduledJobs).toHaveLength(0);
     });
 
     it('reports the head version of a job that is still scheduled', async () => {
       await taskDao.createTaskVersion(jobInput('j1', 1, { durationMs: 5000, firstLaunchAt: Date.now() }));
       await taskDao.createTaskVersion(jobInput('j1', 2, { durationMs: 60_000, firstLaunchAt: Date.now(), name: 'v2' }));
-      await dynamicsDao.setTargetAgents('j1', ['agent-a']);
-      await dynamicsDao.setActive('j1', true);
+      await dynamicsDao.setTargetAgents({ taskId: 'j1', targetAgentIds: ['agent-a'] });
+      await dynamicsDao.setActive({ taskId: 'j1', active: true });
 
-      const scheduled = await taskDao.listScheduledJobs();
-      expect(scheduled).toHaveLength(1);
-      expect(scheduled[0].job.version).toBe(2);
-      expect(scheduled[0].job.duration).toBe(60_000);
+      const { scheduledJobs } = await taskDao.listScheduledJobs({});
+      expect(scheduledJobs).toHaveLength(1);
+      expect(scheduledJobs[0].job.version).toBe(2);
+      expect(scheduledJobs[0].job.duration).toBe(60_000);
     });
 
     it('excludes jobs that are inactive, unanchored, untargeted, or services', async () => {
       const anchored = { durationMs: 5000, firstLaunchAt: Date.now() };
 
       await taskDao.createTaskVersion(jobInput('inactive', 1, anchored));
-      await dynamicsDao.setTargetAgents('inactive', ['agent-a']);
+      await dynamicsDao.setTargetAgents({ taskId: 'inactive', targetAgentIds: ['agent-a'] });
 
       await taskDao.createTaskVersion(jobInput('unanchored', 1));
-      await dynamicsDao.setTargetAgents('unanchored', ['agent-a']);
-      await dynamicsDao.setActive('unanchored', true);
+      await dynamicsDao.setTargetAgents({ taskId: 'unanchored', targetAgentIds: ['agent-a'] });
+      await dynamicsDao.setActive({ taskId: 'unanchored', active: true });
 
       await taskDao.createTaskVersion(jobInput('untargeted', 1, anchored));
-      await dynamicsDao.setActive('untargeted', true);
+      await dynamicsDao.setActive({ taskId: 'untargeted', active: true });
 
       await taskDao.createTaskVersion({ taskId: 'svc', version: 1, name: 'svc', type: 'service', cmd: 'run', cwd: '/srv' });
-      await dynamicsDao.setTargetAgents('svc', ['agent-a']);
-      await dynamicsDao.setActive('svc', true);
+      await dynamicsDao.setTargetAgents({ taskId: 'svc', targetAgentIds: ['agent-a'] });
+      await dynamicsDao.setActive({ taskId: 'svc', active: true });
 
-      expect(await taskDao.listScheduledJobs()).toHaveLength(0);
+      expect((await taskDao.listScheduledJobs({})).scheduledJobs).toHaveLength(0);
     });
   });
 
@@ -195,75 +195,75 @@ describeIfDatabase('PostgreSQL DAOs', () => {
     });
 
     it('applies a status that moves the instance forward', async () => {
-      const result = await instanceDao.updateStatus('i1', 'running');
+      const result = await instanceDao.updateStatus({ instanceId: 'i1', status: 'running' });
       expect(result).toMatchObject({ found: true, applied: true, currentStatus: 'running' });
     });
 
     it('rejects a stale status without changing the stored one', async () => {
-      await instanceDao.updateStatus('i1', 'terminated');
-      const result = await instanceDao.updateStatus('i1', 'terminating');
+      await instanceDao.updateStatus({ instanceId: 'i1', status: 'terminated' });
+      const result = await instanceDao.updateStatus({ instanceId: 'i1', status: 'terminating' });
 
       expect(result).toMatchObject({ found: true, applied: false, currentStatus: 'terminated' });
-      expect((await instanceDao.getInstance('i1'))?.status).toBe('terminated');
+      expect((await instanceDao.getInstance({ instanceId: 'i1' })).instance?.status).toBe('terminated');
     });
 
     it('allows movement between equally ranked statuses so health can recover', async () => {
-      await instanceDao.updateStatus('i1', 'running');
-      expect((await instanceDao.updateStatus('i1', 'health_check_failure')).applied).toBe(true);
-      expect((await instanceDao.updateStatus('i1', 'running')).applied).toBe(true);
-      expect((await instanceDao.getInstance('i1'))?.status).toBe('running');
+      await instanceDao.updateStatus({ instanceId: 'i1', status: 'running' });
+      expect((await instanceDao.updateStatus({ instanceId: 'i1', status: 'health_check_failure' })).applied).toBe(true);
+      expect((await instanceDao.updateStatus({ instanceId: 'i1', status: 'running' })).applied).toBe(true);
+      expect((await instanceDao.getInstance({ instanceId: 'i1' })).instance?.status).toBe('running');
     });
 
     it('reports a missing instance rather than silently succeeding', async () => {
-      expect(await instanceDao.updateStatus('nope', 'running')).toMatchObject({ found: false, applied: false });
+      expect(await instanceDao.updateStatus({ instanceId: 'nope', status: 'running' })).toMatchObject({ found: false, applied: false });
     });
 
     it('survives concurrent reports arriving out of order', async () => {
       // The guard lives in the UPDATE's WHERE clause, so firing these together must
       // still settle on the furthest-along status.
       await Promise.all([
-        instanceDao.updateStatus('i1', 'terminated'),
-        instanceDao.updateStatus('i1', 'terminating'),
-        instanceDao.updateStatus('i1', 'running'),
-        instanceDao.updateStatus('i1', 'launched'),
+        instanceDao.updateStatus({ instanceId: 'i1', status: 'terminated' }),
+        instanceDao.updateStatus({ instanceId: 'i1', status: 'terminating' }),
+        instanceDao.updateStatus({ instanceId: 'i1', status: 'running' }),
+        instanceDao.updateStatus({ instanceId: 'i1', status: 'launched' }),
       ]);
-      expect((await instanceDao.getInstance('i1'))?.status).toBe('terminated');
+      expect((await instanceDao.getInstance({ instanceId: 'i1' })).instance?.status).toBe('terminated');
     });
   });
 
   describe('agents', () => {
     it('registers on first heartbeat and stays registered afterwards', async () => {
-      const first = await agentDao.recordHeartbeat('a1', 'laptop');
+      const { agent: first } = await agentDao.recordHeartbeat({ agentId: 'a1', name: 'laptop' });
       expect(first).toMatchObject({ agentId: 'a1', name: 'laptop', status: 'online' });
 
-      await agentDao.setStatus('a1', 'offline');
-      const second = await agentDao.recordHeartbeat('a1', 'laptop-renamed');
+      await agentDao.setStatus({ agentId: 'a1', status: 'offline' });
+      const { agent: second } = await agentDao.recordHeartbeat({ agentId: 'a1', name: 'laptop-renamed' });
       expect(second).toMatchObject({ status: 'online', name: 'laptop-renamed' });
       expect(second.registeredAt).toBe(first.registeredAt);
     });
 
     it('expires only agents that have gone quiet', async () => {
-      await agentDao.recordHeartbeat('fresh', 'fresh');
-      await agentDao.recordHeartbeat('stale', 'stale');
+      await agentDao.recordHeartbeat({ agentId: 'fresh', name: 'fresh' });
+      await agentDao.recordHeartbeat({ agentId: 'stale', name: 'stale' });
       await pool.query("UPDATE agent SET last_seen_at = now() - interval '1 hour' WHERE agent_id = 'stale'");
 
-      const expired = await agentDao.expireAgents(Date.now() - 15_000);
+      const { agents: expired } = await agentDao.expireAgents({ before: Date.now() - 15_000 });
       expect(expired.map((agent) => agent.agentId)).toEqual(['stale']);
-      expect((await agentDao.getAgent('fresh'))?.status).toBe('online');
+      expect((await agentDao.getAgent({ agentId: 'fresh' })).agent?.status).toBe('online');
     });
   });
 
   describe('replacement variables', () => {
     it('replaces the whole set so omitted names are deleted', async () => {
-      await variableDao.replaceVariables({ A: '1', B: '2' });
-      const stored = await variableDao.replaceVariables({ B: 'two', C: '3' });
+      await variableDao.replaceVariables({ variables: { A: '1', B: '2' } });
+      const { variables: stored } = await variableDao.replaceVariables({ variables: { B: 'two', C: '3' } });
 
       expect(stored).toEqual({ B: 'two', C: '3' });
     });
 
     it('clears everything when given an empty set', async () => {
-      await variableDao.replaceVariables({ A: '1' });
-      expect(await variableDao.replaceVariables({})).toEqual({});
+      await variableDao.replaceVariables({ variables: { A: '1' } });
+      expect((await variableDao.replaceVariables({ variables: {} })).variables).toEqual({});
     });
   });
 
@@ -280,17 +280,19 @@ describeIfDatabase('PostgreSQL DAOs', () => {
       });
       await taskDao.createTaskVersion({ taskId: 's2', version: 1, name: 'no-check', type: 'service', cmd: 'run', cwd: '/srv' });
 
-      const checks = await taskDao.listHealthChecks([
-        { taskId: 's1', version: 1 },
-        { taskId: 's2', version: 1 },
-        { taskId: 'missing', version: 9 },
-      ]);
+      const { healthChecks } = await taskDao.listHealthChecks({
+        identifiers: [
+          { taskId: 's1', version: 1 },
+          { taskId: 's2', version: 1 },
+          { taskId: 'missing', version: 9 },
+        ],
+      });
 
-      expect(checks).toEqual([{ taskId: 's1', version: 1, healthCheck: { type: 'passive', periodInMs: 5000 } }]);
+      expect(healthChecks).toEqual([{ taskId: 's1', version: 1, healthCheck: { type: 'passive', periodInMs: 5000 } }]);
     });
 
     it('returns nothing for an empty request without hitting the database', async () => {
-      expect(await taskDao.listHealthChecks([])).toEqual([]);
+      expect((await taskDao.listHealthChecks({ identifiers: [] })).healthChecks).toEqual([]);
     });
   });
 });

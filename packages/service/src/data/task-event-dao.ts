@@ -1,6 +1,6 @@
 import { TaskEvent, TaskEventLevel, TaskEventSource } from '@mini-cloud/shared';
 
-export interface CreateTaskEventInput {
+export interface CreateEventInput {
   readonly eventId: string;
   readonly instanceId: string;
   readonly source: TaskEventSource;
@@ -10,8 +10,19 @@ export interface CreateTaskEventInput {
   readonly timestamp: number;
 }
 
-export interface TaskEventDao {
-  createEvent(input: CreateTaskEventInput): Promise<void>;
+export interface CreateEventOutput {}
 
-  listEvents(instanceId: string, limit: number): Promise<ReadonlyArray<TaskEvent>>;
+export interface ListEventsInput {
+  readonly instanceId: string;
+  readonly limit: number;
+}
+
+export interface ListEventsOutput {
+  readonly events: ReadonlyArray<TaskEvent>;
+}
+
+export interface TaskEventDao {
+  createEvent(input: CreateEventInput): Promise<CreateEventOutput>;
+
+  listEvents(input: ListEventsInput): Promise<ListEventsOutput>;
 }

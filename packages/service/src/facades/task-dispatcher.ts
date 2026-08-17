@@ -116,7 +116,7 @@ export class TaskDispatcher {
    * instance ids that arrived from outside.
    */
   private async recordOutcome(instanceId: string, status: 'initiated' | 'initiation_failed', level: 'success' | 'error', message: string): Promise<void> {
-    await this.taskInstanceDao.updateStatus(instanceId, status);
+    await this.taskInstanceDao.updateStatus({ instanceId, status });
     await this.taskEventDao.createEvent({
       eventId: generateEventId(),
       instanceId,

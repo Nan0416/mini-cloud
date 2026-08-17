@@ -1,6 +1,6 @@
 import { TaskInstance, TaskInstanceStatus } from '@mini-cloud/shared';
 
-export interface CreateTaskInstanceInput {
+export interface CreateInstanceInput {
   readonly instanceId: string;
   readonly taskId: string;
   readonly taskVersion: number;
@@ -8,7 +8,17 @@ export interface CreateTaskInstanceInput {
   readonly status: TaskInstanceStatus;
 }
 
-export interface ListTaskInstancesInput {
+export interface CreateInstanceOutput {}
+
+export interface GetInstanceInput {
+  readonly instanceId: string;
+}
+
+export interface GetInstanceOutput {
+  readonly instance: TaskInstance | null;
+}
+
+export interface ListInstancesInput {
   readonly taskId?: string;
   readonly version?: number;
   readonly agentId?: string;
@@ -17,6 +27,15 @@ export interface ListTaskInstancesInput {
   readonly from?: number;
   readonly to?: number;
   readonly limit?: number;
+}
+
+export interface ListInstancesOutput {
+  readonly instances: ReadonlyArray<TaskInstance>;
+}
+
+export interface UpdateStatusInput {
+  readonly instanceId: string;
+  readonly status: TaskInstanceStatus;
 }
 
 /** What a guarded status write actually did. */
@@ -31,25 +50,52 @@ export interface UpdateStatusOutput {
   readonly currentStatus?: TaskInstanceStatus;
 }
 
+export interface SetPidInput {
+  readonly instanceId: string;
+  readonly pid: number;
+}
+
+export interface SetPidOutput {
+  /** False when the instance no longer exists. */
+  readonly found: boolean;
+}
+
+export interface ListStaleInstancesInput {
+  readonly status: TaskInstanceStatus;
+  readonly olderThan: number;
+}
+
+export interface ListStaleInstancesOutput {
+  readonly instances: ReadonlyArray<TaskInstance>;
+}
+
+export interface DeleteInstancesUpdatedBeforeInput {
+  readonly before: number;
+}
+
+export interface DeleteInstancesUpdatedBeforeOutput {
+  readonly deletedCount: number;
+}
+
 export interface TaskInstanceDao {
-  createInstance(input: CreateTaskInstanceInput): Promise<void>;
+  createInstance(input: CreateInstanceInput): Promise<CreateInstanceOutput>;
 
-  getInstance(instanceId: string): Promise<TaskInstance | null>;
+  getInstance(input: GetInstanceInput): Promise<GetInstanceOutput>;
 
-  listInstances(input: ListTaskInstancesInput): Promise<ReadonlyArray<TaskInstance>>;
+  listInstances(input: ListInstancesInput): Promise<ListInstancesOutput>;
 
   /**
    * Moves the instance to `status` only if that status ranks at or above the stored
    * one. The guard lives in the UPDATE's WHERE clause, so concurrent reports from
    * the same agent cannot interleave a read and a write.
    */
-  updateStatus(instanceId: string, status: TaskInstanceStatus): Promise<UpdateStatusOutput>;
+  updateStatus(input: UpdateStatusInput): Promise<UpdateStatusOutput>;
 
-  setPid(instanceId: string, pid: number): Promise<boolean>;
+  setPid(input: SetPidInput): Promise<SetPidOutput>;
 
   /** Instances stuck in `status` since before `olderThan`, for timeout sweeps. */
-  listStaleInstances(status: TaskInstanceStatus, olderThan: number): Promise<ReadonlyArray<TaskInstance>>;
+  listStaleInstances(input: ListStaleInstancesInput): Promise<ListStaleInstancesOutput>;
 
   /** Deletes instances (and, by cascade, their events) last updated before `before`. */
-  deleteInstancesUpdatedBefore(before: number): Promise<number>;
+  deleteInstancesUpdatedBefore(input: DeleteInstancesUpdatedBeforeInput): Promise<DeleteInstancesUpdatedBeforeOutput>;
 }

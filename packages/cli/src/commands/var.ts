@@ -11,7 +11,7 @@ export function buildVarCommand(): Command {
     .description('show the current substitutions')
     .action(async function (this: Command) {
       const global: GlobalOptions = this.optsWithGlobals();
-      const { variables } = await createClient(global).listReplacementVariables();
+      const { variables } = await createClient(global).listReplacementVariables({});
       if (global.json === true) {
         printJson(variables);
         return;

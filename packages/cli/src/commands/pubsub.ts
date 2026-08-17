@@ -20,7 +20,7 @@ export function buildPubSubCommand(): Command {
     .description('show connected subscribers per topic')
     .action(async function (this: Command) {
       const global: GlobalOptions = this.optsWithGlobals();
-      const { status } = await createClient(global).getHubStatus();
+      const { status } = await createClient(global).getHubStatus({});
       if (global.json === true) {
         printJson(status);
         return;

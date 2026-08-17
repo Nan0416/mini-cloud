@@ -59,7 +59,7 @@ export function buildAgentCommand(): Command {
     .description('list registered agents and their liveness')
     .action(async function (this: Command) {
       const global: GlobalOptions = this.optsWithGlobals();
-      const { agents } = await createClient(global).listAgents();
+      const { agents } = await createClient(global).listAgents({});
       if (global.json === true) {
         printJson(agents);
         return;

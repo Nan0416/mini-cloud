@@ -1,7 +1,7 @@
 import { LoggerFactory, TaskEvent } from '@mini-cloud/shared';
 import { Pool } from 'pg';
 import { toTaskEventLevel, toTaskEventSource } from './row-parsers';
-import { CreateTaskEventInput, TaskEventDao } from './task-event-dao';
+import { CreateEventInput, CreateEventOutput, ListEventsInput, ListEventsOutput, TaskEventDao } from './task-event-dao';
 
 const logger = LoggerFactory.getLogger('PgTaskEventDao');
 
@@ -29,7 +29,7 @@ function toEvent(row: EventRow): TaskEvent {
 export class PgTaskEventDao implements TaskEventDao {
   constructor(private readonly pool: Pool) {}
 
-  async createEvent(input: CreateTaskEventInput): Promise<void> {
+  async createEvent(input: CreateEventInput): Promise<CreateEventOutput> {
     try {
       await this.pool.query('INSERT INTO task_event (event_id, instance_id, source, level, payload, occurred_at) VALUES ($1, $2, $3, $4, $5, $6)', [
         input.eventId,
@@ -45,17 +45,18 @@ export class PgTaskEventDao implements TaskEventDao {
       // report is not.
       if (typeof err === 'object' && err !== null && 'code' in err && err.code === '23503') {
         logger.warn(`Dropped event for instance ${input.instanceId}: the instance no longer exists.`);
-        return;
+        return {};
       }
       throw err;
     }
+    return {};
   }
 
-  async listEvents(instanceId: string, limit: number): Promise<ReadonlyArray<TaskEvent>> {
+  async listEvents(input: ListEventsInput): Promise<ListEventsOutput> {
     const result = await this.pool.query<EventRow>(
       'SELECT event_id, instance_id, source, level, payload, occurred_at FROM task_event WHERE instance_id = $1 ORDER BY occurred_at ASC LIMIT $2',
-      [instanceId, limit],
+      [input.instanceId, input.limit],
     );
-    return result.rows.map(toEvent);
+    return { events: result.rows.map(toEvent) };
   }
 }

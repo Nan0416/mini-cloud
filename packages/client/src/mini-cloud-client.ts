@@ -83,7 +83,7 @@ export class MiniCloudClient {
     return this.http.request('GET', `/tasks/${encodeURIComponent(request.taskId)}`, { query: { version: request.version } });
   }
 
-  async listTasks(_request: ListTasksRequest = {}): Promise<ListTasksResponse> {
+  async listTasks(_request: ListTasksRequest): Promise<ListTasksResponse> {
     return this.http.request('GET', '/tasks');
   }
 
@@ -110,7 +110,7 @@ export class MiniCloudClient {
     return this.http.request('GET', `/instances/${encodeURIComponent(request.instanceId)}`);
   }
 
-  async listTaskInstances(request: ListTaskInstancesRequest = {}): Promise<ListTaskInstancesResponse> {
+  async listTaskInstances(request: ListTaskInstancesRequest): Promise<ListTaskInstancesResponse> {
     return this.http.request('GET', '/instances', { query: { ...request } });
   }
 
@@ -124,7 +124,7 @@ export class MiniCloudClient {
 
   // ---- variables ----
 
-  async listReplacementVariables(_request: ListReplacementVariablesRequest = {}): Promise<ListReplacementVariablesResponse> {
+  async listReplacementVariables(_request: ListReplacementVariablesRequest): Promise<ListReplacementVariablesResponse> {
     return this.http.request('GET', '/variables');
   }
 
@@ -134,7 +134,7 @@ export class MiniCloudClient {
 
   // ---- agents ----
 
-  async listAgents(_request: ListAgentsRequest = {}): Promise<ListAgentsResponse> {
+  async listAgents(_request: ListAgentsRequest): Promise<ListAgentsResponse> {
     return this.http.request('GET', '/agents');
   }
 
@@ -170,7 +170,7 @@ export class MiniCloudClient {
     return this.http.request('POST', '/pubsub/publish', { body: request });
   }
 
-  async getHubStatus(_request: GetHubStatusRequest = {}): Promise<GetHubStatusResponse> {
+  async getHubStatus(_request: GetHubStatusRequest): Promise<GetHubStatusResponse> {
     return this.http.request('GET', '/pubsub/status');
   }
 }

@@ -1,6 +1,25 @@
-import { EnvironmentVariables, HealthCheck, InternalServiceError, LoggerFactory, Task, TaskIdentifier, TaskIdentifierWithHealthCheck } from '@mini-cloud/shared';
+import { EnvironmentVariables, HealthCheck, InternalServiceError, LoggerFactory, Task } from '@mini-cloud/shared';
 import { Pool } from 'pg';
-import { CreateTaskVersionInput, ScheduledJob, TaskDao } from './task-dao';
+import {
+  CreateTaskVersionInput,
+  CreateTaskVersionOutput,
+  DeleteTaskInput,
+  DeleteTaskOutput,
+  GetLatestTaskInput,
+  GetLatestTaskOutput,
+  GetLatestVersionNumberInput,
+  GetLatestVersionNumberOutput,
+  GetTaskVersionInput,
+  GetTaskVersionOutput,
+  ListHealthChecksInput,
+  ListHealthChecksOutput,
+  ListLatestTasksInput,
+  ListLatestTasksOutput,
+  ListScheduledJobsInput,
+  ListScheduledJobsOutput,
+  ScheduledJob,
+  TaskDao,
+} from './task-dao';
 
 const logger = LoggerFactory.getLogger('PgTaskDao');
 
@@ -87,7 +106,7 @@ export class PgTaskDao implements TaskDao {
    * version needs no second write and therefore no transaction to keep two tables
    * agreeing with each other.
    */
-  async createTaskVersion(input: CreateTaskVersionInput): Promise<void> {
+  async createTaskVersion(input: CreateTaskVersionInput): Promise<CreateTaskVersionOutput> {
     logger.info(`Inserting task ${input.taskId} version ${input.version}.`);
     await this.pool.query(
       `INSERT INTO task (task_id, version, name, description, type, cmd, cwd, arguments, env, stdout, stderr, health_check, duration_ms, first_launch_at)
@@ -109,42 +128,44 @@ export class PgTaskDao implements TaskDao {
         input.firstLaunchAt === undefined ? null : new Date(input.firstLaunchAt),
       ],
     );
+    return {};
   }
 
-  async getTaskVersion(taskId: string, version: number): Promise<Task | null> {
+  async getTaskVersion(input: GetTaskVersionInput): Promise<GetTaskVersionOutput> {
     const result = await this.pool.query<TaskRow>(
       `SELECT t.*, (SELECT MIN(created_at) FROM task WHERE task_id = $1) AS task_created_at
        FROM task t WHERE t.task_id = $1 AND t.version = $2`,
-      [taskId, version],
+      [input.taskId, input.version],
     );
     const row = result.rows[0];
-    return row === undefined ? null : toTask(row);
+    return { task: row === undefined ? null : toTask(row) };
   }
 
-  async getLatestTask(taskId: string): Promise<Task | null> {
+  async getLatestTask(input: GetLatestTaskInput): Promise<GetLatestTaskOutput> {
     const result = await this.pool.query<TaskRow>(
       `SELECT t.*, (SELECT MIN(created_at) FROM task WHERE task_id = $1) AS task_created_at
        FROM task t WHERE t.task_id = $1 ORDER BY t.version DESC LIMIT 1`,
-      [taskId],
+      [input.taskId],
     );
     const row = result.rows[0];
-    return row === undefined ? null : toTask(row);
+    return { task: row === undefined ? null : toTask(row) };
   }
 
-  async getLatestVersionNumber(taskId: string): Promise<number | null> {
-    const result = await this.pool.query<{ version: number | null }>('SELECT MAX(version) AS version FROM task WHERE task_id = $1', [taskId]);
+  async getLatestVersionNumber(input: GetLatestVersionNumberInput): Promise<GetLatestVersionNumberOutput> {
+    const result = await this.pool.query<{ version: number | null }>('SELECT MAX(version) AS version FROM task WHERE task_id = $1', [input.taskId]);
     // MAX over no rows yields one row holding NULL, not zero rows.
-    return result.rows[0]?.version ?? null;
+    return { version: result.rows[0]?.version ?? null };
   }
 
-  async listLatestTasks(): Promise<ReadonlyArray<Task>> {
+  async listLatestTasks(_input: ListLatestTasksInput): Promise<ListLatestTasksOutput> {
     const result = await this.pool.query<TaskRow>(`${SELECT_LATEST_TASKS} ORDER BY t.task_id, t.version DESC`);
     const tasks = result.rows.map(toTask);
     // DISTINCT ON dictates the SQL ordering, so present the caller-facing order here.
-    return [...tasks].sort((left, right) => right.createdAt - left.createdAt);
+    return { tasks: [...tasks].sort((left, right) => right.createdAt - left.createdAt) };
   }
 
-  async deleteTask(taskId: string): Promise<void> {
+  async deleteTask(input: DeleteTaskInput): Promise<DeleteTaskOutput> {
+    const { taskId } = input;
     logger.info(`Deleting task ${taskId} and all of its versions.`);
     const client = await this.pool.connect();
     try {
@@ -158,11 +179,13 @@ export class PgTaskDao implements TaskDao {
     } finally {
       client.release();
     }
+    return {};
   }
 
-  async listHealthChecks(identifiers: ReadonlyArray<TaskIdentifier>): Promise<ReadonlyArray<TaskIdentifierWithHealthCheck>> {
+  async listHealthChecks(input: ListHealthChecksInput): Promise<ListHealthChecksOutput> {
+    const { identifiers } = input;
     if (identifiers.length === 0) {
-      return [];
+      return { healthChecks: [] };
     }
     // One round trip for the whole set: unnest the (id, version) pairs and join.
     const result = await this.pool.query<{ task_id: string; version: number; health_check: HealthCheck }>(
@@ -174,10 +197,10 @@ export class PgTaskDao implements TaskDao {
       [identifiers.map((identifier) => identifier.taskId), identifiers.map((identifier) => identifier.version)],
     );
 
-    return result.rows.map((row) => ({ taskId: row.task_id, version: row.version, healthCheck: row.health_check }));
+    return { healthChecks: result.rows.map((row) => ({ taskId: row.task_id, version: row.version, healthCheck: row.health_check })) };
   }
 
-  async listScheduledJobs(): Promise<ReadonlyArray<ScheduledJob>> {
+  async listScheduledJobs(_input: ListScheduledJobsInput): Promise<ListScheduledJobsOutput> {
     // The filters live in the DISTINCT ON subquery so that "is this job schedulable"
     // is judged against the head version. Filtering afterwards would let an older
     // version that happened to be schedulable stand in for a head version that is not.
@@ -191,15 +214,15 @@ export class PgTaskDao implements TaskDao {
          AND cardinality(d.target_agent_ids) > 0`,
     );
 
-    const jobs: ScheduledJob[] = [];
+    const scheduledJobs: ScheduledJob[] = [];
     for (const row of result.rows) {
       const task = toTask(row);
       if (task.type !== 'job') {
         // Unreachable given the WHERE clause, but keeps the narrowing honest.
         continue;
       }
-      jobs.push({ job: task, targetAgentIds: row.target_agent_ids });
+      scheduledJobs.push({ job: task, targetAgentIds: row.target_agent_ids });
     }
-    return jobs;
+    return { scheduledJobs };
   }
 }

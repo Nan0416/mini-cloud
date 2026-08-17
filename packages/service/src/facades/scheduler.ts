@@ -102,11 +102,11 @@ export class Scheduler {
     const from = this.windowStart ?? Date.now();
     const to = Date.now();
     try {
-      const scheduled = await this.props.taskDao.listScheduledJobs();
-      const due = scheduled.filter((entry) => shouldLaunchInWindow(entry.job, { from, to }));
+      const { scheduledJobs } = await this.props.taskDao.listScheduledJobs({});
+      const due = scheduledJobs.filter((entry) => shouldLaunchInWindow(entry.job, { from, to }));
       if (due.length > 0) {
         // Read the variable set once per tick rather than once per job.
-        const variables = await this.props.variableDao.listVariables();
+        const { variables } = await this.props.variableDao.listVariables({});
         for (const entry of due) {
           logger.info(`Job ${entry.job.taskId} ("${entry.job.name}") is due; launching on ${entry.targetAgentIds.length} agent(s).`);
           await this.props.taskDispatcher.dispatch({ task: entry.job, agentIds: entry.targetAgentIds, variables });
@@ -141,7 +141,7 @@ export class Scheduler {
   async runRetentionTick(): Promise<void> {
     const before = Date.now() - this.props.config.retentionDays * 24 * 3600_000;
     try {
-      const deletedCount = await this.props.taskInstanceDao.deleteInstancesUpdatedBefore(before);
+      const { deletedCount } = await this.props.taskInstanceDao.deleteInstancesUpdatedBefore({ before });
       if (deletedCount > 0) {
         logger.info(`Retention removed ${deletedCount} instance(s) last updated before ${new Date(before).toISOString()}.`);
       }
@@ -152,7 +152,7 @@ export class Scheduler {
 
   /** Marks agents that stopped heartbeating as offline. */
   private async expireAgents(): Promise<void> {
-    const expired = await this.props.agentDao.expireAgents(Date.now() - this.props.config.agentOfflineAfterMs);
+    const { agents: expired } = await this.props.agentDao.expireAgents({ before: Date.now() - this.props.config.agentOfflineAfterMs });
     for (const agent of expired) {
       logger.warn(`Agent ${agent.agentId} ("${agent.name}") stopped heartbeating; marked offline.`);
     }
@@ -167,12 +167,12 @@ export class Scheduler {
     const now = Date.now();
     const { launchTimeoutMs, startTimeoutMs } = this.props.config;
 
-    const neverAcknowledged = await this.props.taskInstanceDao.listStaleInstances('initiated', now - launchTimeoutMs);
+    const { instances: neverAcknowledged } = await this.props.taskInstanceDao.listStaleInstances({ status: 'initiated', olderThan: now - launchTimeoutMs });
     for (const instance of neverAcknowledged) {
       await this.failInstance(instance.instanceId, 'launching_timeout', `Agent ${instance.agentId} did not acknowledge the launch within ${launchTimeoutMs}ms.`);
     }
 
-    const neverStarted = await this.props.taskInstanceDao.listStaleInstances('launched', now - startTimeoutMs);
+    const { instances: neverStarted } = await this.props.taskInstanceDao.listStaleInstances({ status: 'launched', olderThan: now - startTimeoutMs });
     for (const instance of neverStarted) {
       const message = `The process was spawned but never reported a pid within ${startTimeoutMs}ms. Check the task's cwd, command and stderr.`;
       await this.failInstance(instance.instanceId, 'start_timeout', message);
@@ -186,7 +186,7 @@ export class Scheduler {
    * here: a sweep must not abort partway because retention pruned a row underneath it.
    */
   private async failInstance(instanceId: string, status: TaskInstanceStatus, message: string): Promise<void> {
-    await this.props.taskInstanceDao.updateStatus(instanceId, status);
+    await this.props.taskInstanceDao.updateStatus({ instanceId, status });
     await this.props.taskEventDao.createEvent({
       eventId: generateEventId(),
       instanceId,
