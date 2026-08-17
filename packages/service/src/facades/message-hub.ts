@@ -1,10 +1,53 @@
-import { EventEnvelope, HubMessage, HubStatus, LoggerFactory, SUBSCRIBER_ACTIONS, SubscriberAction, SubscriberRequest, assertOneOf, assertString } from '@mini-cloud/shared';
+import {
+  EventEnvelope,
+  HubMessage,
+  HubStatus,
+  LoggerFactory,
+  SUBSCRIBER_ACTIONS,
+  SubscriberAction,
+  SubscriberRequest,
+  Target,
+  assertDefined,
+  assertInteger,
+  assertNonEmptyString,
+  assertOneOf,
+} from '@mini-cloud/shared';
 import { IncomingMessage, Server } from 'http';
 import { nanoid } from 'nanoid';
 import { WebSocket, WebSocketServer } from 'ws';
-import { MessageHub } from './message-hub';
 
 const logger = LoggerFactory.getLogger('WsMessageHub');
+
+/**
+ * What a publisher supplies. The hub adds `forwardedAt` and the target to build the
+ * `EventEnvelope` it delivers.
+ */
+export interface OutboundMessage {
+  readonly payload: unknown;
+  /** Epoch ms the publisher stamped the message, before it crossed the network. */
+  readonly publishedAt: number;
+  /**
+   * Subscriber id of the sender, taken from the sending connection. Left unset for
+   * HTTP publishers, which hold no connection and publish anonymously. Never read
+   * from a request body — see `EventEnvelope.senderId`.
+   */
+  readonly senderId?: string;
+}
+
+export interface MessageHub {
+  /**
+   * Delivers `message` to `target` — every subscriber of a topic, or the one
+   * subscriber named by a p2p target. Returns how many received it.
+   *
+   * Callers inside the service use this directly rather than going through HTTP —
+   * the hub is a component of the service, not a separate deployable.
+   */
+  publish(target: Target, message: OutboundMessage): number;
+
+  getStatus(): HubStatus;
+
+  terminate(): Promise<void>;
+}
 
 const HEARTBEAT_INTERVAL_MS = 30_000;
 
@@ -51,11 +94,13 @@ export interface WsMessageHubProps {
 }
 
 /**
- * A topic-based fan-out hub over WebSockets.
+ * A fan-out hub over WebSockets, addressing messages either to a topic or to a
+ * single subscriber.
  *
  * Keeps two indexes — subscriber to topics, and topic to subscribers — so both
- * publishing to a topic and cleaning up a dropped connection are O(subscriptions)
- * rather than a scan of every connection.
+ * broadcasting to a topic and cleaning up a dropped connection are O(subscriptions)
+ * rather than a scan of every connection. P2P needs neither index: a subscriber id
+ * is already the key of the connection map, so a directed send is a single lookup.
  */
 export class WsMessageHub implements MessageHub {
   private readonly wss: WebSocketServer;
@@ -99,6 +144,9 @@ export class WsMessageHub implements MessageHub {
       logger.warn(`Subscriber ${subscriber.id} socket errored.`, err);
     });
 
+    // The id is announced rather than kept server-side: it is the address other
+    // subscribers send p2p messages to, so a subscriber that cannot learn its own id
+    // can be talked about but never talked to.
     this.send(subscriber, { type: 'welcome', subscriberId: subscriber.id });
   }
 
@@ -120,21 +168,34 @@ export class WsMessageHub implements MessageHub {
     switch (request.action) {
       case 'subscribe':
         this.subscribe(subscriber, request.topic);
-        this.send(subscriber, { type: 'ack', action: 'subscribe', topic: request.topic });
+        this.send(subscriber, { type: 'ack', action: 'subscribe', to: request.topic });
         return;
       case 'unsubscribe':
         this.unsubscribe(subscriber, request.topic);
-        this.send(subscriber, { type: 'ack', action: 'unsubscribe', topic: request.topic });
+        this.send(subscriber, { type: 'ack', action: 'unsubscribe', to: request.topic });
         return;
-      case 'publish':
-        this.publish(request.topic, request.payload, subscriber.id);
-        this.send(subscriber, { type: 'ack', action: 'publish', topic: request.topic });
+      case 'broadcast':
+        this.publishFromSubscriber(subscriber, { method: 'broadcast', to: request.topic }, request.publishedAt, request.payload);
+        return;
+      case 'p2p':
+        this.publishFromSubscriber(subscriber, { method: 'p2p', to: request.recipientId }, request.publishedAt, request.payload);
         return;
       case 'ping':
         subscriber.alive = true;
-        this.send(subscriber, { type: 'ack', action: 'ping', topic: '' });
+        this.send(subscriber, { type: 'ack', action: 'ping', to: '' });
         return;
     }
+  }
+
+  /**
+   * Publishes on behalf of a connected subscriber, stamping the sender from the
+   * connection the frame arrived on rather than from anything in the frame — the
+   * only reason a recipient can trust `senderId` enough to reply to it.
+   */
+  private publishFromSubscriber(subscriber: Subscriber, target: Target, publishedAt: number, payload: unknown): void {
+    logger.info(`Subscriber ${subscriber.id} sends a ${target.method} message to ${target.to}.`);
+    const deliveredTo = this.publish(target, { payload, publishedAt, senderId: subscriber.id });
+    this.send(subscriber, { type: 'ack', action: target.method, to: target.to, deliveredTo });
   }
 
   private parseRequest(raw: string): SubscriberRequest {
@@ -149,32 +210,83 @@ export class WsMessageHub implements MessageHub {
     }
     const record: Record<string, unknown> = { ...parsed };
     const action: SubscriberAction = assertOneOf(record['action'], 'action', SUBSCRIBER_ACTIONS);
-    // `ping` carries no topic; everything else is meaningless without one.
-    const topic = action === 'ping' ? '' : assertString(record['topic'], 'topic');
-    return { action, topic, payload: record['payload'] };
+
+    switch (action) {
+      case 'ping':
+        // Carries no address and no payload; it exists only to keep the socket warm.
+        return { action };
+      case 'subscribe':
+      case 'unsubscribe':
+        return { action, topic: assertNonEmptyString(record['topic'], 'topic') };
+      case 'broadcast':
+        return {
+          action,
+          topic: assertNonEmptyString(record['topic'], 'topic'),
+          publishedAt: assertInteger(record['publishedAt'], 'publishedAt'),
+          payload: assertDefined(record['payload'], 'payload'),
+        };
+      case 'p2p':
+        return {
+          action,
+          recipientId: assertNonEmptyString(record['recipientId'], 'recipientId'),
+          publishedAt: assertInteger(record['publishedAt'], 'publishedAt'),
+          payload: assertDefined(record['payload'], 'payload'),
+        };
+    }
   }
 
-  publish(topic: string, payload: unknown, senderId?: string): number {
-    const subscriberIds = this.topicToSubscriberIds.get(topic);
-    if (subscriberIds === undefined || subscriberIds.size === 0) {
-      logger.debug(`No subscribers on topic ${topic}; dropping message.`);
+  publish(target: Target, message: OutboundMessage): number {
+    const recipients = this.recipientsOf(target);
+    if (recipients.length === 0) {
+      // A p2p miss is worth a warning — the sender named someone specific and got
+      // nobody — while an empty topic is the ordinary state of an idle hub.
+      if (target.method === 'p2p') {
+        logger.warn(`Recipient ${target.to} is not connected; dropping the message.`);
+      } else {
+        logger.debug(`No subscribers on topic ${target.to}; dropping message.`);
+      }
       return 0;
     }
 
-    const now = Date.now();
+    const envelope: EventEnvelope = {
+      target,
+      payload: message.payload,
+      publishedAt: message.publishedAt,
+      forwardedAt: Date.now(),
+      senderId: message.senderId,
+    };
+
     let delivered = 0;
-    for (const subscriberId of subscriberIds) {
-      const subscriber = this.subscribers.get(subscriberId);
-      if (subscriber === undefined || subscriber.socket.readyState !== WebSocket.OPEN) {
+    for (const subscriber of recipients) {
+      if (subscriber.socket.readyState !== WebSocket.OPEN) {
         continue;
       }
-      const envelope: EventEnvelope = { topic, payload, publishedAt: now, forwardedAt: now, senderId };
       this.send(subscriber, { type: 'event', envelope });
       delivered += 1;
     }
 
-    logger.debug(`Published to topic ${topic}; delivered to ${delivered} subscriber(s).`);
+    logger.debug(`Forwarded a ${target.method} message to ${target.to}; delivered to ${delivered} subscriber(s).`);
     return delivered;
+  }
+
+  private recipientsOf(target: Target): Subscriber[] {
+    if (target.method === 'p2p') {
+      const subscriber = this.subscribers.get(target.to);
+      return subscriber === undefined ? [] : [subscriber];
+    }
+
+    const subscriberIds = this.topicToSubscriberIds.get(target.to);
+    if (subscriberIds === undefined) {
+      return [];
+    }
+    const recipients: Subscriber[] = [];
+    for (const subscriberId of subscriberIds) {
+      const subscriber = this.subscribers.get(subscriberId);
+      if (subscriber !== undefined) {
+        recipients.push(subscriber);
+      }
+    }
+    return recipients;
   }
 
   getStatus(): HubStatus {

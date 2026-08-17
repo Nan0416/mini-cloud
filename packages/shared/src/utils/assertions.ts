@@ -7,6 +7,17 @@ import { InvalidRequestError } from '../errors';
  * as a confusing `undefined` deep inside the service.
  */
 
+/**
+ * Asserts a field is present without constraining its type — for fields such as a
+ * message payload, where any JSON value is acceptable but absence is not.
+ */
+export function assertDefined(value: unknown, field: string): unknown {
+  if (value === undefined) {
+    throw new InvalidRequestError(`${field} is required`);
+  }
+  return value;
+}
+
 export function assertString(value: unknown, field: string): string {
   if (typeof value !== 'string') {
     throw new InvalidRequestError(`${field} must be a string`);

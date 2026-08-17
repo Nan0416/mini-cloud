@@ -1,5 +1,6 @@
 import {
   AGENT_REPORTED_STATUSES,
+  BroadcastRequest,
   CreateTaskRequest,
   EXTERNAL_TASK_EVENT_SOURCES,
   HealthCheck,
@@ -8,10 +9,10 @@ import {
   LaunchTaskRequest,
   ListHealthChecksRequest,
   ListTaskInstancesRequest,
-  PublishRequest,
   ReportInstancePidRequest,
   ReportInstanceStatusRequest,
   ReportTaskEventRequest,
+  SendToRequest,
   SetReplacementVariablesRequest,
   SetTaskActiveRequest,
   SetTaskTargetAgentsRequest,
@@ -21,6 +22,7 @@ import {
   UpdateTaskRequest,
   assertArray,
   assertBoolean,
+  assertDefined,
   assertInteger,
   assertNonEmptyString,
   assertOneOf,
@@ -194,11 +196,6 @@ export function parseReportInstancePidRequest(body: unknown): ReportInstancePidR
 
 export function parseReportTaskEventRequest(body: unknown): ReportTaskEventRequest {
   const record = assertRecord(body, 'body');
-  const payload = record['payload'];
-  if (payload === undefined) {
-    throw new InvalidRequestError('payload is required');
-  }
-
   return {
     instanceId: assertNonEmptyString(record['instanceId'], 'instanceId'),
     source: assertOneOf(record['source'], 'source', EXTERNAL_TASK_EVENT_SOURCES),
@@ -206,7 +203,7 @@ export function parseReportTaskEventRequest(body: unknown): ReportTaskEventReque
     level: assertOneOf(record['level'], 'level', TASK_EVENT_LEVELS),
     // Any JSON value is acceptable; it is stored as JSONB and read back with its
     // type intact, so a string stays a string and an object stays an object.
-    payload,
+    payload: assertDefined(record['payload'], 'payload'),
   };
 }
 
@@ -224,9 +221,42 @@ export function parseListHealthChecksRequest(body: unknown): ListHealthChecksReq
   };
 }
 
-export function parsePublishRequest(body: unknown): PublishRequest {
+/**
+ * The sender of a message is the connection it arrived on, never a field a caller
+ * can set. HTTP publishers hold no connection, so they are anonymous — rejecting the
+ * field rather than ignoring it stops a caller believing an attribution it did not
+ * actually get.
+ */
+function rejectSenderId(record: Record<string, unknown>): void {
+  if (record['senderId'] !== undefined) {
+    throw new InvalidRequestError('senderId cannot be set by a publisher; HTTP messages are sent anonymously. Publish over a WebSocket to be attributed.');
+  }
+}
+
+/** What both publish routes carry, whatever they are addressed to. */
+interface PublishedMessage {
+  readonly publishedAt: number;
+  readonly payload: unknown;
+}
+
+function parsePublishedMessage(record: Record<string, unknown>): PublishedMessage {
+  rejectSenderId(record);
+  return {
+    // Required, though the field is optional in the contract: `MiniCloudClient` fills
+    // it in, so only a hand-rolled request can reach here without one.
+    publishedAt: assertInteger(record['publishedAt'], 'publishedAt'),
+    payload: assertDefined(record['payload'], 'payload'),
+  };
+}
+
+export function parseBroadcastRequest(body: unknown): Required<BroadcastRequest> {
   const record = assertRecord(body, 'body');
-  return { topic: assertNonEmptyString(record['topic'], 'topic'), payload: record['payload'] };
+  return { topic: assertNonEmptyString(record['topic'], 'topic'), ...parsePublishedMessage(record) };
+}
+
+export function parseSendToRequest(body: unknown): Required<SendToRequest> {
+  const record = assertRecord(body, 'body');
+  return { recipientId: assertNonEmptyString(record['recipientId'], 'recipientId'), ...parsePublishedMessage(record) };
 }
 
 export function requireTaskIdParam(query: unknown): string {
