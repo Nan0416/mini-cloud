@@ -8,6 +8,7 @@ import {
   InvalidRequestError,
   LoggerFactory,
   NotFoundError,
+  ServiceUnreachableError,
   UnauthenticatedError,
 } from '@mini-cloud/shared';
 
@@ -86,10 +87,13 @@ export class HttpClient {
         signal: controller.signal,
       });
     } catch (err) {
+      // Both branches are `ServiceUnreachableError` rather than `InternalServiceError`:
+      // nothing was served, so blaming the service for an internal fault is wrong, and
+      // callers want to say "start the service" rather than "the service has a bug".
       if (err instanceof Error && err.name === 'AbortError') {
-        throw new InternalServiceError(`${method} ${path} timed out after ${this.timeoutMs}ms.`);
+        throw new ServiceUnreachableError(`${method} ${path} timed out after ${this.timeoutMs}ms. The service at ${this.baseUrl} did not answer.`);
       }
-      throw new InternalServiceError(`${method} ${path} could not reach ${this.baseUrl}: ${err instanceof Error ? err.message : String(err)}`);
+      throw new ServiceUnreachableError(`${method} ${path} could not reach ${this.baseUrl}: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       clearTimeout(timeout);
     }

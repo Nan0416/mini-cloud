@@ -5,6 +5,8 @@ import {
   CreateTaskResponse,
   DeleteTaskRequest,
   DeleteTaskResponse,
+  GetHealthRequest,
+  GetHealthResponse,
   GetHubStatusRequest,
   GetHubStatusResponse,
   GetTaskDynamicsRequest,
@@ -29,6 +31,8 @@ import {
   ListTaskInstancesResponse,
   ListTasksRequest,
   ListTasksResponse,
+  PingRequest,
+  PingResponse,
   ReportInstancePidRequest,
   ReportInstancePidResponse,
   ReportInstanceStatusRequest,
@@ -186,5 +190,17 @@ export class MiniCloudClient {
 
   async getHubStatus(_request: GetHubStatusRequest): Promise<GetHubStatusResponse> {
     return this.http.request('GET', '/pubsub/status');
+  }
+
+  // ---- health ----
+
+  /** Liveness. Needs no token, so it answers even when authentication is enabled. */
+  async ping(_request: PingRequest = {}): Promise<PingResponse> {
+    return this.http.request('GET', '/ping');
+  }
+
+  /** Readiness. Answers `degraded` with a 503 when the database is unreachable. */
+  async getHealth(_request: GetHealthRequest = {}): Promise<GetHealthResponse> {
+    return this.http.request('GET', '/health');
   }
 }

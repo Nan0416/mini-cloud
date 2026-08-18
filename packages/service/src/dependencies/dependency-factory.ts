@@ -12,6 +12,7 @@ import { MessageHub } from '../facades/message-hub';
 import { Scheduler } from '../facades/scheduler';
 import { TaskDispatcher } from '../facades/task-dispatcher';
 import { bearerTokenAuth } from '../middleware/auth';
+import { corsMiddleware } from '../middleware/cors';
 import { errorHandler } from '../middleware/error-handler';
 import { requestLogger } from '../middleware/request-logger';
 import { AgentEndpoints } from '../routes/agent-endpoints';
@@ -79,6 +80,12 @@ export class DependencyFactory {
     });
 
     const middleware: RequestHandler[] = [requestLogger()];
+    // Ahead of authentication on purpose: a browser preflight carries no bearer
+    // token, so an auth-first ordering fails every cross-origin request.
+    if (config.corsOrigins.length > 0) {
+      logger.info(`Cross-origin requests are allowed from [${config.corsOrigins.join(', ')}].`);
+      middleware.push(corsMiddleware({ origins: config.corsOrigins }));
+    }
     if (config.authToken !== undefined) {
       logger.info('Bearer token authentication is enabled.');
       middleware.push(bearerTokenAuth(config.authToken));

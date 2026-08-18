@@ -5,13 +5,27 @@ specific bug, the bug is named — a rule you can't justify is a rule that gets 
 
 ## Structure
 
-1. **One monorepo, six packages.** `shared` (models, contracts, utilities), `service`
+1. **One monorepo, seven packages.** `shared` (models, contracts, utilities), `service`
    (control plane), `client` (typed client), `agent` (worker), `reporter` (embedded in
-   launched programs), `cli` (the binary). A package exists when something needs to be
-   installed separately — `reporter` is separate because user programs import it and
-   should not pull in the service.
-2. **Dependencies point one way**: `cli` → `service`/`agent`/`client` → `shared`.
-   Nothing imports upward, and `shared` imports nothing of ours.
+   launched programs), `cli` (the binary), `web` (the browser console). A package
+   exists when something needs to be installed separately — `reporter` is separate
+   because user programs import it and should not pull in the service.
+2. **Dependencies point one way**: `cli` → `service`/`agent`/`client` → `shared`, and
+   `web` → `client` → `shared`. Nothing imports upward, and `shared` imports nothing
+   of ours.
+2b. **A package that two runtimes consume splits its entry point, not itself.**
+   `client` has `index.ts` for Node and `browser.ts` for bundles; the second is the
+   first minus `WsSubscriber`, which imports `ws`. Publishing a separate
+   `client-browser` package, or reimplementing the transport in `web`, would both mean
+   an endpoint has to be written twice — and the second copy is the one that drifts.
+2c. **Every package declares its dev tooling, at the same range as the root.**
+   `typescript` is `^5.7.3` everywhere, so npm resolves one copy and the whole repo
+   compiles with one compiler. The bug this prevents is quiet: `npm i -D typescript`
+   in one workspace takes `latest`, which is now the 7.x native port, and npm answers
+   the conflict by nesting a second compiler under that package — where it silently
+   wins over the root's for every build and editor session in that folder. Pin the
+   range, then check that `find . -type d -path '*node_modules/typescript'` returns
+   exactly one path.
 3. **Layers within `service`**: `routes` parse and delegate, `services` answer
    requests, `facades` carry out work that no request waits on — dispatching a
    launch, the background ticks — `data` talks to Postgres, `utils` holds pure
@@ -21,9 +35,14 @@ specific bug, the bug is named — a rule you can't justify is a rule that gets 
 ## Configuration
 
 4. **One file reads `process.env`.** `stage-config.ts` in the service,
-   `agent-config.ts` in the agent. Everything else receives configuration through its
-   constructor, which is what makes components testable without setting environment
-   variables.
+   `agent-config.ts` in the agent, `lib/config.ts` in the web console (which reads
+   `import.meta.env` instead, but the rule is the same). Everything else receives
+   configuration through its constructor, which is what makes components testable
+   without setting environment variables.
+4b. **`shared` never reads the environment unguarded.** Its `getenv` helpers check
+   `typeof process` first, because `shared` is bundled into the browser by `web` and
+   the log-level lookup in `logger.ts` runs in a static initialiser — unguarded, the
+   console throws `process is not defined` at import time, a long way from the cause.
 5. **Every setting has a default.** Importing a package must never throw for missing
    configuration. The only value with no default is `MINI_CLOUD_AGENT_ID`, where a
    wrong default is worse than none: two agents sharing an id would receive each
@@ -93,6 +112,10 @@ specific bug, the bug is named — a rule you can't justify is a rule that gets 
     caller could plausibly cause. The global handler maps them to status codes; a bare
     `Error` means a bug and always surfaces as a 500 with the detail logged, not
     returned.
+18b. **"There was no service to ask" is not "the service failed."** A transport
+    failure raises `ServiceUnreachableError`, never `InternalServiceError`. Folding
+    them together left every caller unable to tell a control plane that is down from
+    one that is up and broken, which are opposite things to do next about.
 19. **Error messages say what to do next.** "Instance has not reported a pid yet, so
     it cannot be terminated. Wait for it to reach `running`." — not "invalid state".
 
@@ -141,6 +164,37 @@ specific bug, the bug is named — a rule you can't justify is a rule that gets 
     `npm start -- --port 4000` into `npm run serve --port 4000`, where npm eats
     `--port` as its own flag and the command receives a bare `4000`. Chaining to
     `node packages/cli/bin/mini-cloud.js serve` puts the arguments where they belong.
+
+## Web console
+
+31b. **The console calls the service directly, through `MiniCloudClient`.** There is
+    no proxy tier and no second client. It compiles against the same
+    `Request`/`Response` interfaces in `shared` that the service implements, so a
+    contract change is a build failure rather than a runtime 400.
+31c. **CORS is installed before authentication.** A browser sends its preflight
+    `OPTIONS` with no `Authorization` header, so auth-first ordering rejects every
+    preflight with a 401 and the real request is never sent — which surfaces as an
+    unexplained CORS error rather than as an authentication failure.
+31d. **No dev proxy.** The console talks cross-origin in development exactly as in
+    production, so a missing `MINI_CLOUD_CORS_ORIGINS` fails on the developer's
+    machine instead of after a deploy.
+31e. **Every colour is a token**, defined twice in `index.css` — once for light and
+    once for dark. Adding the dark theme then means redefining a dozen variables
+    rather than auditing every component for a hard-coded hex, and a component
+    physically cannot be right in one theme and wrong in the other.
+31f. **Seed state on mount, not in an effect.** A component that must reseed when
+    something opens or loads is mounted only then — a keyed remount, or a body
+    rendered only while a dialog is open. `useEffect(() => setState(...))` causes a
+    cascading render and, worse, silently overwrites what the user has half-typed the
+    next time a poll lands.
+31g. **`disabled` on a `Button asChild` wrapping a `Link` does nothing.** The prop is
+    forwarded onto the `<a>`, which ignores it, and the link still navigates. Render a
+    real `<button>` for the disabled case.
+31h. **`shared` and `client` are aliased to source**, in `vite.config.ts` and
+    `tsconfig.json` together. Their published builds are CommonJS and cannot go into a
+    browser bundle without an interop shim; source also means a model change shows up
+    as a type error immediately rather than after a rebuild. `client` aliases to
+    `browser.ts`, not to the package root.
 
 ## Style
 

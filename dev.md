@@ -56,12 +56,36 @@ To get `mini-cloud` on your PATH and stop typing `npm run cli --`:
 npm link -w @mini-cloud/cli
 ```
 
+## Web console
+
+The console is a separate static app that calls the service's HTTP API directly. It
+runs on its own origin, so the service has to be told to accept cross-origin requests
+from it — without that the browser blocks every call and the console shows a banner
+saying so.
+
+```bash
+# terminal 1 — the control plane
+MINI_CLOUD_CORS_ORIGINS=http://localhost:5173 npm run serve
+
+# terminal 2 — the console, on http://localhost:5173
+npm run web
+```
+
+There is deliberately no dev proxy: the browser talks cross-origin in development
+exactly as it will in production, so a missing `MINI_CLOUD_CORS_ORIGINS` fails here
+rather than after a deploy.
+
+`npm run build` produces `packages/web/dist`, a folder of static files you can serve
+from anything. Point it at a different service with `VITE_MINI_CLOUD_API_URL` — see
+[packages/web/README.md](./packages/web/README.md).
+
 ## Everyday commands
 
 | Command | What it does |
 | --- | --- |
 | `npm start` | Build, then run the control plane |
 | `npm run start:agent` | Build, then run a worker agent on this machine |
+| `npm run web` | Run the web console's dev server on :5173 |
 | `npm run cli -- <args>` | Run any CLI command, e.g. `npm run cli -- task list` |
 | `npm run migrate` | Build, then apply pending migrations and exit |
 | `npm run serve` / `npm run agent` | Same as the `start` pair, but skip the build |
@@ -102,6 +126,7 @@ Every value has a default; nothing is required to run locally.
 | `MINI_CLOUD_HOST` | `127.0.0.1` | Bind address. Loopback by default — exposing the service should be deliberate |
 | `MINI_CLOUD_DATABASE_URL` | `postgres://localhost:5432/mini_cloud_<stage>` | Connection string |
 | `MINI_CLOUD_TOKEN` | *(unset)* | Bearer token for HTTP and WebSocket. Unset means no authentication |
+| `MINI_CLOUD_CORS_ORIGINS` | *(unset)* | Comma-separated browser origins allowed to call the API, or `*`. Unset installs no CORS middleware at all |
 | `MINI_CLOUD_JOB_TICK_MS` | `1000` | How often to check for due jobs. Must be at or below the shortest job interval |
 | `MINI_CLOUD_MAINTENANCE_TICK_MS` | `5000` | Agent probe and stuck-instance sweep interval |
 | `MINI_CLOUD_AGENT_OFFLINE_AFTER_MS` | `15000` | Silence after which an agent is marked offline |
@@ -121,6 +146,16 @@ Every value has a default; nothing is required to run locally.
 | `MINI_CLOUD_AGENT_DIR` | `~/.mini-cloud/agent` | Offline reports and default stdout/stderr files |
 | `MINI_CLOUD_PING_FAILURE_THRESHOLD` | `3` | Consecutive failed probes before an instance is unhealthy |
 | `MINI_CLOUD_PASSIVE_TOLERANCE_MS` | `2000` | Grace added to a passive check's period before a heartbeat counts as missed |
+
+### Web console
+
+Read at build time and inlined into the bundle, so changing either means rebuilding.
+Set them in `packages/web/.env` (copy `.env.example`).
+
+| Variable | Default | Meaning |
+| --- | --- | --- |
+| `VITE_MINI_CLOUD_API_URL` | `http://127.0.0.1:3000` | Base URL of the service the console calls |
+| `VITE_MINI_CLOUD_TOKEN` | *(unset)* | Bearer token, for a service running with `MINI_CLOUD_TOKEN` set |
 
 ## Database schema
 

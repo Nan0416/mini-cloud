@@ -1,4 +1,4 @@
-import { getenv, getenvInteger, getenvOneOf } from '@mini-cloud/shared';
+import { getenv, getenvInteger, getenvList, getenvOneOf } from '@mini-cloud/shared';
 import { SchedulerConfig } from './facades/scheduler';
 
 export type Stage = 'beta' | 'prod';
@@ -11,6 +11,11 @@ export interface ServiceConfig {
   readonly databaseUrl: string;
   /** Bearer token agents and clients must present. Unset disables authentication. */
   readonly authToken?: string;
+  /**
+   * Origins the web UI may call this service from. Empty disables CORS entirely,
+   * which is correct for every caller that is not a browser.
+   */
+  readonly corsOrigins: ReadonlyArray<string>;
   readonly scheduler: SchedulerConfig;
 }
 
@@ -30,6 +35,9 @@ function loadConfig(): ServiceConfig {
     host: getenv('MINI_CLOUD_HOST', '127.0.0.1'),
     databaseUrl: getenv('MINI_CLOUD_DATABASE_URL', `postgres://localhost:5432/mini_cloud_${stage}`),
     authToken: process.env['MINI_CLOUD_TOKEN'],
+    // Empty by default: a browser origin is the only caller that needs this, and
+    // opening the service to one has to be a deliberate act.
+    corsOrigins: getenvList('MINI_CLOUD_CORS_ORIGINS'),
     scheduler: {
       // Must stay at or below the minimum job interval, or occurrences fall between ticks.
       jobTickMs: getenvInteger('MINI_CLOUD_JOB_TICK_MS', 1_000),

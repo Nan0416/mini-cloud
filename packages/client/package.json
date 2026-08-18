@@ -5,6 +5,16 @@
   "description": "Typed HTTP and WebSocket client for the mini-cloud service.",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./browser": {
+      "types": "./dist/browser.d.ts",
+      "default": "./dist/browser.js"
+    }
+  },
   "scripts": {
     "build": "tsc --project tsconfig.json",
     "clean": "rm -rf dist tsconfig.tsbuildinfo"

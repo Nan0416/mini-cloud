@@ -1,4 +1,6 @@
 import js from '@eslint/js';
+import reactHooks from 'eslint-plugin-react-hooks';
+import globals from 'globals';
 import tseslint from 'typescript-eslint';
 
 export default tseslint.config(
@@ -31,5 +33,18 @@ export default tseslint.config(
     // caller.
     files: ['packages/shared/src/api/*.ts', 'packages/service/src/data/*-dao.ts'],
     rules: { '@typescript-eslint/no-empty-object-type': 'off' },
+  },
+  {
+    // The web console runs in a browser, not in Node, and the rules of hooks are the
+    // one class of React mistake that fails silently at runtime rather than at build.
+    files: ['packages/web/**/*.{ts,tsx}'],
+    languageOptions: {
+      globals: globals.browser,
+      parserOptions: { ecmaFeatures: { jsx: true } },
+    },
+    plugins: { 'react-hooks': reactHooks },
+    rules: {
+      ...reactHooks.configs.recommended.rules,
+    },
   },
 );
