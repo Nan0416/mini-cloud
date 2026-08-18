@@ -13,9 +13,9 @@ import {
   agentTopic,
   substituteLaunchFields,
 } from '@mini-cloud/shared';
-import { mkdir } from 'fs/promises';
-import os from 'os';
-import path from 'path';
+import { mkdir } from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import { AgentConfig, offlineReportPath, stderrDir, stdoutDir } from './agent-config';
 import { HealthMonitor, healthCheckPeriodMs } from './health/health-monitor';
 import { OfflineReportReplayer } from './offline-report-replayer';

@@ -1,5 +1,5 @@
 import { Pool } from 'pg';
-import path from 'path';
+import path from 'node:path';
 import { migrate } from '../src/data/migrate';
 import { PgAgentDao } from '../src/data/pg-agent-dao';
 import { PgTaskDao } from '../src/data/pg-task-dao';

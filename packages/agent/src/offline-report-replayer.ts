@@ -1,5 +1,5 @@
 import { LoggerFactory, OfflineReport } from '@mini-cloud/shared';
-import { readFile, unlink } from 'fs/promises';
+import { readFile, unlink } from 'node:fs/promises';
 
 const logger = LoggerFactory.getLogger('OfflineReportReplayer');
 

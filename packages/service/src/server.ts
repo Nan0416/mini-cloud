@@ -1,6 +1,6 @@
 import { LoggerFactory } from '@mini-cloud/shared';
-import http from 'http';
-import { AddressInfo } from 'net';
+import http from 'node:http';
+import { AddressInfo } from 'node:net';
 import { Pool } from 'pg';
 import { migrate } from './data/migrate';
 import { createPool } from './data/pool';

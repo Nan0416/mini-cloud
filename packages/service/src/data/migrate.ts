@@ -1,6 +1,6 @@
 import { LoggerFactory } from '@mini-cloud/shared';
-import { readdirSync, readFileSync } from 'fs';
-import path from 'path';
+import { readdirSync, readFileSync } from 'node:fs';
+import path from 'node:path';
 import { Pool } from 'pg';
 
 const logger = LoggerFactory.getLogger('Migrator');

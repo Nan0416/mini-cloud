@@ -1,6 +1,6 @@
 import { LoggerFactory, OfflineReport, REPORTER_ENV, TaskEventLevel } from '@mini-cloud/shared';
-import { appendFile, mkdir } from 'fs/promises';
-import path from 'path';
+import { appendFile, mkdir } from 'node:fs/promises';
+import path from 'node:path';
 
 const logger = LoggerFactory.getLogger('TaskReporter');
 

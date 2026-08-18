@@ -1,6 +1,6 @@
 import { EventEnvelope, HubMessage } from '@mini-cloud/shared';
-import { AddressInfo } from 'net';
-import { createServer, Server } from 'http';
+import { AddressInfo } from 'node:net';
+import { createServer, Server } from 'node:http';
 import { WebSocket } from 'ws';
 import { WsMessageHub } from '../src/facades/message-hub';
 
