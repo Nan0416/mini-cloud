@@ -1,0 +1,43 @@
+{
+  // Standalone rather than extending tsconfig.base.json: the base targets CommonJS
+  // for Node, while this package is bundled ESM for a browser. It is also `noEmit` —
+  // Vite owns the output — so it is not a composite project and is deliberately
+  // absent from the root solution file's references.
+  "compilerOptions": {
+    "target": "es2022",
+    "lib": ["es2022", "dom", "dom.iterable"],
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "types": ["vite/client"],
+    "noEmit": true,
+    "isolatedModules": true,
+    "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
+    "strict": true,
+    "noImplicitAny": true,
+    "strictNullChecks": true,
+    "strictFunctionTypes": true,
+    "strictPropertyInitialization": true,
+    "alwaysStrict": true,
+    "noImplicitReturns": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "baseUrl": ".",
+    "paths": {
+      // Resolved to source, not to `packages/shared/dist`. The dist build is
+      // CommonJS, which a browser bundle cannot consume without an interop shim, and
+      // pointing at source additionally means editing a model shows up in the UI's
+      // type errors immediately instead of after a rebuild. Vite has the matching
+      // alias in vite.config.ts.
+      "@mini-cloud/shared": ["../shared/src/index.ts"],
+      // The browser entry point: the same typed client, minus the `ws` subscriber.
+      "@mini-cloud/client": ["../client/src/browser.ts"],
+      "@/*": ["./src/*"]
+    }
+  },
+  "include": ["src", "vite.config.ts"]
+}

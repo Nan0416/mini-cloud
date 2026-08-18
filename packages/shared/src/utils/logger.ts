@@ -1,3 +1,5 @@
+import { getenv } from './env';
+
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
 const LEVEL_RANK: Readonly<Record<LogLevel, number>> = { debug: 10, info: 20, warn: 30, error: 40 };
@@ -58,7 +60,10 @@ class ConsoleLogger implements Logger {
 }
 
 function resolveInitialLevel(): LogLevel {
-  const raw = process.env['MINI_CLOUD_LOG_LEVEL'];
+  // Resolved through `getenv` rather than `process.env` directly, because this runs
+  // in a static initialiser: the browser bundle would throw `process is not defined`
+  // at import time, before any UI code gets a chance to run.
+  const raw = getenv('MINI_CLOUD_LOG_LEVEL', 'info');
   if (raw === 'debug' || raw === 'info' || raw === 'warn' || raw === 'error') {
     return raw;
   }

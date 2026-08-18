@@ -29,8 +29,8 @@ that your own programs can use too.
 ```
   CLI ──HTTP──▶ ┌──────────────────────────────┐
                 │  service                     │
-                │  • task + instance store     │──▶ PostgreSQL
-                │  • scheduler                 │
+  web ──HTTP──▶ │  • task + instance store     │──▶ PostgreSQL
+   console      │  • scheduler                 │
                 │  • pub/sub hub (WebSocket)   │
                 └──────────────────────────────┘
                     │  commands            ▲  reports
@@ -60,10 +60,11 @@ itself, which is why a task that wants accurate lifecycle tracking imports
 | --- | --- |
 | `@mini-cloud/shared` | Domain models, API contracts, errors, utilities |
 | `@mini-cloud/service` | Control plane: HTTP API, pub/sub hub, scheduler, Postgres |
-| `@mini-cloud/client` | Typed HTTP + WebSocket client |
+| `@mini-cloud/client` | Typed HTTP + WebSocket client (`/browser` is the HTTP half, for bundles) |
 | `@mini-cloud/agent` | Worker process for each machine |
 | `@mini-cloud/reporter` | Imported by launched programs to report their own lifecycle |
 | `@mini-cloud/cli` | The `mini-cloud` command |
+| `@mini-cloud/web` | The web console — [readme](./packages/web/README.md) |
 
 ## Getting started
 
@@ -115,10 +116,27 @@ Agents then resolve host-local values on the machine where the task actually run
 a single pass and leaves unknown placeholders alone, which is what lets the service's
 pass and the agent's pass compose without interfering.
 
+## Web console
+
+Everything above, in a browser: what is running right now, the task list and each
+task's versions, an instance's event log, the fleet, the replacement variables, and
+the pub/sub hub's topics.
+
+```bash
+npm start      # terminal 1
+npm run web    # terminal 2, then open http://localhost:5173
+```
+
+The console is a static bundle that calls the service's HTTP API directly — no proxy
+tier, no server of its own. The service allows any browser origin by default so those
+two commands work together; narrow it with `MINI_CLOUD_CORS_ORIGINS`, or require a
+token with `MINI_CLOUD_TOKEN`, before leaving it running unattended. See
+[packages/web/README.md](./packages/web/README.md).
+
 ## Status
 
-Task scheduling and pub/sub work end to end. Artifact storage, the issue tracker,
-metrics aggregation and the web UI are next.
+Task scheduling, pub/sub and the web console work end to end. Artifact storage, the
+issue tracker and metrics aggregation are next.
 
 ## License
 

@@ -1,3 +1,4 @@
+import { GetHealthResponse, PingResponse } from '@mini-cloud/shared';
 import { Router } from 'express';
 import type { Express } from 'express';
 import { Pool } from 'pg';
@@ -15,16 +16,19 @@ export class HealthEndpoints implements Endpoints {
 
     /** Liveness: the process is up and serving. Deliberately touches nothing else. */
     this.router.get('/ping', (_req, res) => {
-      res.status(200).json({ status: 'ok' });
+      const response: PingResponse = { status: 'ok' };
+      res.status(200).json(response);
     });
 
     /** Readiness: the process is up *and* the database answers. */
     this.router.get('/health', async (_req, res) => {
       try {
         await props.pool.query('SELECT 1');
-        res.status(200).json({ status: 'ok', database: 'ok' });
+        const response: GetHealthResponse = { status: 'ok', database: 'ok' };
+        res.status(200).json(response);
       } catch {
-        res.status(503).json({ status: 'degraded', database: 'unreachable' });
+        const response: GetHealthResponse = { status: 'degraded', database: 'unreachable' };
+        res.status(503).json(response);
       }
     });
   }
