@@ -12,5 +12,8 @@
   "dependencies": {
     "@mini-cloud/shared": "1.0.0"
   },
+  "devDependencies": {
+    "@types/node": "^22.10.5"
+  },
   "license": "MIT"
 }

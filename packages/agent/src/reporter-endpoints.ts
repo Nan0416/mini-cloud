@@ -1,6 +1,6 @@
 import { InvalidRequestError, LoggerFactory, TASK_EVENT_LEVELS, assertInteger, assertNonEmptyString, assertOneOf, assertRecord } from '@mini-cloud/shared';
 import express, { NextFunction, Request, Response } from 'express';
-import http from 'http';
+import http from 'node:http';
 
 const logger = LoggerFactory.getLogger('ReporterEndpoints');
 

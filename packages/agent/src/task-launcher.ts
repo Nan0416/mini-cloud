@@ -1,9 +1,9 @@
 import { LaunchInstruction, LoggerFactory, REPORTER_ENV } from '@mini-cloud/shared';
-import { SpawnOptions, spawn } from 'child_process';
-import { createWriteStream } from 'fs';
-import { mkdir } from 'fs/promises';
-import path from 'path';
-import { Writable } from 'stream';
+import { SpawnOptions, spawn } from 'node:child_process';
+import { createWriteStream } from 'node:fs';
+import { mkdir } from 'node:fs/promises';
+import path from 'node:path';
+import { Writable } from 'node:stream';
 
 const logger = LoggerFactory.getLogger('TaskLauncher');
 

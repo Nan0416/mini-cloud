@@ -12,7 +12,7 @@ import {
   assertNonEmptyString,
   assertOneOf,
 } from '@mini-cloud/shared';
-import { IncomingMessage, Server } from 'http';
+import { IncomingMessage, Server } from 'node:http';
 import { nanoid } from 'nanoid';
 import { WebSocket, WebSocketServer } from 'ws';
 

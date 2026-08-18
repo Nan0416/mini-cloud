@@ -9,5 +9,8 @@
     "build": "tsc --project tsconfig.json",
     "clean": "rm -rf dist tsconfig.tsbuildinfo"
   },
+  "devDependencies": {
+    "@types/node": "^22.10.5"
+  },
   "license": "MIT"
 }

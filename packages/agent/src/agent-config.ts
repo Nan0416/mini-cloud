@@ -1,6 +1,6 @@
 import { InvalidRequestError, getenv, getenvInteger } from '@mini-cloud/shared';
-import os from 'os';
-import path from 'path';
+import os from 'node:os';
+import path from 'node:path';
 
 export interface AgentConfig {
   readonly agentId: string;
