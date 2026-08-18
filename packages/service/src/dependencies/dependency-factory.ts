@@ -83,7 +83,14 @@ export class DependencyFactory {
     // Ahead of authentication on purpose: a browser preflight carries no bearer
     // token, so an auth-first ordering fails every cross-origin request.
     if (config.corsOrigins.length > 0) {
-      logger.info(`Cross-origin requests are allowed from [${config.corsOrigins.join(', ')}].`);
+      // Warned rather than logged, for the same reason the missing token is: a
+      // service any page can drive should say so on every start, not only in a
+      // document someone has to go and read.
+      if (config.corsOrigins.includes('*')) {
+        logger.warn('MINI_CLOUD_CORS_ORIGINS allows any origin: any web page the operator visits can call this service. Set it to your console origin to narrow that.');
+      } else {
+        logger.info(`Cross-origin requests are allowed from [${config.corsOrigins.join(', ')}].`);
+      }
       middleware.push(corsMiddleware({ origins: config.corsOrigins }));
     }
     if (config.authToken !== undefined) {

@@ -123,14 +123,14 @@ task's versions, an instance's event log, the fleet, the replacement variables, 
 the pub/sub hub's topics.
 
 ```bash
-MINI_CLOUD_CORS_ORIGINS=http://localhost:5173 npm run serve   # terminal 1
-npm run web                                                   # terminal 2
+npm start      # terminal 1
+npm run web    # terminal 2, then open http://localhost:5173
 ```
 
 The console is a static bundle that calls the service's HTTP API directly — no proxy
-tier, no server of its own. Because it is served from its own origin, the service
-only answers it once `MINI_CLOUD_CORS_ORIGINS` names that origin; unset, the CORS
-middleware is not installed and the only callers are the CLI and the agents. See
+tier, no server of its own. The service allows any browser origin by default so those
+two commands work together; narrow it with `MINI_CLOUD_CORS_ORIGINS`, or require a
+token with `MINI_CLOUD_TOKEN`, before leaving it running unattended. See
 [packages/web/README.md](./packages/web/README.md).
 
 ## Status

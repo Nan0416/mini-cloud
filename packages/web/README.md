@@ -4,14 +4,11 @@ The mini-cloud web console: tasks, instances, agents, replacement variables and 
 pub/sub hub, in a browser.
 
 ```bash
-# terminal 1 — the control plane, told which origin the console will call from
-MINI_CLOUD_CORS_ORIGINS=http://localhost:5173 npm run serve
-
-# terminal 2 — the console
-npm run web
+npm start      # terminal 1 — the control plane
+npm run web    # terminal 2 — the console
 ```
 
-Then open http://localhost:5173.
+Then open http://localhost:5173. Nothing to configure.
 
 ## How it talks to the service
 
@@ -26,15 +23,18 @@ a Node package a browser bundle cannot resolve. A browser that needs to subscrib
 should use the platform `WebSocket` against `/ws`; the subscriber exists for the
 reconnect and replay logic Node callers need.
 
-Because the console is served from its own origin, the service has to be told to
-allow it: set `MINI_CLOUD_CORS_ORIGINS` to a comma-separated list of origins (or `*`).
-Unset, no CORS middleware is installed at all and the browser is refused — which is
-the right default for a control plane whose only other callers are the CLI and the
-agents.
+The console is served from its own origin, so the service answers it under CORS. It
+allows **any** origin by default, which is what makes the two commands above work
+with no setup — and is wider than a loopback bind makes it sound: the browser sends
+the request, so a page you visit can reach the service and read the answer, and an
+unauthenticated control plane will launch a command for it. Narrow it with
+`MINI_CLOUD_CORS_ORIGINS=http://localhost:5173`, or require a token with
+`MINI_CLOUD_TOKEN`. Setting the origins variable replaces the default rather than
+adding to it; setting it empty installs no CORS middleware at all.
 
 Development deliberately has **no Vite proxy**, so the request is cross-origin in
-development exactly as it is in production. A missing `MINI_CLOUD_CORS_ORIGINS` then
-fails on your machine rather than only after you deploy.
+development exactly as it is in production and nothing about the request path
+changes between them.
 
 ## Configuration
 

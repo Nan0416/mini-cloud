@@ -176,8 +176,14 @@ specific bug, the bug is named — a rule you can't justify is a rule that gets 
     preflight with a 401 and the real request is never sent — which surfaces as an
     unexplained CORS error rather than as an authentication failure.
 31d. **No dev proxy.** The console talks cross-origin in development exactly as in
-    production, so a missing `MINI_CLOUD_CORS_ORIGINS` fails on the developer's
-    machine instead of after a deploy.
+    production, so nothing about the request path differs between them and a CORS
+    problem cannot hide behind a rewrite that only exists on one of them.
+31d2. **The permissive defaults announce themselves at startup.** CORS defaults to
+    any origin and authentication to none, because a home-lab control plane that
+    needs configuration before its own console works is a worse first five minutes.
+    Both log a `warn` on every start for the same reason: a service any page can
+    drive should say so where the operator is already looking, not only in a document
+    they have to go and find.
 31e. **Every colour is a token**, defined twice in `index.css` — once for light and
     once for dark. Adding the dark theme then means redefining a dozen variables
     rather than auditing every component for a hard-coded hex, and a component

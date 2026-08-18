@@ -58,22 +58,33 @@ npm link -w @mini-cloud/cli
 
 ## Web console
 
-The console is a separate static app that calls the service's HTTP API directly. It
-runs on its own origin, so the service has to be told to accept cross-origin requests
-from it — without that the browser blocks every call and the console shows a banner
-saying so.
+The console is a separate static app that calls the service's HTTP API directly, from
+its own origin. Nothing to configure:
 
 ```bash
-# terminal 1 — the control plane
-MINI_CLOUD_CORS_ORIGINS=http://localhost:5173 npm run serve
-
-# terminal 2 — the console, on http://localhost:5173
-npm run web
+npm start      # terminal 1 — the control plane
+npm run web    # terminal 2 — the console, on http://localhost:5173
 ```
 
+The service allows any origin by default, which is what makes those two commands work
+together. **That is wider than it sounds**: the browser makes the request, so binding
+to loopback does not stop a page you happen to be visiting from reaching the service
+and reading the answer — and an unauthenticated control plane will happily launch a
+command for it. Two ways to close that, either of which is worth doing before you
+leave it running:
+
+```bash
+MINI_CLOUD_CORS_ORIGINS=http://localhost:5173    # only the console's origin
+MINI_CLOUD_TOKEN=$(openssl rand -hex 32)         # or require a token from everyone
+```
+
+Setting `MINI_CLOUD_CORS_ORIGINS` replaces the default rather than adding to it, so
+naming your own origins genuinely narrows things. Setting it to an empty value
+disables CORS altogether and no browser gets through at all.
+
 There is deliberately no dev proxy: the browser talks cross-origin in development
-exactly as it will in production, so a missing `MINI_CLOUD_CORS_ORIGINS` fails here
-rather than after a deploy.
+exactly as it will in production, so nothing about the request path changes between
+the two.
 
 `npm run build` produces `packages/web/dist`, a folder of static files you can serve
 from anything. Point it at a different service with `VITE_MINI_CLOUD_API_URL` — see
@@ -126,7 +137,7 @@ Every value has a default; nothing is required to run locally.
 | `MINI_CLOUD_HOST` | `127.0.0.1` | Bind address. Loopback by default — exposing the service should be deliberate |
 | `MINI_CLOUD_DATABASE_URL` | `postgres://localhost:5432/mini_cloud_<stage>` | Connection string |
 | `MINI_CLOUD_TOKEN` | *(unset)* | Bearer token for HTTP and WebSocket. Unset means no authentication |
-| `MINI_CLOUD_CORS_ORIGINS` | *(unset)* | Comma-separated browser origins allowed to call the API, or `*`. Unset installs no CORS middleware at all |
+| `MINI_CLOUD_CORS_ORIGINS` | `*` | Comma-separated browser origins allowed to call the API. `*` allows any; an empty value installs no CORS middleware at all |
 | `MINI_CLOUD_JOB_TICK_MS` | `1000` | How often to check for due jobs. Must be at or below the shortest job interval |
 | `MINI_CLOUD_MAINTENANCE_TICK_MS` | `5000` | Agent probe and stuck-instance sweep interval |
 | `MINI_CLOUD_AGENT_OFFLINE_AFTER_MS` | `15000` | Silence after which an agent is marked offline |
