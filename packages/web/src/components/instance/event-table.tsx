@@ -4,10 +4,21 @@ import { DataTable, type Column } from '@/components/common/data-table';
 import { EventLevelBadge, EventSourceLabel } from '@/components/common/status-badge';
 import { Timestamp } from '@/components/common/timestamp';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { firstLine, formatPayload, formatTimestamp } from '@/lib/format';
+import { formatPayload, formatPayloadInline, formatTimestamp, truncate } from '@/lib/format';
 
+/** The longest inline payload a cell keeps in the DOM; CSS truncates what still overflows. */
+const CELL_LIMIT = 160;
+
+function inlineText(event: TaskEvent): string {
+  const { lead, rest } = formatPayloadInline(event.payload);
+  return rest.length === 0 ? lead : `${lead} ${rest}`;
+}
+
+// Matched against the inline form, not the indented one: a filter typed the way the
+// row reads must find that row, and the pretty-printed string has quoting and newlines
+// the reader never saw. Untruncated, so a term hidden past the cell's limit still hits.
 function search(term: string, event: TaskEvent): boolean {
-  return event.level === term || event.source === term || formatPayload(event.payload).toLowerCase().includes(term);
+  return event.level === term || event.source === term || inlineText(event).toLowerCase().includes(term);
 }
 
 /**
@@ -15,8 +26,8 @@ function search(term: string, event: TaskEvent): boolean {
  * reported through `@mini-cloud/reporter`.
  *
  * Payloads are JSONB and come back parsed, so a message can be a string or an
- * object. The cell shows the first line and the dialog shows the whole thing —
- * a stack trace in a table row destroys the row height for every other event.
+ * object. The cell shows the payload on one line and the dialog shows the indented
+ * form — a stack trace in a table row destroys the row height for every other event.
  */
 export function EventTable(props: { readonly events?: ReadonlyArray<TaskEvent>; readonly isLoading?: boolean; readonly error?: unknown; readonly onRetry?: () => void }) {
   const [selected, setSelected] = useState<TaskEvent | undefined>(undefined);
@@ -36,8 +47,12 @@ export function EventTable(props: { readonly events?: ReadonlyArray<TaskEvent>; 
       header: 'Message',
       className: 'max-w-0',
       cell: (event) => {
-        const text = formatPayload(event.payload);
-        const multiline = text.includes('\n');
+        const { lead, rest } = formatPayloadInline(event.payload);
+        const head = truncate(lead, CELL_LIMIT);
+        // The rest shares one budget with the lead, so a long message crowds it out
+        // rather than the row growing to fit both.
+        const tail = truncate(rest, CELL_LIMIT - head.text.length);
+        const truncated = head.truncated || tail.truncated;
         return (
           <button
             type="button"
@@ -46,10 +61,11 @@ export function EventTable(props: { readonly events?: ReadonlyArray<TaskEvent>; 
               setSelected(event);
             }}
             className="block w-full truncate text-left font-mono text-[0.8125rem] hover:text-primary hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-            title={multiline ? 'Click to see the full payload' : text}
+            title={truncated ? 'Click to see the full payload' : inlineText(event)}
           >
-            {firstLine(text)}
-            {multiline ? <span className="ml-1 text-muted-foreground">…</span> : null}
+            {head.text}
+            {tail.text.length === 0 ? null : <span className="ml-1 text-muted-foreground">{tail.text}</span>}
+            {truncated ? <span className="ml-1 text-muted-foreground">…</span> : null}
           </button>
         );
       },
