@@ -44,9 +44,13 @@ specific bug, the bug is named — a rule you can't justify is a rule that gets 
    the log-level lookup in `logger.ts` runs in a static initialiser — unguarded, the
    console throws `process is not defined` at import time, a long way from the cause.
 5. **Every setting has a default.** Importing a package must never throw for missing
-   configuration. The only value with no default is `MINI_CLOUD_AGENT_ID`, where a
-   wrong default is worse than none: two agents sharing an id would receive each
-   other's commands.
+   configuration. `MINI_CLOUD_AGENT_ID` defaults to this machine's hostname,
+   normalized — lowercased, with a trailing `.local` stripped, because macOS reports
+   `Nans-MacBook-Pro.local` locally and `nans-macbook-pro` over SSH, and one machine
+   registering under two ids depending on how it was started is worse than the flag
+   the default removes. `localhost` is the one hostname refused: every machine answers
+   to it, so defaulting to it would hand the whole fleet one id — and two agents
+   sharing an id receive each other's commands.
 5b. **Command-line overrides are resolved inside the config loader**, not applied by
    the caller afterwards. `loadAgentConfig({ agentId })` decides flag-over-environment
    precedence in one place — applying overrides after loading meant the loader

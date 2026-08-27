@@ -20,8 +20,8 @@ export function buildAgentCommand(): Command {
   agent
     .command('start')
     .description('run a worker agent on this machine, in the foreground')
-    .option('--id <agentId>', 'unique agent id (env MINI_CLOUD_AGENT_ID)')
-    .option('--name <name>', 'display name (default: this machine’s hostname)')
+    .option('--id <agentId>', 'unique agent id (env MINI_CLOUD_AGENT_ID; default: this machine’s hostname)')
+    .option('--name <name>', 'display name (env MINI_CLOUD_AGENT_NAME; default: the agent id)')
     .option('--port <port>', 'loopback port for the reporter API', (value) => parsePositiveInteger(value, 'port'))
     .action(async function (this: Command, options: { id?: string; name?: string; port?: number }) {
       const global: GlobalOptions = this.optsWithGlobals();
@@ -64,7 +64,7 @@ export function buildAgentCommand(): Command {
         printJson(agents);
         return;
       }
-      printTable(agents, AGENT_COLUMNS, 'No agents have registered yet. Start one with: mini-cloud agent start --id <id>');
+      printTable(agents, AGENT_COLUMNS, 'No agents have registered yet. Start one with: mini-cloud agent start');
     });
 
   agent
