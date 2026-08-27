@@ -6,135 +6,13 @@ Delete an entry once it has shipped.
 
 ---
 
-## 1. Default the agent id to the hostname
-
-**Today.** `loadAgentConfig` refuses to start without an explicit id
-(`packages/agent/src/agent-config.ts:42-46`), so every agent needs `--id` or
-`MINI_CLOUD_AGENT_ID`. `name` already defaults to `os.hostname()`
-(`agent-config.ts:50`). Starting the first agent on a machine therefore costs a flag
-that carries no information the machine could not supply itself.
-
-**Change.** Default the id to the hostname too, and keep both overrides, so the
-common case is `mini-cloud agent start` and the several-agents-per-machine case stays
-possible with `--id`.
-
-| Value | Today | Proposed |
-| --- | --- | --- |
-| `agentId` | required — `--id` / `MINI_CLOUD_AGENT_ID` | defaults to the normalized hostname; same overrides |
-| `name` | `--name` / `MINI_CLOUD_AGENT_NAME`, else `os.hostname()` | `--name` / `MINI_CLOUD_AGENT_NAME`, else **the resolved `agentId`** |
-
-### Decisions
-
-**`name` follows the resolved id, not the hostname.** Otherwise a second agent on the
-same box (`--id laptop-1-b`) registers under a name identical to the first one's, and
-the console's Name column stops distinguishing them — the very case the override
-exists to serve. The real hostname stays reachable at launch time as `${HOSTNAME}`
-(`packages/agent/src/agent.ts:321`), which is a separate variable from `${AGENT_NAME}`
-precisely so the two can differ.
-
-**Normalize the hostname; do not use it raw.** macOS reports
-`Nans-MacBook-Pro.local` while the same machine over SSH reports
-`nans-macbook-pro`, and one machine that registers under two ids depending on how it
-was started is worse than the flag we are removing. Lowercase, and strip a trailing
-`.local`. Note the cost: two machines whose names differ only in case would now
-collide. That is rarer than the split-identity it prevents.
-
-Dots are the topic separator in `mini-cloud.agent.<agentId>`
-(`packages/shared/src/models/pubsub.ts:13`). Matching is exact string equality, so a
-dotted id is harmless — but stripping `.local` keeps ids one segment, which is worth
-having when reading hub logs.
-
-**Refuse `localhost`.** If the normalized hostname is `localhost` (or empty), keep
-today's `InvalidRequestError` and tell the user to pass `--id`. Every machine answers
-to `localhost`, so defaulting to it would hand the whole fleet one id — the failure
-mode described in §2 below, arrived at by default rather than by mistake.
-
-**Log which path was taken.** The startup line at `agent.ts:97` should say whether the
-id was supplied or derived. When two agents do end up sharing an id, that line is the
-first place someone will look.
-
-**Keep the derivation pure.** Put `normalizeHostname(raw: string): string` (or
-`defaultAgentId`) beside `loadAgentConfig` and have the loader call it, per guideline
-26 — the interesting cases (`Nans-MacBook-Pro.local`, `localhost`, empty) are then
-testable without touching `process.env`.
-
-### Files
-
-- `packages/agent/src/agent-config.ts:42-50` — the default, the normalizer, the `localhost` guard.
-- `packages/agent/src/agent.ts:97` — startup log states supplied vs. derived.
-- `packages/cli/src/commands/agent.ts:23-24` — `--id` is no longer required; `--name` help text now says it defaults to the agent id.
-- `packages/cli/src/commands/agent.ts:67` — the empty-list hint can drop `--id <id>`.
-- `packages/agent/tests/agent-config.test.ts` — new; jest's roots already cover it.
-- Docs that show the flag as mandatory: `README.md:11,83`, `dev.md:50,120,153` (the env table says *required*), `CLAUDE.md:33`.
-
-### Risk this adds
-
-Collisions get likelier, not less. Two Raspberry Pis imaged from the same card both
-answer to `raspberrypi`, and nothing in the service notices two agents sharing an id:
-`recordHeartbeat` upserts on the primary key (`packages/service/src/data/pg-agent-dao.ts:43-45`)
-and command topics fan out to every subscriber (`message-hub.ts:238-263`), so both
-agents would receive every launch and each spawn its own process against one instance
-row. Worth pairing this change with §2.
-
----
-
-## 2. Render structured event payloads readably in the instance table
-
-**Today.** `formatPayload` pretty-prints an object payload with two-space indentation
-(`packages/web/src/lib/format.ts:161-166`) and the Message cell renders `firstLine`
-of it (`packages/web/src/components/instance/event-table.tsx:39-53`). The first line
-of a pretty-printed object is `{`, so every task event — the ones carrying the
-detail — shows as `{` plus the truncation marker, and the payload is only visible by
-opening the dialog. String payloads, which is everything the service and the agent
-write, are unaffected; this reads as "the console is broken for task events".
-
-**Change.** The table cell serializes to one line; the dialog keeps the indented form.
-
-### Decisions
-
-**Add `formatPayloadInline`, do not change `formatPayload`.** The dialog's `<pre>` and
-the indented form are correct where there is room for them. The cell needs a
-different rendering of the same value, not a different value — so a sibling function
-in `format.ts`, with `formatPayload` left alone.
-
-**Lead with `message` when there is one.** Compact JSON is honest but spends the
-leftmost pixels on `{"message":"`, which is where the eye lands. When the payload is
-an object with a string `message`, render that first and the remaining keys after it
-in muted text; otherwise fall back to compact JSON. Payload is `unknown` and nothing
-enforces a shape, so the fallback carries the general case — but the convention holds
-for everything we write today, and the table is read far more often than the dialog.
-
-**Fix what the `…` marker means.** It currently marks *multiline*
-(`event-table.tsx:41`), which after this change is never true, while the cell still
-truncates at `firstLine`'s 160 characters and again through CSS. It should mark
-*truncated*, or the only signal that there is more to see disappears precisely when
-there is.
-
-**Search the inline form.** `search` matches against the pretty-printed string
-(`event-table.tsx:10`), so a filter typed the way the row reads fails on JSON's
-quoting and spacing. Matching the same text the cell shows is what makes the filter
-predictable.
-
-### Files
-
-- `packages/web/src/lib/format.ts:154-173` — `formatPayloadInline`, and a truncation
-  helper that reports whether it truncated rather than silently eliding.
-- `packages/web/src/components/instance/event-table.tsx:10,39-53` — cell rendering,
-  the marker condition, the `title` text, and the search haystack.
-- `packages/web/tests/format.test.ts` — new. The formatter is pure and the package has
-  no tests yet; jest's roots already cover `packages/*/tests`, but `format.ts` is
-  reached through the `@/` alias elsewhere, so check whether the root
-  `moduleNameMapper` needs an `^@/` entry before assuming a new web test runs.
-
----
-
-## 3. Choose the backend at runtime, so the console can be hosted anywhere
+## 1. Choose the backend at runtime, so the console can be hosted anywhere
 
 **Today.** The console is pinned to one service at build time: `lib/config.ts:26-29`
 reads `VITE_MINI_CLOUD_API_URL`, which Vite inlines, and `lib/api.ts:13` builds a
 module-level `MiniCloudClient` from it that every hook imports directly. Pointing the
 same bundle at a different service means rebuilding it. To host the console on
-CloudFront (§6) it has to ask, on first load, where the service is.
+CloudFront (§4) it has to ask, on first load, where the service is.
 
 **Change.** A first-run screen collects the service URL (and a token when the service
 wants one), verifies it before accepting it, and stores it in the browser. The rest of
@@ -234,10 +112,10 @@ serves their own, and empty to suppress the line entirely. A service that hardco
 one maintainer's domain into everyone's startup banner is presumptuous even when, as
 here, nothing is sent anywhere.
 
-**No token in the link, ever.** After §4 the console still needs the secret, and it is
+**No token in the link, ever.** After §2 the console still needs the secret, and it is
 tempting to carry it here. Do not: the URL gets pasted into a browser, which puts it in
 history, and the `Referer` on the first request hands it to the console origin's access
-logs. §4 already rules this out.
+logs. §2 already rules this out.
 
 ### Deployment notes
 
@@ -264,11 +142,11 @@ logs. §4 already rules this out.
 
 ---
 
-## 4. Exchange the shared token for a console session
+## 2. Exchange the shared token for a console session
 
 **Today.** One static token for everything (`middleware/auth.ts`): the CLI sends it,
 every agent sends it on its WebSocket upgrade (`facades/message-hub.ts:68-80`), and
-under §3 the console would keep it in `localStorage`. It never expires, the only way
+under §1 the console would keep it in `localStorage`. It never expires, the only way
 to revoke it is to rotate `MINI_CLOUD_TOKEN` and restart every agent, and a script
 that reads the console's storage gets the credential to the whole fleet.
 
@@ -297,7 +175,7 @@ console-only. It also opens the door to a separate console secret later, so revo
 browser access stops requiring a fleet restart.
 
 **Start with one session token, not an access/refresh pair.** The usual reason to
-split them is keeping the long-lived half in an httpOnly cookie. Under §3 the console
+split them is keeping the long-lived half in an httpOnly cookie. Under §1 the console
 and the service are cross-site (`https://…cloudfront.net` → `http://localhost:3000`),
 so that cookie needs `SameSite=None; Secure` and dies to third-party cookie blocking
 in Safari today and Chrome shortly. The refresh token would live in `localStorage`
@@ -311,7 +189,7 @@ later without changing where the browser stores things.
 whose whole job is checking a secret. There is no rate limiting anywhere in the
 service yet, so this is the first of it.
 
-**Never put the secret in a URL.** §3's `?backend=` carries the service URL only. Tokens in
+**Never put the secret in a URL.** §1's `?backend=` carries the service URL only. Tokens in
 query strings end up in history, logs and referrers.
 
 ### Open
@@ -330,12 +208,12 @@ query strings end up in history, logs and referrers.
 - `packages/service/src/routes/` — `auth-endpoints.ts`: login, logout, and a "who am I / is this still valid" probe the console can call on load.
 - `packages/service/src/middleware/auth.ts` — accept either the static token or a live session token; keep `/ping` public.
 - `packages/service/src/middleware/` — new rate limiter for the login route.
-- `packages/web` — the setup screen from §3 posts the secret instead of storing it; storage holds the session token; a 401 anywhere sends the user back to the screen.
+- `packages/web` — the setup screen from §1 posts the secret instead of storing it; storage holds the session token; a 401 anywhere sends the user back to the screen.
 - `dev.md`, `README.md` — what the console stores, and how to revoke a session.
 
 ---
 
-## 5. Retire `MINI_CLOUD_TOKEN`
+## 3. Retire `MINI_CLOUD_TOKEN`
 
 **Today.** One shared static secret authenticates everything: the console, the CLI,
 and every agent's WebSocket upgrade (`middleware/auth.ts`,
@@ -351,12 +229,12 @@ having one secret that four different kinds of caller share".
 
 | Caller | Replacement |
 | --- | --- |
-| Console | Session token from §4 |
+| Console | Session token from §2 |
 | Agent | Per-agent token, issued at enrolment |
 | CLI, interactive | `mini-cloud login`, session stored at `~/.mini-cloud/credentials` (0600) |
 | CLI, scripted | A labelled API key with no expiry, revocable from the console |
 
-So the store from §4 holds credential *kinds*, not only browser sessions. Design it
+So the store from §2 holds credential *kinds*, not only browser sessions. Design it
 that way from the start; retrofitting a `kind` column across live rows is the kind of
 migration worth avoiding.
 
@@ -364,7 +242,7 @@ migration worth avoiding.
 
 A credential bound to an agent id *proves* the id. The collision problem recorded
 below — two processes claiming `laptop-1`, each receiving the other's commands, which
-§1 makes likelier by defaulting the id to the hostname — stops being possible: the
+the shipped hostname default makes likelier — stops being possible: the
 second process cannot complete the WebSocket upgrade without that agent's token.
 Enrolment replaces the boot-session-id sketch entirely, and gives the console
 something it cannot do today, which is deauthorize one machine.
@@ -399,7 +277,7 @@ release, as a `!` commit — it is a breaking change for anyone running agents.
 
 ### Files
 
-Everything in §4, plus:
+Everything in §2, plus:
 
 - `packages/agent/src/agent-config.ts:54`, `packages/agent/src/agent.ts` — per-agent token, and what the agent does when it is rejected (stop, rather than reconnect forever).
 - `packages/service/src/facades/message-hub.ts:68-80` — the upgrade check resolves a credential instead of comparing a string; this is where id binding is enforced.
@@ -409,9 +287,9 @@ Everything in §4, plus:
 
 ---
 
-## 6. Publish a hosted console at `mini-cloud.qinnan.dev` (CDK: S3 + CloudFront + ACM)
+## 4. Publish a hosted console at `mini-cloud.qinnan.dev` (CDK: S3 + CloudFront + ACM)
 
-Depends on §3 — a build with no service URL baked in is what makes one deployment
+Depends on §1 — a build with no service URL baked in is what makes one deployment
 usable by strangers.
 
 **Why.** Convenience only. Someone who wants to look at the console should not have to
@@ -453,7 +331,7 @@ per deployment) and an invalidation limited to `/index.html`.
 
 **Never send `upgrade-insecure-requests` or `block-all-mixed-content`.** Either one
 rewrites or kills the console's requests to `http://localhost:3000` — the only backend
-a hosted copy can reach at all (§3). This is the one header that would silently break
+a hosted copy can reach at all (§1). This is the one header that would silently break
 the entire product on the hosted domain. If a CSP is added, `connect-src` must stay
 open for the same reason.
 
@@ -477,7 +355,7 @@ established: assume a deploy role, build `packages/web`, `cdk deploy`.
 
 A hosted console can only talk to a mini-cloud running on the same machine as the
 browser, at `http://localhost:3000` or `http://127.0.0.1:3000`. A LAN address will
-never work from an HTTPS page, and Safari may refuse loopback as well (§3). Anyone who
+never work from an HTTPS page, and Safari may refuse loopback as well (§1). Anyone who
 needs more should serve the console from the same box as their service — the bundle is
 static and `packages/web/README.md:109` already says how.
 
@@ -486,7 +364,7 @@ static and `packages/web/README.md:109` already says how.
 A public page that can reach `localhost` makes the CORS default worth revisiting:
 `MINI_CLOUD_CORS_ORIGINS` defaults to `*` (`stage-config.ts:52`), so *any* page a user
 visits can already drive their service, and their service launches processes on their
-machine. Authentication (§4, §5) is the real mitigation — a session token in
+machine. Authentication (§2, §3) is the real mitigation — a session token in
 `localStorage` is origin-scoped, so an unrelated page cannot use it — and until that
 ships, the hosted console should tell people to narrow the variable to its origin.
 
@@ -516,9 +394,9 @@ Identity is self-asserted today and nothing validates it. The service cannot tel
 processes apart, because the heartbeat carries only `{agentId, name}` — a restart and
 an impostor look identical.
 
-**Superseded by §5 if that ships.** A per-agent token bound to an agent id proves the
+**Superseded by §3 if that ships.** A per-agent token bound to an agent id proves the
 id at the WebSocket upgrade, which is a stronger guarantee than detecting a collision
-after the fact. Keep the sketch only as the cheap fallback if §5 is deferred: the
+after the fact. Keep the sketch only as the cheap fallback if §3 is deferred: the
 agent generates a session id at boot and sends it with each heartbeat, and the service
 rejects — or at least logs loudly — when it changes while `last_seen_at` is still
 inside the offline window.
