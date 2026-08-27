@@ -12,11 +12,9 @@
   "scripts": {
     "build": "npm run build -w @mini-cloud/shared && npm run build -w @mini-cloud/client -w @mini-cloud/reporter && npm run build -w @mini-cloud/service -w @mini-cloud/agent && npm run build -w @mini-cloud/cli && npm run build -w @mini-cloud/web",
     "clean": "rm -rf packages/*/dist packages/*/tsconfig.tsbuildinfo",
-    "web": "vite --config packages/web/vite.config.ts",
+    "start:web": "vite --config packages/web/vite.config.ts",
     "start": "npm run build && node packages/cli/bin/mini-cloud.js serve",
     "start:agent": "npm run build && node packages/cli/bin/mini-cloud.js agent start",
-    "serve": "node packages/cli/bin/mini-cloud.js serve",
-    "agent": "node packages/cli/bin/mini-cloud.js agent start",
     "cli": "node packages/cli/bin/mini-cloud.js",
     "migrate": "npm run build && node packages/cli/bin/mini-cloud.js migrate",
     "test": "jest --config jest.config.js",
