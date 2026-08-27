@@ -8,7 +8,7 @@ dependency, one command to start.
 
 ```
 mini-cloud serve                          # the control plane
-mini-cloud agent start --id laptop-1      # on each machine that should run work
+mini-cloud agent start                    # on each machine that should run work
 mini-cloud task create --name backup --cmd ./backup.sh --every 1d
 ```
 
@@ -80,11 +80,11 @@ npm start                   # builds, applies the schema, starts the control pla
 Then, in another terminal:
 
 ```bash
-npm run start:agent -- --id laptop-1
+npm run start:agent
 
 npm run cli -- agent list
 npm run cli -- task create --name hello --cmd 'echo hello from mini-cloud'
-npm run cli -- task launch <taskId> --agent laptop-1
+npm run cli -- task launch <taskId> --agent <agentId>
 npm run cli -- instance list
 npm run cli -- instance events <instanceId>
 ```

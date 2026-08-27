@@ -30,7 +30,7 @@ startup. Never edit one that has shipped; add the next number.
 
 ```bash
 npm start                              # control plane on :3000 (builds + migrates first)
-npm run start:agent -- --id laptop-1   # a worker agent, in another terminal
+npm run start:agent                    # a worker agent, in another terminal
 npm run start:web                      # the console on :5173, in a third
 ```
 

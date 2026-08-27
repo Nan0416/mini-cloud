@@ -2,8 +2,12 @@ import { InvalidRequestError, getenv, getenvInteger } from '@mini-cloud/shared';
 import os from 'node:os';
 import path from 'node:path';
 
+export type AgentIdSource = 'supplied' | 'hostname';
+
 export interface AgentConfig {
   readonly agentId: string;
+  /** Whether {@link agentId} was configured, or taken from this machine's hostname. */
+  readonly agentIdSource: AgentIdSource;
   readonly name: string;
   /** Base URL of the mini-cloud service, e.g. `http://127.0.0.1:3000`. */
   readonly serviceUrl: string;
@@ -30,6 +34,28 @@ export interface AgentConfigOverrides {
 }
 
 /**
+ * The id a machine takes when none was configured, or `undefined` when its hostname
+ * cannot identify one machine.
+ *
+ * Normalized rather than used raw: macOS reports `Nans-MacBook-Pro.local` locally and
+ * `nans-macbook-pro` over SSH, and one machine registering under two ids depending on
+ * how it was started is worse than the flag this default removes. The cost is that two
+ * machines whose names differ only in case now collide, which is the rarer failure.
+ */
+export function defaultAgentId(hostname: string): string | undefined {
+  const normalized = hostname
+    .trim()
+    .toLowerCase()
+    .replace(/\.local$/, '');
+  // Every machine answers to `localhost`, so defaulting to it would hand the whole
+  // fleet one id — and agents sharing an id receive each other's commands.
+  if (normalized.length === 0 || normalized === 'localhost') {
+    return undefined;
+  }
+  return normalized;
+}
+
+/**
  * The single place the agent reads `process.env`.
  *
  * Overrides are resolved here rather than applied by the caller afterwards, so
@@ -39,15 +65,25 @@ export interface AgentConfigOverrides {
 export function loadAgentConfig(overrides: AgentConfigOverrides = {}): AgentConfig {
   const workDir = getenv('MINI_CLOUD_AGENT_DIR', path.join(os.homedir(), '.mini-cloud', 'agent'));
 
-  // No default: two agents sharing an id would each receive the other's commands.
-  const agentId = overrides.agentId ?? process.env['MINI_CLOUD_AGENT_ID'];
-  if (agentId === undefined || agentId.length === 0) {
-    throw new InvalidRequestError('An agent id is required, and must be unique per agent. Pass --id <agentId> or set MINI_CLOUD_AGENT_ID.');
+  // A configured id wins, so several agents can share one machine. Only when none is
+  // configured does the machine name itself, which is what makes the first agent on a
+  // box `mini-cloud agent start` with no flags.
+  const supplied = overrides.agentId ?? process.env['MINI_CLOUD_AGENT_ID'];
+  const hostname = os.hostname();
+  const agentId = supplied !== undefined && supplied.length > 0 ? supplied : defaultAgentId(hostname);
+  if (agentId === undefined) {
+    throw new InvalidRequestError(
+      `This machine's hostname ("${hostname}") cannot identify one agent, because every machine answers to it. Pass --id <agentId> or set MINI_CLOUD_AGENT_ID.`,
+    );
   }
 
   return {
     agentId,
-    name: overrides.name ?? getenv('MINI_CLOUD_AGENT_NAME', os.hostname()),
+    agentIdSource: agentId === supplied ? 'supplied' : 'hostname',
+    // Follows the resolved id, not the hostname: a second agent on the same box
+    // (`--id laptop-1-b`) would otherwise register under a name identical to the
+    // first one's, and the console's Name column would stop telling them apart.
+    name: overrides.name ?? getenv('MINI_CLOUD_AGENT_NAME', agentId),
     serviceUrl: overrides.serviceUrl ?? getenv('MINI_CLOUD_SERVICE_URL', 'http://127.0.0.1:3000'),
     token: overrides.token ?? process.env['MINI_CLOUD_TOKEN'],
     port: overrides.port ?? getenvInteger('MINI_CLOUD_AGENT_PORT', 3100),

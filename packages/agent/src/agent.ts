@@ -94,7 +94,10 @@ export class MiniCloudAgent {
 
   private async start(): Promise<void> {
     const { config } = this;
-    logger.info(`Starting agent ${config.agentId} ("${config.name}") against ${config.serviceUrl}.`);
+    // Says which path the id came from: when two agents do end up sharing one, this
+    // line is the first place to look for the machine that named itself.
+    const origin = config.agentIdSource === 'supplied' ? 'id supplied' : 'id derived from hostname';
+    logger.info(`Starting agent ${config.agentId} ("${config.name}", ${origin}) against ${config.serviceUrl}.`);
 
     await Promise.all([mkdir(stdoutDir(config), { recursive: true }), mkdir(stderrDir(config), { recursive: true }), mkdir(config.workDir, { recursive: true })]);
 

@@ -166,8 +166,68 @@ export function formatPayload(payload: unknown): string {
   }
 }
 
-/** First line only, for a table cell that must stay one row tall. */
-export function firstLine(text: string, limit: number = 160): string {
-  const line = text.split('\n')[0] ?? '';
-  return line.length > limit ? `${line.slice(0, limit)}…` : line;
+/** Text shortened to fit a cell that must stay one row tall, and what it cost. */
+export interface TruncatedText {
+  readonly text: string;
+  readonly truncated: boolean;
+}
+
+/**
+ * Shortens `text` to `limit`, reporting whether it dropped anything.
+ *
+ * The flag is the point. A caller handed only an elided string cannot tell an ellipsis
+ * this function added from one the payload itself contained, so the "there is more to
+ * see" marker either has to guess or stops being trustworthy.
+ */
+export function truncate(text: string, limit: number = 160): TruncatedText {
+  return text.length > limit ? { text: text.slice(0, limit), truncated: true } : { text, truncated: false };
+}
+
+/** An event payload on one line: what the cell leads with, and the rest of it. */
+export interface InlinePayload {
+  /** The payload's `message` when it has one, otherwise the whole value. */
+  readonly lead: string;
+  /** The remaining keys, compact. Empty when `lead` is already the whole payload. */
+  readonly rest: string;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/** Collapses every run of whitespace, so a stack trace still occupies one row. */
+function singleLine(text: string): string {
+  return text.replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * Renders an event payload for a table cell, which has one line to spend.
+ *
+ * {@link formatPayload}'s indented form is right for the dialog and useless here: its
+ * first line is `{`, so every structured payload reads as an empty row. Objects
+ * carrying a string `message` lead with it, because compact JSON spends the leftmost
+ * pixels — where the eye lands — on `{"message":"`. Payload is `unknown` and nothing
+ * enforces that shape, so the compact fallback carries the general case; the
+ * convention holds for everything the service, the agent and the reporter write.
+ */
+export function formatPayloadInline(payload: unknown): InlinePayload {
+  if (typeof payload === 'string') {
+    return { lead: singleLine(payload), rest: '' };
+  }
+  if (payload === undefined) {
+    return { lead: '', rest: '' };
+  }
+  try {
+    if (isRecord(payload)) {
+      const message = payload['message'];
+      if (typeof message === 'string') {
+        const others = Object.entries(payload).filter(([key]) => key !== 'message');
+        return { lead: singleLine(message), rest: others.length === 0 ? '' : JSON.stringify(Object.fromEntries(others)) };
+      }
+    }
+    return { lead: singleLine(JSON.stringify(payload) ?? String(payload)), rest: '' };
+  } catch {
+    // A payload with a cycle in it should not blank the whole event log.
+    return { lead: singleLine(String(payload)), rest: '' };
+  }
 }
