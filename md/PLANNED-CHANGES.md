@@ -159,11 +159,26 @@ and one deployment is usable by anyone.
 **Status.** Deployed and serving at <https://mini-cloud.qinnan.dev>: `infra/`, one stack
 in `us-east-1`, imported hosted zone, deployed by hand.
 
-**The live site still serves the bundle from before runtime backend selection**, so it
-is hardwired to `http://127.0.0.1:3000` with no setup screen until someone rebuilds and
-runs `npm run deploy` in `infra/`. Do that before writing the doc links below, and not
-before authentication ships — a console anyone can point at their own service is worth
-announcing, and one that stores a fleet-wide static token to do it is not.
+The site serves the current bundle, so a visitor is asked which service to talk to
+rather than being wired to `http://127.0.0.1:3000`. Redeploy with a rebuild and
+`npm run deploy` in `infra/`.
+
+**Reaching a local service from it works, once the visitor allows it.** Verified in
+Chrome against the live site: the fetch to `http://127.0.0.1:3000` is refused with
+`blocked by CORS policy: Permission was denied for this request to access the
+'loopback' address space` until Local Network Access is granted, and succeeds
+immediately afterwards. Nothing on the service side is involved either way.
+
+One wrinkle that follows: the `?backend=` link connects straight away, so Chrome raises
+that permission prompt against a background poll rather than against the click on the
+setup screen's verify button, which is where the prompt was meant to be provoked. It is
+still attached to a page the visitor has just opened deliberately, so it is not
+context-free — but if it reads as abrupt, the fix is to route a query-parameter
+connection through the same confirm step rather than straight into the console.
+
+What is left is the doc links below, and they wait on §1: a console anyone can point at
+their own service is worth announcing, and one that asks them to keep a fleet-wide
+static token in browser storage to do it is not.
 
 **Why.** Convenience only. Someone who wants to look at the console should not have to
 clone the repo, install a toolchain and run vite first. Self-hosting stays the primary
