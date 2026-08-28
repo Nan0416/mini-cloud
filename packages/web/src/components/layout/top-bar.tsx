@@ -1,6 +1,7 @@
 import { Cloud, Menu, RefreshCw } from 'lucide-react';
 import { useIsFetching, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
+import { ConnectionControl } from './connection-control';
 import { ThemeToggle } from './theme-toggle';
 import { Button } from '@/components/ui/button';
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
@@ -25,6 +26,7 @@ export function TopBar(props: { readonly onOpenNav: () => void }) {
       </Link>
 
       <div className="ml-auto flex items-center gap-1">
+        <ConnectionControl />
         <Tooltip>
           <TooltipTrigger asChild>
             <Button variant="ghost" size="icon" onClick={() => client.invalidateQueries()} aria-label="Refresh all data">

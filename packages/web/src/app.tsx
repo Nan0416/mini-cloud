@@ -3,7 +3,9 @@ import { BrowserRouter, Route, Routes } from 'react-router-dom';
 import { Toaster } from 'sonner';
 import { AppShell } from '@/components/layout/app-shell';
 import { TooltipProvider } from '@/components/ui/tooltip';
+import { ConnectionProvider, useConnection } from '@/hooks/use-connection';
 import { ThemeProvider, useTheme } from '@/hooks/use-theme';
+import { SetupScreen } from '@/components/setup/setup-screen';
 import { InternalServiceError, ServiceUnreachableError } from '@mini-cloud/shared';
 import { AgentsPage } from '@/pages/agents-page';
 import { InstancePage } from '@/pages/instance-page';
@@ -41,30 +43,51 @@ function ThemedToaster() {
   return <Toaster theme={resolved} position="bottom-right" richColors closeButton />;
 }
 
+/**
+ * The console proper, or the screen that asks where the service is.
+ *
+ * A gate rather than a route: every page below depends on there being a client to
+ * call, so rendering them without one would mean each panel discovering the same
+ * missing answer separately.
+ */
+function ConnectedApp() {
+  const { connection } = useConnection();
+  if (connection === undefined) {
+    return <SetupScreen />;
+  }
+
+  return (
+    <BrowserRouter>
+      <Routes>
+        <Route element={<AppShell />}>
+          <Route index element={<OverviewPage />} />
+          <Route path="tasks" element={<TasksPage />} />
+          <Route path="tasks/new" element={<TaskCreatePage />} />
+          <Route path="tasks/:taskId" element={<TaskPage />} />
+          <Route path="tasks/:taskId/edit" element={<TaskEditPage />} />
+          <Route path="instances" element={<InstancesPage />} />
+          <Route path="instances/:instanceId" element={<InstancePage />} />
+          <Route path="agents" element={<AgentsPage />} />
+          <Route path="variables" element={<VariablesPage />} />
+          <Route path="pubsub" element={<PubSubPage />} />
+          <Route path="*" element={<NotFoundPage />} />
+        </Route>
+      </Routes>
+    </BrowserRouter>
+  );
+}
+
 export function App() {
   return (
     <ThemeProvider>
       <QueryClientProvider client={queryClient}>
-        <TooltipProvider delayDuration={300}>
-          <BrowserRouter>
-            <Routes>
-              <Route element={<AppShell />}>
-                <Route index element={<OverviewPage />} />
-                <Route path="tasks" element={<TasksPage />} />
-                <Route path="tasks/new" element={<TaskCreatePage />} />
-                <Route path="tasks/:taskId" element={<TaskPage />} />
-                <Route path="tasks/:taskId/edit" element={<TaskEditPage />} />
-                <Route path="instances" element={<InstancesPage />} />
-                <Route path="instances/:instanceId" element={<InstancePage />} />
-                <Route path="agents" element={<AgentsPage />} />
-                <Route path="variables" element={<VariablesPage />} />
-                <Route path="pubsub" element={<PubSubPage />} />
-                <Route path="*" element={<NotFoundPage />} />
-              </Route>
-            </Routes>
-          </BrowserRouter>
-          <ThemedToaster />
-        </TooltipProvider>
+        {/* Inside the query client, because switching service clears its cache. */}
+        <ConnectionProvider>
+          <TooltipProvider delayDuration={300}>
+            <ConnectedApp />
+            <ThemedToaster />
+          </TooltipProvider>
+        </ConnectionProvider>
       </QueryClientProvider>
     </ThemeProvider>
   );

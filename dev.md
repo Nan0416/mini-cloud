@@ -161,12 +161,19 @@ Every value has a default; nothing is required to run locally.
 ### Web console
 
 Read at build time and inlined into the bundle, so changing either means rebuilding.
-Set them in `packages/web/.env` (copy `.env.example`).
+Set them in `packages/web/.env` (copy `.env.example`). Both are optional, and both are
+*defaults*: a `?backend=` link and then whatever the browser stored each win over them.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `VITE_MINI_CLOUD_API_URL` | `http://127.0.0.1:3000` | Base URL of the service the console calls |
+| `VITE_MINI_CLOUD_API_URL` | *(unset — the console asks on first load)* | Base URL of the service the console calls |
 | `VITE_MINI_CLOUD_TOKEN` | *(unset)* | Bearer token, for a service running with `MINI_CLOUD_TOKEN` set |
+
+With neither set, the console shows a setup screen that asks for the service address,
+verifies it, and asks for a token only if the service turns out to want one. That is
+what lets one build be pointed at anyone's service — including from a phone, if the
+service is behind TLS. See [packages/web/README.md](./packages/web/README.md) for the
+precedence rules and what a browser will and will not let the console reach.
 
 ## Database schema
 

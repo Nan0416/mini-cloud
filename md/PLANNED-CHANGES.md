@@ -6,173 +6,11 @@ Delete an entry once it has shipped.
 
 ---
 
-## 1. Choose the backend at runtime, so the console can be hosted anywhere
-
-**Today.** The console is pinned to one service at build time: `lib/config.ts:26-29`
-reads `VITE_MINI_CLOUD_API_URL`, which Vite inlines, and `lib/api.ts:13` builds a
-module-level `MiniCloudClient` from it that every hook imports directly. Pointing the
-same bundle at a different service means rebuilding it. To host the console on
-CloudFront (§4) it has to ask, on first load, where the service is.
-
-**Change.** A first-run screen collects the service URL (and a token when the service
-wants one), verifies it before accepting it, and stores it in the browser. The rest of
-the app is gated behind having a connection.
-
-**CORS is already done.** `middleware/cors.ts` allowlists origins, echoes `Origin`
-rather than answering `*`, and installs before auth; `MINI_CLOUD_CORS_ORIGINS`
-defaults to `*` (`stage-config.ts:52`). Hosting the console elsewhere needs that env
-var set to the new origin — configuration, not code. The one code gap is the
-private-network preflight below.
-
-### What the browser will and will not allow
-
-Verified August 2026. This decides how far the feature can go, so it was settled
-before building rather than discovered afterwards.
-
-**There are two paths, and the plain-HTTP one is the weaker.**
-
-| | `http://localhost:3000` | `https://your-service.example.com` |
-| --- | --- | --- |
-| Mixed content | exempt in Chrome, Firefox, Edge | none — HTTPS to HTTPS |
-| Chrome Local Network Access | permission prompt, Chrome 142+ | no prompt: public to public |
-| Safari | **blocked outright** | works |
-| From a phone | **impossible** — `localhost` is the phone | works |
-| Costs the operator | nothing | TLS in front, and one env var |
-
-**The TLS path is the primary one.** A service behind a real certificate is reachable
-from any browser, on any device, from anywhere — which is what makes a hosted console
-worth having, and it is the only way to drive a fleet from a phone. All it needs is
-`MINI_CLOUD_CORS_ORIGINS` set to the console's origin. That is configuration, and
-`middleware/cors.ts` already does everything it requires: exact-match allow-list, the
-`Origin` echoed rather than `*`, `Access-Control-Allow-Credentials`, `Authorization`
-in `Access-Control-Allow-Headers`, and the preflight answered before auth runs.
-
-Loopback stays as the zero-setup path for someone trying the console on the machine
-their service already runs on. Its limits are real:
-
-- **Safari does not allow it, and has not for nine years.** WebKit bug 171934 —
-  "Don't treat loopback addresses as mixed content" — was filed in May 2017 and is
-  still open, stalled on WebKit wanting local-network protections shipped first.
-  Chrome, Firefox and Edge all treat loopback as potentially trustworthy. This is not
-  a "may not work": Safari and every iOS browser cannot use the loopback path at all.
-  (Do not confuse this with WebKit 284559, which looks identical, was fixed in June
-  2026, and is about HTTPS-Only blocking *navigation* to localhost rather than a
-  *fetch*.)
-- **Chrome prompts.** Header-based Private Network Access was abandoned. Local Network
-  Access replaced it and shipped in Chrome 142 on 28 October 2025: any request from a
-  public origin to loopback or a private address is gated on a **user permission
-  prompt**, and *the local service does nothing at all* — the spec requires changes
-  only from the calling site. So there is no header for `cors.ts` to send, and nothing
-  to add there. The prompt must be provoked by a click, or the user gets it with no
-  context: the setup screen's verify button is the trigger.
-- **A LAN address is not exempt.** `http://192.168.1.50:3000` from an HTTPS page is
-  blocked whatever headers come back. A domain that resolves to a private IP is
-  HTTPS-to-HTTPS so mixed content does not apply, but it is still public→local for
-  Chrome, so it prompts; `fetch`'s `targetAddressSpace` option makes that
-  deterministic if it turns out to be needed.
-
-**A blocked request is indistinguishable from a dead one in JavaScript.** Mixed
-content, a CORS rejection, a denied local-network permission and a refused connection
-all surface as the same `TypeError`, which reaches us as `ServiceUnreachableError`.
-The setup screen cannot diagnose the cause, so its failure copy has to name all four —
-the way `offline-banner.tsx:24` already names two. Chrome dresses the permission
-denial as a CORS error: `blocked by CORS policy: Permission was denied for this
-request to access the 'unknown' address space`.
-
-### Decisions
-
-**Precedence: query parameter, then stored value, then build-time default, then
-prompt.** `?backend=` makes a link shareable and a bookmark self-configuring; the stored
-value serves returning visitors; `VITE_MINI_CLOUD_API_URL` keeps today's behaviour for
-anyone building their own bundle, and its presence means the prompt never appears for
-them. Only when all three are absent does the screen show.
-
-**Store in `localStorage` under one key** holding `{apiUrl, token?}`. Note what this
-means: a token in `localStorage` is readable by any script on the console's origin.
-For a home lab that is proportionate, but say so next to the field rather than
-leaving it implied — and offer "remember" as a choice, falling back to
-`sessionStorage`, for anyone on a shared machine.
-
-**Verify before accepting.** `GET /ping` is public (`middleware/auth.ts:6`), so a
-successful probe proves reachability without a token. Then probe an authenticated
-endpoint: a 401 is what reveals that this service wants a token, which is how the
-screen knows to show the token field instead of making the user guess. Catching a
-typo at the prompt is the whole point — otherwise it surfaces minutes later as an
-offline banner.
-
-**The client moves behind a context.** `api` is a module singleton today, and hooks
-import it directly. It becomes a `useApi()` from a `ConnectionProvider` that rebuilds
-the client when the connection changes and clears the query cache at the same time —
-otherwise the new backend inherits the old one's cached rows. This touches every hook
-file, which is most of the diff.
-
-**Changing it later needs a home.** A "Connected to <url>" control in the top bar that
-reopens the same screen, plus a way to clear the stored value. Remembering recently
-used URLs makes switching between two machines a dropdown rather than retyping.
-
-### Nice to have: print the console link at startup
-
-`server.ts:64` logs the listening address. Print a second line with a link that opens
-the console already pointed at this service, so first-time setup is a click rather
-than a copied hostname and a typed port:
-
-```
-Open the console: https://mini-cloud.qinnan.dev/?backend=http%3A%2F%2F127.0.0.1%3A3000
-```
-
-**Only when loopback reaches the service.** Bound to `127.0.0.1` or `0.0.0.0`, a
-browser on the same machine reaches `http://127.0.0.1:3000` and the link works. Bound
-to a specific LAN address it does not, and the LAN URL could not work from an HTTPS
-console either — print nothing there rather than a link that fails. The bind address
-is `config.host` (`stage-config.ts:46`), so the rule is local to the one place that
-already knows it.
-
-**`http`, and percent-encoded.** The service speaks plain HTTP; an `https://localhost`
-link fails to connect. Encode the value — `encodeURIComponent` — so the query survives
-a value with a path or credentials in it later. It costs readability in the terminal
-and buys correctness.
-
-**Make the console URL configuration, not a constant.** `MINI_CLOUD_CONSOLE_URL`,
-defaulting to the hosted deployment, pointed at a self-hosted console by anyone who
-serves their own, and empty to suppress the line entirely. A service that hardcodes
-one maintainer's domain into everyone's startup banner is presumptuous even when, as
-here, nothing is sent anywhere.
-
-**No token in the link, ever.** After §2 the console still needs the secret, and it is
-tempting to carry it here. Do not: the URL gets pasted into a browser, which puts it in
-history, and the `Referer` on the first request hands it to the console origin's access
-logs. §2 already rules this out.
-
-### Deployment notes
-
-- The bundle is static (`packages/web/README.md:109`), so S3 + CloudFront works as-is.
-  Serve `index.html` for unmatched paths — react-router owns the routes — via a 403/404
-  response mapping.
-- Served at a domain root, so today's Vite `base` and `BrowserRouter` defaults are
-  already right. Keep it that way: a subpath would need `base` and `basename` set in
-  two files that must stay in step.
-- Cache `index.html` as `no-store` and the hashed assets as immutable, or a deploy
-  leaves people on the old bundle.
-- If a CSP is ever added, `connect-src` must permit arbitrary user-entered origins —
-  a strict `connect-src 'self'` would break this feature by design.
-
-### Files
-
-- `packages/web/src/lib/config.ts` — build-time values become defaults, not the source of truth.
-- `packages/web/src/lib/api.ts` — singleton becomes a factory.
-- New: connection context/provider, storage helper, setup screen, top-bar control.
-- Every hook in `packages/web/src/hooks/` — `import { api }` becomes `useApi()`.
-- `packages/web/src/components/layout/offline-banner.tsx:24` — reads the live URL, and its copy should match the setup screen's.
-- `packages/service/src/middleware/cors.ts` — **no change**. The verification above found the private-network preflight header no longer exists as a mechanism; the middleware already serves the TLS path in full.
-- `packages/web/README.md`, `dev.md` — the two paths, what each costs, and `MINI_CLOUD_CORS_ORIGINS` as the one thing a remote service must set.
-
----
-
-## 2. Exchange the shared token for a console session
+## 1. Exchange the shared token for a console session
 
 **Today.** One static token for everything (`middleware/auth.ts`): the CLI sends it,
 every agent sends it on its WebSocket upgrade (`facades/message-hub.ts:68-80`), and
-under §1 the console would keep it in `localStorage`. It never expires, the only way
+the setup screen keeps it in `localStorage`. It never expires, the only way
 to revoke it is to rotate `MINI_CLOUD_TOKEN` and restart every agent, and a script
 that reads the console's storage gets the credential to the whole fleet.
 
@@ -201,8 +39,8 @@ console-only. It also opens the door to a separate console secret later, so revo
 browser access stops requiring a fleet restart.
 
 **Start with one session token, not an access/refresh pair.** The usual reason to
-split them is keeping the long-lived half in an httpOnly cookie. Under §1 the console
-and the service are cross-site (`https://…cloudfront.net` → `http://localhost:3000`),
+split them is keeping the long-lived half in an httpOnly cookie. The console and the
+service are cross-site (`https://…cloudfront.net` → `http://localhost:3000`),
 so that cookie needs `SameSite=None; Secure` and dies to third-party cookie blocking
 in Safari today and Chrome shortly. The refresh token would live in `localStorage`
 beside the access token, which reduces the split's benefit to a shorter exposure
@@ -215,7 +53,7 @@ later without changing where the browser stores things.
 whose whole job is checking a secret. There is no rate limiting anywhere in the
 service yet, so this is the first of it.
 
-**Never put the secret in a URL.** §1's `?backend=` carries the service URL only. Tokens in
+**Never put the secret in a URL.** The shipped `?backend=` parameter carries the service URL only. Tokens in
 query strings end up in history, logs and referrers.
 
 ### Open
@@ -234,12 +72,12 @@ query strings end up in history, logs and referrers.
 - `packages/service/src/routes/` — `auth-endpoints.ts`: login, logout, and a "who am I / is this still valid" probe the console can call on load.
 - `packages/service/src/middleware/auth.ts` — accept either the static token or a live session token; keep `/ping` public.
 - `packages/service/src/middleware/` — new rate limiter for the login route.
-- `packages/web` — the setup screen from §1 posts the secret instead of storing it; storage holds the session token; a 401 anywhere sends the user back to the screen.
+- `packages/web` — the setup screen posts the secret instead of storing it; storage holds the session token; a 401 anywhere sends the user back to the screen.
 - `dev.md`, `README.md` — what the console stores, and how to revoke a session.
 
 ---
 
-## 3. Retire `MINI_CLOUD_TOKEN`
+## 2. Retire `MINI_CLOUD_TOKEN`
 
 **Today.** One shared static secret authenticates everything: the console, the CLI,
 and every agent's WebSocket upgrade (`middleware/auth.ts`,
@@ -255,12 +93,12 @@ having one secret that four different kinds of caller share".
 
 | Caller | Replacement |
 | --- | --- |
-| Console | Session token from §2 |
+| Console | Session token from §1 |
 | Agent | Per-agent token, issued at enrolment |
 | CLI, interactive | `mini-cloud login`, session stored at `~/.mini-cloud/credentials` (0600) |
 | CLI, scripted | A labelled API key with no expiry, revocable from the console |
 
-So the store from §2 holds credential *kinds*, not only browser sessions. Design it
+So the store from §1 holds credential *kinds*, not only browser sessions. Design it
 that way from the start; retrofitting a `kind` column across live rows is the kind of
 migration worth avoiding.
 
@@ -303,7 +141,7 @@ release, as a `!` commit — it is a breaking change for anyone running agents.
 
 ### Files
 
-Everything in §2, plus:
+Everything in §1, plus:
 
 - `packages/agent/src/agent-config.ts:54`, `packages/agent/src/agent.ts` — per-agent token, and what the agent does when it is rejected (stop, rather than reconnect forever).
 - `packages/service/src/facades/message-hub.ts:68-80` — the upgrade check resolves a credential instead of comparing a string; this is where id binding is enforced.
@@ -313,16 +151,19 @@ Everything in §2, plus:
 
 ---
 
-## 4. Publish a hosted console at `mini-cloud.qinnan.dev` (CDK: S3 + CloudFront + ACM)
+## 3. Publish a hosted console at `mini-cloud.qinnan.dev` (CDK: S3 + CloudFront + ACM)
 
-Depends on §1 — a build with no service URL baked in is what makes one deployment
-usable by strangers.
+Runtime backend selection has shipped, so the bundle no longer bakes in a service URL
+and one deployment is usable by anyone.
 
 **Status.** Deployed and serving at <https://mini-cloud.qinnan.dev>: `infra/`, one stack
-in `us-east-1`, imported hosted zone, deployed by hand. What is left is §1 — until the
-console can be pointed at a service, the hosted copy is hardwired to
-`http://127.0.0.1:3000` and is useful to nobody but its author, which is why the doc
-links below are still unwritten.
+in `us-east-1`, imported hosted zone, deployed by hand.
+
+**The live site still serves the bundle from before runtime backend selection**, so it
+is hardwired to `http://127.0.0.1:3000` with no setup screen until someone rebuilds and
+runs `npm run deploy` in `infra/`. Do that before writing the doc links below, and not
+before authentication ships — a console anyone can point at their own service is worth
+announcing, and one that stores a fleet-wide static token to do it is not.
 
 **Why.** Convenience only. Someone who wants to look at the console should not have to
 clone the repo, install a toolchain and run vite first. Self-hosting stays the primary
@@ -362,7 +203,7 @@ per deployment) and an invalidation limited to `/index.html`.
 
 **Never send `upgrade-insecure-requests` or `block-all-mixed-content`.** Either one
 rewrites or kills the console's requests to `http://localhost:3000` — the only backend
-a hosted copy can reach at all (§1). This is the one header that would silently break
+a hosted copy can reach over plain HTTP. This is the one header that would silently break
 the entire product on the hosted domain. If a CSP is added, `connect-src` must stay
 open for the same reason.
 
@@ -387,7 +228,8 @@ never access keys — builds `packages/web` and runs `cdk deploy`.
 
 ### Say what it can and cannot do, on the page
 
-Two paths, and the page should lead with the one that works everywhere (§1).
+Two paths, and the page leads with the one that works everywhere. The shipped setup
+screen already carries this copy; keep the two in step.
 
 A service behind TLS at a real domain is reachable from any browser and any device,
 including a phone, and needs only `MINI_CLOUD_CORS_ORIGINS` set to this origin.
@@ -404,7 +246,7 @@ bundle is static and `packages/web/README.md:109` already says how.
 A public page that can reach `localhost` makes the CORS default worth revisiting:
 `MINI_CLOUD_CORS_ORIGINS` defaults to `*` (`stage-config.ts:52`), so *any* page a user
 visits can already drive their service, and their service launches processes on their
-machine. Authentication (§2, §3) is the real mitigation — a session token in
+machine. Authentication (§1, §2) is the real mitigation — a session token in
 `localStorage` is origin-scoped, so an unrelated page cannot use it — and until that
 ships, the hosted console should tell people to narrow the variable to its origin.
 
@@ -421,7 +263,7 @@ hosted zone is about $0.50/month, only if DNS moves there.
 ### Files
 
 - ~~`infra/` — CDK app, stack, `cdk.json`, `package.json`, a README covering bootstrap and the DNS choice.~~ Done.
-- `packages/web/README.md`, `dev.md`, `README.md` — link the hosted console, and state its one limitation next to the link so nobody discovers it as a bug. Not yet: there is nothing to link until it is deployed, and a hosted copy is only useful to its author until §1 ships.
+- `packages/web/README.md`, `dev.md`, `README.md` — link the hosted console, and state next to the link which services it can reach, so nobody discovers that as a bug. Not yet: the live site serves a stale bundle, and announcing it before §1 means telling people to keep a fleet-wide token in browser storage.
 
 ---
 
@@ -433,9 +275,9 @@ Identity is self-asserted today and nothing validates it. The service cannot tel
 processes apart, because the heartbeat carries only `{agentId, name}` — a restart and
 an impostor look identical.
 
-**Superseded by §3 if that ships.** A per-agent token bound to an agent id proves the
+**Superseded by §2 if that ships.** A per-agent token bound to an agent id proves the
 id at the WebSocket upgrade, which is a stronger guarantee than detecting a collision
-after the fact. Keep the sketch only as the cheap fallback if §3 is deferred: the
+after the fact. Keep the sketch only as the cheap fallback if §2 is deferred: the
 agent generates a session id at boot and sends it with each heartbeat, and the service
 rejects — or at least logs loudly — when it changes while `last_seen_at` is still
 inside the offline window.

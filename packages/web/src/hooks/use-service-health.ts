@@ -1,5 +1,5 @@
+import { useApi } from '@/hooks/use-connection';
 import { useQuery } from '@tanstack/react-query';
-import { api } from '@/lib/api';
 import { queryKeys } from '@/lib/query-keys';
 
 /**
@@ -12,6 +12,7 @@ import { queryKeys } from '@/lib/query-keys';
  * else — which is what makes the two failures distinguishable on screen.
  */
 export function useServiceHealth() {
+  const api = useApi();
   return useQuery({
     queryKey: queryKeys.ping(),
     queryFn: () => api.ping(),
