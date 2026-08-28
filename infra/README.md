@@ -48,8 +48,21 @@ somewhere else — buys a cross-region reference and nothing this project needs.
    for the domain has to already be served by Route 53 in the same account, or the
    certificate never validates and the alias records point from a zone nobody asks.
 
+   A zone delegated to the console alone works and is what this deployment uses — then
+   `MINI_CLOUD_ZONE_NAME` and `MINI_CLOUD_CONSOLE_DOMAIN` are the same name and the
+   aliases sit at the zone apex, which is fine because they are alias records and not
+   CNAMEs.
+
    ```bash
    aws route53 list-hosted-zones            # ids print as /hostedzone/Z…; use the Z… part
+   ```
+
+   **Check the delegation resolves before deploying.** If the parent zone does not point
+   at this zone's nameservers, ACM validation never completes and `cdk deploy` sits for
+   half an hour before failing — a five-second check against a public resolver saves it:
+
+   ```bash
+   dig +short NS mini-cloud.qinnan.dev @8.8.8.8    # must list this zone's nameservers
    ```
 
 3. **Bootstrap the account**, once per account and region:
@@ -130,12 +143,14 @@ hosted zone is about $0.50/month, which you are paying already if the zone exist
 
 ## Status
 
-The stack is complete, but the bundle it uploads is not ready to be hosted yet.
-`packages/web/src/lib/config.ts` still resolves the service URL at *build* time and
-falls back to `http://127.0.0.1:3000`, so a hosted copy today is hardwired to that
-address with no way for a visitor to change it and no prompt telling them to.
+**Deployed**, at <https://mini-cloud.qinnan.dev>.
+
+The stack is finished; the bundle it serves is not. `packages/web/src/lib/config.ts`
+still resolves the service URL at *build* time and falls back to
+`http://127.0.0.1:3000`, so the hosted copy is hardwired to that address, with no way
+for a visitor to change it and no prompt telling them to. It therefore works for someone
+running mini-cloud on `127.0.0.1:3000`, and shows an offline banner to everyone else.
 
 §1 of [../md/PLANNED-CHANGES.md](../md/PLANNED-CHANGES.md) — runtime backend selection —
-is what makes one deployment usable by anyone but its author. Deploy this after that
-lands, or before it, knowing the site only works for someone running mini-cloud on
-`127.0.0.1:3000` with `MINI_CLOUD_CORS_ORIGINS` pointed at this origin.
+is what makes this deployment usable by anyone but its author. Until it lands, do not
+link the site from the product README: there is nothing a stranger can do with it.

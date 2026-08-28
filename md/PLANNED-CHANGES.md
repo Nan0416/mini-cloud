@@ -292,9 +292,11 @@ Everything in §2, plus:
 Depends on §1 — a build with no service URL baked in is what makes one deployment
 usable by strangers.
 
-**Status.** The stack is written and synthesizes: `infra/`, one stack in `us-east-1`,
-imported hosted zone. Nothing is deployed and the account is not bootstrapped. What is
-left is §1, then a first `cdk deploy`, then the doc links below.
+**Status.** Deployed and serving at <https://mini-cloud.qinnan.dev>: `infra/`, one stack
+in `us-east-1`, imported hosted zone, deployed by hand. What is left is §1 — until the
+console can be pointed at a service, the hosted copy is hardwired to
+`http://127.0.0.1:3000` and is useful to nobody but its author, which is why the doc
+links below are still unwritten.
 
 **Why.** Convenience only. Someone who wants to look at the console should not have to
 clone the repo, install a toolchain and run vite first. Self-hosting stays the primary
@@ -311,10 +313,10 @@ the visitor tells it where their service is.
   certificates from `us-east-1`**, whatever region the rest of the stack is in. The
   simplest answer is to put the whole stack in `us-east-1`; the alternative is a
   second stack and cross-region references, which is machinery for nothing here.
-- DNS. Settled: `qinnan.dev` is in Route 53, so CDK owns the whole flow — the zone is
-  imported by id, the certificate is DNS-validated against it, and A/AAAA aliases point
-  at the distribution. The zone id and account id are read from `infra/.env`, never
-  committed.
+- DNS. Settled: `mini-cloud.qinnan.dev` is its own Route 53 zone, delegated from
+  `qinnan.dev`, so CDK owns the whole flow — the zone is imported by id, the certificate
+  is DNS-validated against it, and A/AAAA aliases at the zone apex point at the
+  distribution. The zone id and account id are read from `infra/.env`, never committed.
 - A bucket deployment of `packages/web/dist`, with an invalidation.
 
 ### Decisions
