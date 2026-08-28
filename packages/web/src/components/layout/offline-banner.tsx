@@ -1,6 +1,6 @@
 import { ServiceUnreachableError } from '@mini-cloud/shared';
 import { WifiOff } from 'lucide-react';
-import { config } from '@/lib/config';
+import { useConnection } from '@/hooks/use-connection';
 import { useServiceHealth } from '@/hooks/use-service-health';
 
 /**
@@ -13,7 +13,8 @@ import { useServiceHealth } from '@/hooks/use-service-health';
  */
 export function OfflineBanner() {
   const { error } = useServiceHealth();
-  if (!(error instanceof ServiceUnreachableError)) {
+  const { connection } = useConnection();
+  if (!(error instanceof ServiceUnreachableError) || connection === undefined) {
     return null;
   }
 
@@ -21,7 +22,8 @@ export function OfflineBanner() {
     <div className="flex items-start gap-2.5 border-b border-destructive/30 bg-destructive/10 px-4 py-2.5 text-sm text-destructive">
       <WifiOff className="mt-0.5 size-4 shrink-0" />
       <p>
-        Cannot reach the service at {config.apiUrl}. Check that it is running, and that MINI_CLOUD_CORS_ORIGINS includes {window.location.origin}.
+        Cannot reach the service at {connection.apiUrl}. It may be stopped, or the browser may have blocked the request before it left: check that MINI_CLOUD_CORS_ORIGINS on the
+        service includes {window.location.origin}. Use the address in the top bar to point this console somewhere else.
       </p>
     </div>
   );

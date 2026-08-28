@@ -1,10 +1,11 @@
+import { useApi } from '@/hooks/use-connection';
 import type { CreateTaskRequest, ListTaskInstancesRequest, UpdateTaskRequest } from '@mini-cloud/shared';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { api } from '@/lib/api';
 import { config } from '@/lib/config';
 import { queryKeys } from '@/lib/query-keys';
 
 export function useTasks() {
+  const api = useApi();
   return useQuery({
     queryKey: queryKeys.tasks(),
     queryFn: () => api.listTasks({}),
@@ -13,6 +14,7 @@ export function useTasks() {
 }
 
 export function useTask(taskId: string, version?: number) {
+  const api = useApi();
   return useQuery({
     queryKey: queryKeys.task(taskId, version),
     queryFn: () => api.getTask({ taskId, version }),
@@ -20,6 +22,7 @@ export function useTask(taskId: string, version?: number) {
 }
 
 export function useTaskDynamics(taskId: string) {
+  const api = useApi();
   return useQuery({
     queryKey: queryKeys.taskDynamics(taskId),
     queryFn: () => api.getTaskDynamics({ taskId }),
@@ -27,6 +30,7 @@ export function useTaskDynamics(taskId: string) {
 }
 
 export function useCreateTask() {
+  const api = useApi();
   const client = useQueryClient();
   return useMutation({
     mutationFn: (request: CreateTaskRequest) => api.createTask(request),
@@ -35,6 +39,7 @@ export function useCreateTask() {
 }
 
 export function useUpdateTask() {
+  const api = useApi();
   const client = useQueryClient();
   return useMutation({
     mutationFn: (request: UpdateTaskRequest) => api.updateTask(request),
@@ -43,6 +48,7 @@ export function useUpdateTask() {
 }
 
 export function useDeleteTask() {
+  const api = useApi();
   const client = useQueryClient();
   return useMutation({
     mutationFn: (taskId: string) => api.deleteTask({ taskId }),
@@ -57,6 +63,7 @@ export function useDeleteTask() {
 }
 
 export function useSetTaskActive(taskId: string) {
+  const api = useApi();
   const client = useQueryClient();
   return useMutation({
     mutationFn: (active: boolean) => api.setTaskActive({ taskId, active }),
@@ -65,6 +72,7 @@ export function useSetTaskActive(taskId: string) {
 }
 
 export function useSetTaskTargetAgents(taskId: string) {
+  const api = useApi();
   const client = useQueryClient();
   return useMutation({
     mutationFn: (targetAgentIds: ReadonlyArray<string>) => api.setTaskTargetAgents({ taskId, targetAgentIds }),
@@ -78,6 +86,7 @@ export interface LaunchVariables {
 }
 
 export function useLaunchTask(taskId: string) {
+  const api = useApi();
   const client = useQueryClient();
   return useMutation({
     mutationFn: (variables: LaunchVariables) => api.launchTask({ taskId, targetAgentIds: variables.targetAgentIds, arguments: variables.arguments }),
@@ -89,6 +98,7 @@ export function useLaunchTask(taskId: string) {
 }
 
 export function useInstances(filter: ListTaskInstancesRequest = {}, options: { readonly refetchMs?: number } = {}) {
+  const api = useApi();
   return useQuery({
     queryKey: queryKeys.instances(filter),
     queryFn: () => api.listTaskInstances(filter),
@@ -97,6 +107,7 @@ export function useInstances(filter: ListTaskInstancesRequest = {}, options: { r
 }
 
 export function useInstance(instanceId: string) {
+  const api = useApi();
   return useQuery({
     queryKey: queryKeys.instance(instanceId),
     queryFn: () => api.getTaskInstance({ instanceId }),
@@ -105,6 +116,7 @@ export function useInstance(instanceId: string) {
 }
 
 export function useInstanceEvents(instanceId: string) {
+  const api = useApi();
   return useQuery({
     queryKey: queryKeys.instanceEvents(instanceId),
     queryFn: () => api.listTaskEvents({ instanceId }),
@@ -113,6 +125,7 @@ export function useInstanceEvents(instanceId: string) {
 }
 
 export function useTerminateInstance() {
+  const api = useApi();
   const client = useQueryClient();
   return useMutation({
     mutationFn: (instanceId: string) => api.terminateTaskInstance({ instanceId }),

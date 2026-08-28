@@ -36,20 +36,47 @@ Development deliberately has **no Vite proxy**, so the request is cross-origin i
 development exactly as it is in production and nothing about the request path
 changes between them.
 
-## Configuration
+## Which service it talks to
 
-Copy `.env.example` to `.env` to change either of these. Vite inlines them at build
-time, so a change means a rebuild.
+Decided at runtime, not at build time, so one bundle can serve anyone. In order:
+
+1. **`?backend=`** in the URL, percent-encoded. Makes a link shareable and a bookmark
+   self-configuring.
+2. **What this browser stored**, from the last time someone connected.
+3. **`VITE_MINI_CLOUD_API_URL`**, if the bundle was built with one.
+4. **The setup screen**, when none of the above answered.
+
+The screen verifies before it accepts: `/ping` proves the service is reachable without
+needing a token, then an authenticated call decides whether to ask for one — a 401 is
+the only way to discover that a service wants a token at all. Catching a typo there is
+the point, because a wrong address stored instead surfaces minutes later as an offline
+banner and reads like a broken service.
+
+The chosen service shows in the top bar; clicking it switches, which discards the
+cached data belonging to the one being left. "Stay connected" chooses `localStorage`
+over `sessionStorage` — a token in either is readable by any script on this origin, so
+on a shared machine leave it off and it ends with the tab.
+
+### Configuration
+
+Copy `.env.example` to `.env`. Vite inlines these at build time, so a change means a
+rebuild. Both are optional.
 
 | Variable | Default | What it does |
 | --- | --- | --- |
-| `VITE_MINI_CLOUD_API_URL` | `http://127.0.0.1:3000` | Base URL of the service |
+| `VITE_MINI_CLOUD_API_URL` | unset — the console asks | Base URL of the service, when a bundle is built for one |
 | `VITE_MINI_CLOUD_TOKEN` | unset | Sent as `Authorization: Bearer`, for a service running with `MINI_CLOUD_TOKEN` |
 
-There is no login screen: a home-lab control plane on loopback is normally run without
-a token, and when there is one the console takes it from the environment rather than
-asking. If the service demands a token the console does not have, the banner at the
-top of every page says so instead of failing one panel at a time.
+### What a browser will let it reach
+
+| The service is at | Works from a console served over HTTPS |
+| --- | --- |
+| `https://…` with a real certificate | **Anywhere, on any device including a phone.** Needs `MINI_CLOUD_CORS_ORIGINS` to include the console's origin |
+| `http://localhost` or `http://127.0.0.1` | Only on the machine running the browser. Chrome asks permission first (Chrome 142+); **Safari refuses entirely**, so no iOS browser can |
+| `http://192.168.x.x` or any LAN address | **Never.** Blocked as mixed content, and no response header changes it |
+
+The last row is why serving this bundle from the same machine as the service is still
+the simplest answer for a LAN-only setup: over plain HTTP, none of these limits apply.
 
 ## Stack
 
@@ -107,4 +134,6 @@ does, the polling intervals are the thing to replace.
 | `npm run preview -w @mini-cloud/web` | Serve the built bundle |
 
 `dist/` is a folder of static files. Serve it from anything — `npx serve`, nginx, a
-Raspberry Pi — as long as its origin is in `MINI_CLOUD_CORS_ORIGINS`.
+Raspberry Pi, S3 and CloudFront — as long as its origin is in `MINI_CLOUD_CORS_ORIGINS`.
+Build it without `VITE_MINI_CLOUD_API_URL` and every visitor is asked where their own
+service is, which is what makes one deployment usable by more than one person.

@@ -2,7 +2,7 @@ import { Cloud, X } from 'lucide-react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { NAV_SECTIONS } from './nav-items';
 import { Button } from '@/components/ui/button';
-import { config } from '@/lib/config';
+import { useConnection } from '@/hooks/use-connection';
 import { cn } from '@/lib/utils';
 
 function isActive(pathname: string, to: string, matchPrefix?: string): boolean {
@@ -13,6 +13,7 @@ function isActive(pathname: string, to: string, matchPrefix?: string): boolean {
 }
 
 export function SidebarContent(props: { readonly onNavigate?: () => void }) {
+  const { connection } = useConnection();
   const { pathname } = useLocation();
 
   return (
@@ -46,7 +47,7 @@ export function SidebarContent(props: { readonly onNavigate?: () => void }) {
 
       <div className="mt-auto space-y-1 px-3 pt-4 text-xs text-muted-foreground">
         <p className="font-medium text-foreground">Service</p>
-        <p className="break-all font-mono">{config.apiUrl}</p>
+        <p className="break-all font-mono">{connection?.apiUrl ?? '—'}</p>
       </div>
     </div>
   );

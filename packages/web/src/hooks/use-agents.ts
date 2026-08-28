@@ -1,9 +1,10 @@
+import { useApi } from '@/hooks/use-connection';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { api } from '@/lib/api';
 import { config } from '@/lib/config';
 import { queryKeys } from '@/lib/query-keys';
 
 export function useAgents() {
+  const api = useApi();
   return useQuery({
     queryKey: queryKeys.agents(),
     queryFn: () => api.listAgents({}),
@@ -12,6 +13,7 @@ export function useAgents() {
 }
 
 export function useTerminateAgent() {
+  const api = useApi();
   const client = useQueryClient();
   return useMutation({
     mutationFn: (agentId: string) => api.terminateAgent({ agentId }),
