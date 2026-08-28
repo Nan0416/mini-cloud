@@ -26,32 +26,58 @@ private-network preflight below.
 
 ### What the browser will and will not allow
 
-This decides how far the feature can go, so settle it before building.
+Verified August 2026. This decides how far the feature can go, so it was settled
+before building rather than discovered afterwards.
 
-A page on `https://…` making a plain-HTTP request is mixed content. Loopback is
-exempt — `http://localhost`, `http://127.0.0.1` and `http://[::1]` are potentially
-trustworthy — so `http://localhost:3000` works from an HTTPS-hosted console in Chrome
-and Firefox. WebKit has historically not implemented that exemption; **verify Safari
-before promising this works.**
+**There are two paths, and the plain-HTTP one is the weaker.**
 
-A LAN address is *not* exempt. `http://192.168.1.50:3000` from an HTTPS page is
-blocked outright and no response header changes that. A hosted console therefore
-reaches a service on the same machine as the browser and nothing else. For anything
-further away the answer is TLS in front of the service (a reverse proxy, or a tunnel
-that terminates TLS), or serving the console over plain HTTP from the same box.
+| | `http://localhost:3000` | `https://your-service.example.com` |
+| --- | --- | --- |
+| Mixed content | exempt in Chrome, Firefox, Edge | none — HTTPS to HTTPS |
+| Chrome Local Network Access | permission prompt, Chrome 142+ | no prompt: public to public |
+| Safari | **blocked outright** | works |
+| From a phone | **impossible** — `localhost` is the phone | works |
+| Costs the operator | nothing | TLS in front, and one env var |
 
-Chrome additionally gates public→loopback requests behind Private Network Access: the
-preflight carries `Access-Control-Request-Private-Network: true` and needs
-`Access-Control-Allow-Private-Network: true` in the response.
-`middleware/cors.ts:51-58` does not send it. This area was still moving as of writing
-(permission-prompt Local Network Access was replacing header-based PNA), so confirm
-the current mechanism rather than implementing from this paragraph.
+**The TLS path is the primary one.** A service behind a real certificate is reachable
+from any browser, on any device, from anywhere — which is what makes a hosted console
+worth having, and it is the only way to drive a fleet from a phone. All it needs is
+`MINI_CLOUD_CORS_ORIGINS` set to the console's origin. That is configuration, and
+`middleware/cors.ts` already does everything it requires: exact-match allow-list, the
+`Origin` echoed rather than `*`, `Access-Control-Allow-Credentials`, `Authorization`
+in `Access-Control-Allow-Headers`, and the preflight answered before auth runs.
+
+Loopback stays as the zero-setup path for someone trying the console on the machine
+their service already runs on. Its limits are real:
+
+- **Safari does not allow it, and has not for nine years.** WebKit bug 171934 —
+  "Don't treat loopback addresses as mixed content" — was filed in May 2017 and is
+  still open, stalled on WebKit wanting local-network protections shipped first.
+  Chrome, Firefox and Edge all treat loopback as potentially trustworthy. This is not
+  a "may not work": Safari and every iOS browser cannot use the loopback path at all.
+  (Do not confuse this with WebKit 284559, which looks identical, was fixed in June
+  2026, and is about HTTPS-Only blocking *navigation* to localhost rather than a
+  *fetch*.)
+- **Chrome prompts.** Header-based Private Network Access was abandoned. Local Network
+  Access replaced it and shipped in Chrome 142 on 28 October 2025: any request from a
+  public origin to loopback or a private address is gated on a **user permission
+  prompt**, and *the local service does nothing at all* — the spec requires changes
+  only from the calling site. So there is no header for `cors.ts` to send, and nothing
+  to add there. The prompt must be provoked by a click, or the user gets it with no
+  context: the setup screen's verify button is the trigger.
+- **A LAN address is not exempt.** `http://192.168.1.50:3000` from an HTTPS page is
+  blocked whatever headers come back. A domain that resolves to a private IP is
+  HTTPS-to-HTTPS so mixed content does not apply, but it is still public→local for
+  Chrome, so it prompts; `fetch`'s `targetAddressSpace` option makes that
+  deterministic if it turns out to be needed.
 
 **A blocked request is indistinguishable from a dead one in JavaScript.** Mixed
-content, a CORS rejection and a refused connection all surface as the same
-`TypeError`, which reaches us as `ServiceUnreachableError`. The setup screen cannot
-diagnose the cause, so its failure copy has to name all three — the way
-`offline-banner.tsx:24` already names two.
+content, a CORS rejection, a denied local-network permission and a refused connection
+all surface as the same `TypeError`, which reaches us as `ServiceUnreachableError`.
+The setup screen cannot diagnose the cause, so its failure copy has to name all four —
+the way `offline-banner.tsx:24` already names two. Chrome dresses the permission
+denial as a CORS error: `blocked by CORS policy: Permission was denied for this
+request to access the 'unknown' address space`.
 
 ### Decisions
 
@@ -137,8 +163,8 @@ logs. §2 already rules this out.
 - New: connection context/provider, storage helper, setup screen, top-bar control.
 - Every hook in `packages/web/src/hooks/` — `import { api }` becomes `useApi()`.
 - `packages/web/src/components/layout/offline-banner.tsx:24` — reads the live URL, and its copy should match the setup screen's.
-- `packages/service/src/middleware/cors.ts:51-58` — private-network preflight header, if the verification above says it is still the mechanism.
-- `packages/web/README.md`, `dev.md` — hosting the console away from the service, and what that costs.
+- `packages/service/src/middleware/cors.ts` — **no change**. The verification above found the private-network preflight header no longer exists as a mechanism; the middleware already serves the TLS path in full.
+- `packages/web/README.md`, `dev.md` — the two paths, what each costs, and `MINI_CLOUD_CORS_ORIGINS` as the one thing a remote service must set.
 
 ---
 
@@ -361,11 +387,17 @@ never access keys — builds `packages/web` and runs `cdk deploy`.
 
 ### Say what it can and cannot do, on the page
 
-A hosted console can only talk to a mini-cloud running on the same machine as the
-browser, at `http://localhost:3000` or `http://127.0.0.1:3000`. A LAN address will
-never work from an HTTPS page, and Safari may refuse loopback as well (§1). Anyone who
-needs more should serve the console from the same box as their service — the bundle is
-static and `packages/web/README.md:109` already says how.
+Two paths, and the page should lead with the one that works everywhere (§1).
+
+A service behind TLS at a real domain is reachable from any browser and any device,
+including a phone, and needs only `MINI_CLOUD_CORS_ORIGINS` set to this origin.
+
+A service on plain HTTP has to be on the same machine as the browser —
+`http://localhost:3000` or `http://127.0.0.1:3000`. A LAN address never works from an
+HTTPS page, Chrome asks the user's permission before allowing even loopback, and
+**Safari refuses it outright**, so no iOS browser can use that path at all. Anyone
+stuck there should serve the console from the same box as their service instead — the
+bundle is static and `packages/web/README.md:109` already says how.
 
 ### The stakes this raises
 

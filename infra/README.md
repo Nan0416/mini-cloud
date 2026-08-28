@@ -129,12 +129,21 @@ previous build's hashed assets in place, which is what a visitor still holding t
 
 ## What it can and cannot reach
 
-A hosted console can only talk to a mini-cloud running on **the same machine as the
-browser** — `http://localhost:3000` or `http://127.0.0.1:3000`. A LAN address like
-`http://192.168.1.50:3000` is blocked outright from an HTTPS page and no response
-header changes that, and Safari may refuse loopback as well. Anyone who needs more
-should serve the console from the same box as their service; the bundle is static and
-`packages/web/README.md` says how.
+**A service behind TLS, anywhere.** Given a real certificate and a domain, the hosted
+console reaches it from any browser on any device — including a phone, which is the
+point of having a hosted copy at all. The only requirement on the service is
+`MINI_CLOUD_CORS_ORIGINS=https://mini-cloud.qinnan.dev`. Nothing in this stack needs to
+change for it.
+
+**A service on plain HTTP, only on the machine running the browser.** An HTTPS page may
+call `http://localhost:3000` or `http://127.0.0.1:3000` because loopback is treated as
+potentially trustworthy — but not in Safari, which has never implemented that exemption
+(WebKit bug 171934, open since 2017), so no iOS browser can use this path. Chrome 142+
+also gates it behind a Local Network Access permission prompt. A LAN address such as
+`http://192.168.1.50:3000` is blocked outright and no response header changes that.
+
+Anyone stuck on the second path should serve the console from the same box as their
+service instead; the bundle is static and `packages/web/README.md` says how.
 
 ## Cost
 
