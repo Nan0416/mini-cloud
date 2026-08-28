@@ -20,10 +20,19 @@ than a copied hostname and a typed port:
 Open the console: https://mini-cloud.qinnan.dev/?backend=http%3A%2F%2F127.0.0.1%3A3000
 ```
 
-**Only when loopback reaches the service.** Bound to `127.0.0.1` or `0.0.0.0`, a
-browser on the same machine reaches `http://127.0.0.1:3000` and the link works. Bound
-to a specific LAN address it does not, and the LAN URL could not work from an HTTPS
-console either — print nothing there rather than a link that fails. The bind address
+**Only when loopback reaches the service.** The rule is about `MINI_CLOUD_HOST`, and
+which address the link can carry:
+
+| `MINI_CLOUD_HOST` | Listens on | Link carries | Works |
+| --- | --- | --- | --- |
+| `127.0.0.1` (default) | loopback only | `http://127.0.0.1:<port>` | yes |
+| `0.0.0.0` | everything, loopback included | `http://127.0.0.1:<port>` | yes |
+| a specific LAN address | that interface only | neither candidate | **no — print nothing** |
+
+The last row has no working answer: `127.0.0.1` does not reach a service bound only to
+`192.168.1.50`, and `http://192.168.1.50:<port>` is blocked as mixed content from an
+HTTPS console whatever headers come back. A broken link in a startup banner is worse
+than no link, because it costs someone ten minutes assuming the service is at fault. The bind address
 is `config.host` (`stage-config.ts:46`), so the rule is local to the one place that
 already knows it.
 
@@ -37,6 +46,12 @@ defaulting to the hosted deployment, pointed at a self-hosted console by anyone 
 serves their own, and empty to suppress the line entirely. A service that hardcodes
 one maintainer's domain into everyone's startup banner is presumptuous even when, as
 here, nothing is sent anywhere.
+
+Three states, and the third cannot be read with `getenv`: `readEnv` collapses an empty
+string to `undefined` (`packages/shared/src/utils/env.ts:15`), so
+`getenv('MINI_CLOUD_CONSOLE_URL', 'https://…')` on an explicitly empty value returns the
+default — the exact opposite of suppressing it. Read `process.env` directly, the way
+`authToken` already does at `stage-config.ts:49`.
 
 **No token in the link, ever.** After §2 the console still needs the secret, and it is
 tempting to carry it here. Do not: the URL gets pasted into a browser, which puts it in
