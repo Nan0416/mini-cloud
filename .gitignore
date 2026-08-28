@@ -72,6 +72,10 @@ typings/
 .env
 .env.test
 
+# CDK synthesized templates and assets (infra/)
+cdk.out/
+.cdk.staging/
+
 # parcel-bundler cache (https://parceljs.org/)
 .cache
 

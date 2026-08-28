@@ -25,7 +25,8 @@ specific bug, the bug is named — a rule you can't justify is a rule that gets 
    the conflict by nesting a second compiler under that package — where it silently
    wins over the root's for every build and editor session in that folder. Pin the
    range, then check that `find . -type d -path '*node_modules/typescript'` returns
-   exactly one path.
+   one path per install root — the workspace's, plus `infra/`'s, which is deliberately
+   outside `packages/*` and so has a tree of its own.
 3. **Layers within `service`**: `routes` parse and delegate, `services` answer
    requests, `facades` carry out work that no request waits on — dispatching a
    launch, the background ticks — `data` talks to Postgres, `utils` holds pure

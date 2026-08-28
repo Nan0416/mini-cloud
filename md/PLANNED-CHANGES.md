@@ -292,6 +292,12 @@ Everything in §2, plus:
 Depends on §1 — a build with no service URL baked in is what makes one deployment
 usable by strangers.
 
+**Status.** Deployed and serving at <https://mini-cloud.qinnan.dev>: `infra/`, one stack
+in `us-east-1`, imported hosted zone, deployed by hand. What is left is §1 — until the
+console can be pointed at a service, the hosted copy is hardwired to
+`http://127.0.0.1:3000` and is useful to nobody but its author, which is why the doc
+links below are still unwritten.
+
 **Why.** Convenience only. Someone who wants to look at the console should not have to
 clone the repo, install a toolchain and run vite first. Self-hosting stays the primary
 path: the hosted copy is a static client that stores nothing and knows nothing until
@@ -307,11 +313,10 @@ the visitor tells it where their service is.
   certificates from `us-east-1`**, whatever region the rest of the stack is in. The
   simplest answer is to put the whole stack in `us-east-1`; the alternative is a
   second stack and cross-region references, which is machinery for nothing here.
-- DNS. If `qinnan.dev` is hosted in Route 53, CDK can own the whole flow: DNS
-  validation for the certificate and an A/AAAA alias to the distribution. If DNS lives
-  at another provider, `cdk deploy` will sit waiting for validation until the CNAME is
-  added by hand, and the alias becomes a manual CNAME to the distribution domain.
-  Decide which before writing the stack — it changes what the construct takes.
+- DNS. Settled: `mini-cloud.qinnan.dev` is its own Route 53 zone, delegated from
+  `qinnan.dev`, so CDK owns the whole flow — the zone is imported by id, the certificate
+  is DNS-validated against it, and A/AAAA aliases at the zone apex point at the
+  distribution. The zone id and account id are read from `infra/.env`, never committed.
 - A bucket deployment of `packages/web/dist`, with an invalidation.
 
 ### Decisions
@@ -347,9 +352,12 @@ not part of `npm run build`; as a workspace member it would pull `aws-cdk-lib` i
 every install and into the build graph. The cost is its own `package.json` and a
 second `npm ci` in CI, which is the cheaper half of that trade.
 
-**Deploy from GitHub Actions over OIDC, not access keys.**
-`.github/workflows/pr.yml` already requests `id-token: write`, so the pattern is
-established: assume a deploy role, build `packages/web`, `cdk deploy`.
+**Deploy by hand, for now.** `npm run deploy` in `infra/`, from a machine with
+credentials. A release that ships a few times a year does not yet justify an OIDC
+provider, a deploy role and a workflow to maintain, and the stack is the same either
+way. When it is worth automating, the pattern is established: `.github/workflows/pr.yml`
+already requests `id-token: write`, so the workflow assumes a deploy role over OIDC —
+never access keys — builds `packages/web` and runs `cdk deploy`.
 
 ### Say what it can and cannot do, on the page
 
@@ -380,9 +388,8 @@ hosted zone is about $0.50/month, only if DNS moves there.
 
 ### Files
 
-- `infra/` — new: CDK app, stack, `cdk.json`, `package.json`, a README covering bootstrap and the DNS choice.
-- `.github/workflows/deploy-console.yml` — new: build and deploy on release, over OIDC.
-- `packages/web/README.md`, `dev.md`, `README.md` — link the hosted console, and state its one limitation next to the link so nobody discovers it as a bug.
+- ~~`infra/` — CDK app, stack, `cdk.json`, `package.json`, a README covering bootstrap and the DNS choice.~~ Done.
+- `packages/web/README.md`, `dev.md`, `README.md` — link the hosted console, and state its one limitation next to the link so nobody discovers it as a bug. Not yet: there is nothing to link until it is deployed, and a hosted copy is only useful to its author until §1 ships.
 
 ---
 
