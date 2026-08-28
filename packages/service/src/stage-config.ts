@@ -16,6 +16,14 @@ export const STAGES: ReadonlyArray<Stage> = ['beta', 'prod'];
  */
 const DEFAULT_CORS_ORIGINS: ReadonlyArray<string> = ['*'];
 
+/**
+ * The hosted console, used only to build a link printed at startup. Nothing is ever
+ * sent there — the console is a static page that talks to whichever service the
+ * visitor names — but point `MINI_CLOUD_CONSOLE_URL` at your own copy if you serve
+ * one, or set it empty to print nothing.
+ */
+const DEFAULT_CONSOLE_URL = 'https://mini-cloud.qinnan.dev';
+
 export interface ServiceConfig {
   readonly stage: Stage;
   readonly port: number;
@@ -28,6 +36,11 @@ export interface ServiceConfig {
    * disables CORS entirely, so only non-browser callers get through.
    */
   readonly corsOrigins: ReadonlyArray<string>;
+  /**
+   * Where the console is served, for the link printed at startup. Empty suppresses
+   * that line.
+   */
+  readonly consoleUrl: string;
   readonly scheduler: SchedulerConfig;
 }
 
@@ -50,6 +63,10 @@ function loadConfig(): ServiceConfig {
     // Setting the variable replaces the default rather than adding to it, so naming
     // your own origins genuinely narrows the service instead of widening it.
     corsOrigins: getenvList('MINI_CLOUD_CORS_ORIGINS', DEFAULT_CORS_ORIGINS),
+    // Read straight from `process.env` rather than through `getenv`, which collapses
+    // an explicitly empty value to "unset" and would hand back the default — turning
+    // the one way to switch the startup link off into the way to keep it on.
+    consoleUrl: process.env['MINI_CLOUD_CONSOLE_URL'] ?? DEFAULT_CONSOLE_URL,
     scheduler: {
       // Must stay at or below the minimum job interval, or occurrences fall between ticks.
       jobTickMs: getenvInteger('MINI_CLOUD_JOB_TICK_MS', 1_000),

@@ -6,67 +6,7 @@ Delete an entry once it has shipped.
 
 ---
 
-## 1. Print the console link at startup
-
-Left over from runtime backend selection, which has otherwise shipped. It was written
-as a nice-to-have inside that entry and deleted with it by mistake; nothing here is
-implemented.
-
-`server.ts:64` logs the listening address. Print a second line with a link that opens
-the console already pointed at this service, so first-time setup is a click rather
-than a copied hostname and a typed port:
-
-```
-Open the console: https://mini-cloud.qinnan.dev/?backend=http%3A%2F%2F127.0.0.1%3A3000
-```
-
-**Only when loopback reaches the service.** The rule is about `MINI_CLOUD_HOST`, and
-which address the link can carry:
-
-| `MINI_CLOUD_HOST` | Listens on | Link carries | Works |
-| --- | --- | --- | --- |
-| `127.0.0.1` (default) | loopback only | `http://127.0.0.1:<port>` | yes |
-| `0.0.0.0` | everything, loopback included | `http://127.0.0.1:<port>` | yes |
-| a specific LAN address | that interface only | neither candidate | **no — print nothing** |
-
-The last row has no working answer: `127.0.0.1` does not reach a service bound only to
-`192.168.1.50`, and `http://192.168.1.50:<port>` is blocked as mixed content from an
-HTTPS console whatever headers come back. A broken link in a startup banner is worse
-than no link, because it costs someone ten minutes assuming the service is at fault. The bind address
-is `config.host` (`stage-config.ts:46`), so the rule is local to the one place that
-already knows it.
-
-**`http`, and percent-encoded.** The service speaks plain HTTP; an `https://localhost`
-link fails to connect. Encode the value — `encodeURIComponent` — so the query survives
-a value with a path or credentials in it later. It costs readability in the terminal
-and buys correctness.
-
-**Make the console URL configuration, not a constant.** `MINI_CLOUD_CONSOLE_URL`,
-defaulting to the hosted deployment, pointed at a self-hosted console by anyone who
-serves their own, and empty to suppress the line entirely. A service that hardcodes
-one maintainer's domain into everyone's startup banner is presumptuous even when, as
-here, nothing is sent anywhere.
-
-Three states, and the third cannot be read with `getenv`: `readEnv` collapses an empty
-string to `undefined` (`packages/shared/src/utils/env.ts:15`), so
-`getenv('MINI_CLOUD_CONSOLE_URL', 'https://…')` on an explicitly empty value returns the
-default — the exact opposite of suppressing it. Read `process.env` directly, the way
-`authToken` already does at `stage-config.ts:49`.
-
-**No token in the link, ever.** After §2 the console still needs the secret, and it is
-tempting to carry it here. Do not: the URL gets pasted into a browser, which puts it in
-history, and the `Referer` on the first request hands it to the console origin's access
-logs. §2 already rules this out.
-
-### Files
-
-- `packages/service/src/stage-config.ts` — `MINI_CLOUD_CONSOLE_URL`, defaulting to the hosted deployment, empty to suppress the line.
-- `packages/service/src/server.ts:64` — the second log line, and the bind-address rule that decides whether to print it at all.
-- `dev.md` — the new variable in the service table.
-
----
-
-## 2. Exchange the shared token for a console session
+## 1. Exchange the shared token for a console session
 
 **Today.** One static token for everything (`middleware/auth.ts`): the CLI sends it,
 every agent sends it on its WebSocket upgrade (`facades/message-hub.ts:68-80`), and
@@ -137,7 +77,7 @@ query strings end up in history, logs and referrers.
 
 ---
 
-## 3. Retire `MINI_CLOUD_TOKEN`
+## 2. Retire `MINI_CLOUD_TOKEN`
 
 **Today.** One shared static secret authenticates everything: the console, the CLI,
 and every agent's WebSocket upgrade (`middleware/auth.ts`,
@@ -153,12 +93,12 @@ having one secret that four different kinds of caller share".
 
 | Caller | Replacement |
 | --- | --- |
-| Console | Session token from §2 |
+| Console | Session token from §1 |
 | Agent | Per-agent token, issued at enrolment |
 | CLI, interactive | `mini-cloud login`, session stored at `~/.mini-cloud/credentials` (0600) |
 | CLI, scripted | A labelled API key with no expiry, revocable from the console |
 
-So the store from §2 holds credential *kinds*, not only browser sessions. Design it
+So the store from §1 holds credential *kinds*, not only browser sessions. Design it
 that way from the start; retrofitting a `kind` column across live rows is the kind of
 migration worth avoiding.
 
@@ -201,7 +141,7 @@ release, as a `!` commit — it is a breaking change for anyone running agents.
 
 ### Files
 
-Everything in §2, plus:
+Everything in §1, plus:
 
 - `packages/agent/src/agent-config.ts:54`, `packages/agent/src/agent.ts` — per-agent token, and what the agent does when it is rejected (stop, rather than reconnect forever).
 - `packages/service/src/facades/message-hub.ts:68-80` — the upgrade check resolves a credential instead of comparing a string; this is where id binding is enforced.
@@ -211,7 +151,7 @@ Everything in §2, plus:
 
 ---
 
-## 4. Publish a hosted console at `mini-cloud.qinnan.dev` (CDK: S3 + CloudFront + ACM)
+## 3. Publish a hosted console at `mini-cloud.qinnan.dev` (CDK: S3 + CloudFront + ACM)
 
 Runtime backend selection has shipped, so the bundle no longer bakes in a service URL
 and one deployment is usable by anyone.
@@ -306,7 +246,7 @@ bundle is static and `packages/web/README.md:109` already says how.
 A public page that can reach `localhost` makes the CORS default worth revisiting:
 `MINI_CLOUD_CORS_ORIGINS` defaults to `*` (`stage-config.ts:52`), so *any* page a user
 visits can already drive their service, and their service launches processes on their
-machine. Authentication (§2, §3) is the real mitigation — a session token in
+machine. Authentication (§1, §2) is the real mitigation — a session token in
 `localStorage` is origin-scoped, so an unrelated page cannot use it — and until that
 ships, the hosted console should tell people to narrow the variable to its origin.
 
@@ -323,7 +263,7 @@ hosted zone is about $0.50/month, only if DNS moves there.
 ### Files
 
 - ~~`infra/` — CDK app, stack, `cdk.json`, `package.json`, a README covering bootstrap and the DNS choice.~~ Done.
-- `packages/web/README.md`, `dev.md`, `README.md` — link the hosted console, and state next to the link which services it can reach, so nobody discovers that as a bug. Not yet: the live site serves a stale bundle, and announcing it before §2 means telling people to keep a fleet-wide token in browser storage.
+- `packages/web/README.md`, `dev.md`, `README.md` — link the hosted console, and state next to the link which services it can reach, so nobody discovers that as a bug. Not yet: the live site serves a stale bundle, and announcing it before §1 means telling people to keep a fleet-wide token in browser storage.
 
 ---
 
@@ -335,9 +275,9 @@ Identity is self-asserted today and nothing validates it. The service cannot tel
 processes apart, because the heartbeat carries only `{agentId, name}` — a restart and
 an impostor look identical.
 
-**Superseded by §3 if that ships.** A per-agent token bound to an agent id proves the
+**Superseded by §2 if that ships.** A per-agent token bound to an agent id proves the
 id at the WebSocket upgrade, which is a stronger guarantee than detecting a collision
-after the fact. Keep the sketch only as the cheap fallback if §3 is deferred: the
+after the fact. Keep the sketch only as the cheap fallback if §2 is deferred: the
 agent generates a session id at boot and sends it with each heartbeat, and the service
 rejects — or at least logs loudly — when it changes while `last_seen_at` is still
 inside the offline window.

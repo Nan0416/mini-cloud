@@ -44,6 +44,20 @@ npm start
 `npm start` builds every package, applies any pending migrations, and runs the
 control plane in the foreground. Ctrl-C shuts it down cleanly.
 
+It prints a link that opens the console already pointed at itself:
+
+```
+mini-cloud is listening on http://127.0.0.1:3000 (WebSocket at ws://127.0.0.1:3000/ws).
+Open the console: https://mini-cloud.qinnan.dev/?backend=http%3A%2F%2F127.0.0.1%3A3000
+```
+
+That console is a static page which talks to whatever address the link names — nothing
+is sent anywhere else, and the link never carries a token. It is printed only when a
+browser on this machine could follow it, so binding `MINI_CLOUD_HOST` to one LAN
+interface prints no link: loopback would not reach the service, and the interface's own
+`http://` address is one an HTTPS page may not call. `MINI_CLOUD_CONSOLE_URL` points it
+at your own console, or set it empty for no link at all.
+
 In another terminal, start a worker agent:
 
 ```bash
@@ -145,6 +159,7 @@ Every value has a default; nothing is required to run locally.
 | `MINI_CLOUD_START_TIMEOUT_MS` | `60000` | How long an instance may sit at `launched` without reporting a pid |
 | `MINI_CLOUD_RETENTION_DAYS` | `365` | How long instance and event history is kept |
 | `MINI_CLOUD_LOG_LEVEL` | `info` | `debug`, `info`, `warn` or `error` |
+| `MINI_CLOUD_CONSOLE_URL` | `https://mini-cloud.qinnan.dev` | Console the startup link points at. Set it to your own copy, or to empty to print no link |
 
 ### Agent
 

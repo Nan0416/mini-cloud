@@ -9,6 +9,7 @@ import { WsMessageHub } from './facades/message-hub';
 import { Scheduler } from './facades/scheduler';
 import { Service } from './service';
 import { ServiceConfig } from './stage-config';
+import { consoleLink } from './utils/console-link';
 
 const logger = LoggerFactory.getLogger('MiniCloudServer');
 
@@ -63,6 +64,13 @@ export class MiniCloudServer {
     const address = httpServer.address();
     const port = address !== null && typeof address !== 'string' ? address.port : config.port;
     logger.info(`mini-cloud is listening on http://${config.host}:${port} (WebSocket at ws://${config.host}:${port}/ws).`);
+
+    // A second line only when a browser on this machine could actually follow it, so
+    // first-time setup is a click rather than a copied hostname and a typed port.
+    const link = consoleLink({ consoleUrl: config.consoleUrl, host: config.host, port });
+    if (link !== undefined) {
+      logger.info(`Open the console: ${link}`);
+    }
 
     return new MiniCloudServer(httpServer, hub, dependencies.scheduler, pool);
   }
