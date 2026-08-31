@@ -234,3 +234,57 @@ process.on('SIGINT', async () => {
 which is what makes it safe to leave in a program you also run by hand. No reporter
 method ever throws, and a report that cannot be delivered is buffered to disk and
 replayed the next time the agent starts.
+
+Programs outside this repository install it from npm:
+
+```bash
+npm install @mini-cloud/reporter
+```
+
+## Releasing to npm
+
+Two packages are published: `@mini-cloud/reporter`, which programs launched by
+mini-cloud import, and `@mini-cloud/shared`, which it depends on. Everything else in
+the workspace stays private.
+
+A release is a tag, not a merge:
+
+```bash
+# 1. Bump both packages to the same version, in one commit on main.
+npm version 1.0.1 --workspace @mini-cloud/shared --workspace @mini-cloud/reporter \
+  --no-git-tag-version
+git commit -am "chore: release 1.0.1"
+
+# 2. Tag it. Pushing the tag is what publishes.
+git tag v1.0.1
+git push origin main --tags
+```
+
+`.github/workflows/publish.yml` then builds, runs the tests again against that exact
+commit, checks the tag agrees with both `package.json` versions, and publishes
+`shared` before `reporter` — in that order, because npm does not verify at publish
+time that a dependency resolves, and the reverse order leaves a window where
+`npm install @mini-cloud/reporter` fails.
+
+Both packages move in lockstep, because `reporter` pins `shared` to an exact version.
+Bump both or neither.
+
+### Authentication
+
+There is no `NPM_TOKEN` in this repository. Publishing uses npm Trusted Publishing
+over GitHub's OIDC: GitHub mints a short-lived token, scoped to this repository and
+to `publish.yml` specifically, and npm exchanges it for publish rights. Nothing
+long-lived is stored, and provenance attestations are generated automatically.
+
+The trusted publisher is configured per package on npmjs.com, under
+**Package → Settings → Trusted publishing**, with:
+
+| Field | Value |
+| --- | --- |
+| Organization or user | `Nan0416` |
+| Repository | `mini-cloud` |
+| Workflow filename | `publish.yml` |
+| Allowed actions | `npm publish` |
+
+**Renaming `publish.yml` breaks publishing** until both packages' trusted publisher
+entries are updated to match the new filename.

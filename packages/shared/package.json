@@ -1,16 +1,40 @@
 {
   "name": "@mini-cloud/shared",
   "version": "1.0.0",
-  "private": true,
   "description": "Domain models, API contracts, error types and utilities shared by every mini-cloud package.",
+  "keywords": [
+    "mini-cloud",
+    "task-scheduler",
+    "types",
+    "domain-models"
+  ],
+  "homepage": "https://github.com/Nan0416/mini-cloud/tree/main/packages/shared#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Nan0416/mini-cloud.git",
+    "directory": "packages/shared"
+  },
+  "bugs": {
+    "url": "https://github.com/Nan0416/mini-cloud/issues"
+  },
+  "engines": {
+    "node": ">=22"
+  },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "src"
+  ],
   "scripts": {
     "build": "tsc --project tsconfig.json",
     "clean": "rm -rf dist tsconfig.tsbuildinfo"
   },
   "devDependencies": {
     "@types/node": "^22.10.5"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "license": "MIT"
 }

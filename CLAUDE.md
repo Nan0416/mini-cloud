@@ -20,6 +20,10 @@ An npm-workspaces monorepo, seven packages under `packages/`:
 Dependencies point one way: `cli` → `service`/`agent`/`client` → `shared`, and
 `web` → `client` → `shared`.
 
+`shared` and `reporter` are published to npmjs.org under the `@mini-cloud` scope, so a
+program launched by mini-cloud can import the reporter without vendoring it. The rest
+stay private. A release is a `v*` tag, never a merge — see [dev.md](./dev.md#releasing-to-npm).
+
 Inside `service`: `routes` parse and delegate → `services` answer requests →
 `facades` do work no request waits on → `data` talks to Postgres.
 
