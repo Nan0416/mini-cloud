@@ -1,6 +1,15 @@
-name: PR Build & Test
+# Runs on a pull request, and again on main once one lands.
+#
+# The second trigger is not redundant. `main` only accepts squash merges, so a merge
+# produces a commit that has never existed before — a new tree with a new SHA that no
+# CI run has ever seen. A branch can be green and the squashed result still broken,
+# most often when two PRs each pass alone and conflict semantically once combined.
+name: Build & Test
 on:
   pull_request:
+    branches:
+      - main
+  push:
     branches:
       - main
 permissions:
