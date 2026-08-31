@@ -150,6 +150,37 @@ specific bug, the bug is named — a rule you can't justify is a rule that gets 
     without timers or a database.
 27. **A test name states the property, not the mechanics.** "fires exactly once per
     occurrence across contiguous windows", not "test shouldLaunchInWindow".
+27a. **`tests/` mirrors `src/`.** `src/data/pg-agent-dao.ts` is tested by
+    `tests/data/pg-agent-dao.test.ts`. The mirror is the index: finding a file's tests
+    never involves a search, and a directory under `src/` with no counterpart is
+    visibly untested. Files under `tests/` that are not suites — fixtures, fakes,
+    helpers — are named anything but `*.test.ts` and sit beside the tests that use
+    them (`tests/data/fake-daos.ts`).
+27b. **`tests/data-integration/` is the one exception**, and holds the suites that
+    need a real PostgreSQL. They skip themselves when `MINI_CLOUD_TEST_DATABASE_URL`
+    is unset, so keeping them in their own directory is what makes it visible at a
+    glance which tests always run.
+27c. **Prefer a fake that stores what it is given over a mock that records calls.**
+    `TaskService` and `Scheduler` are almost entirely sequencing, so a test asserting
+    on call arguments restates the implementation line by line and passes just as
+    happily when the order is wrong. Against `FakeTaskInstanceDao` the same test says
+    what a caller would observe. Fakes implement the real rule wherever a caller
+    depends on it — notably the rank guard in `updateStatus`.
+27d. **Mock the pool, not the SQL.** `FakePool` answers what a DAO asked for and
+    records the statements and bound parameters, which is enough for the mapping and
+    the parameter binding — the two that fail silently, like passing an epoch number
+    where a `timestamptz` is expected. Whether a join or a rank guard is *correct* is
+    not something a fake can answer; that belongs in `tests/data-integration/`.
+27e. **Tests are linted and formatted like `src`**, with two documented exceptions in
+    `eslint.config.mjs`: `as` casts (a double deliberately implements only the slice
+    of an interface its subject touches) and `require` (the only way to re-import a
+    module-level initialiser under a different environment).
+27f. **Freeze the clock rather than sleeping.** Anything expressed in wall-clock time
+    — the scheduler's windows, the health monitor's tolerances, retention — takes a
+    `now` argument or runs under `jest.useFakeTimers()`. A real clock makes the
+    interesting cases either unreachable or flaky, and a fixed sleep pays for itself
+    on every run. Where something genuinely cannot be awaited (a detached child's
+    output), poll for the condition with a deadline.
 
 ## CLI
 

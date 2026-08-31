@@ -35,6 +35,26 @@ export default tseslint.config(
     rules: { '@typescript-eslint/no-empty-object-type': 'off' },
   },
   {
+    // Tests are held to the same rules as `src` with two exceptions, both of which
+    // exist because a test's job is to stand in for something.
+    //
+    // Casting: a fake DAO or a hand-built `req`/`res` deliberately implements only
+    // the slice of an interface its subject touches, and the point of the double is
+    // that the compiler cannot know that. The production rule exists so that data
+    // crossing a trust boundary is asserted rather than assumed — a fixture the test
+    // itself wrote is not that.
+    //
+    // `require`: `stage-config.ts` resolves its configuration in a module-level
+    // initialiser, so the only way to test it under a different environment is
+    // `jest.isolateModules` plus a re-require. A static import would resolve once.
+    files: ['packages/*/tests/**/*.{ts,tsx}'],
+    languageOptions: { globals: globals.jest },
+    rules: {
+      '@typescript-eslint/consistent-type-assertions': 'off',
+      '@typescript-eslint/no-require-imports': 'off',
+    },
+  },
+  {
     // The web console runs in a browser, not in Node, and the rules of hooks are the
     // one class of React mistake that fails silently at runtime rather than at build.
     files: ['packages/web/**/*.{ts,tsx}'],
