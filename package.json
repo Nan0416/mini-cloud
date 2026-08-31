@@ -18,10 +18,10 @@
     "cli": "node packages/cli/bin/mini-cloud.js",
     "migrate": "npm run build && node packages/cli/bin/mini-cloud.js migrate",
     "test": "jest --config jest.config.js",
-    "format:fix": "prettier --write \"packages/*/src/**/*.{ts,tsx,css}\"",
-    "format:lint": "prettier --check \"packages/*/src/**/*.{ts,tsx,css}\"",
-    "lint": "eslint \"packages/*/src/**/*.{ts,tsx}\"",
-    "lint:fix": "eslint --fix \"packages/*/src/**/*.{ts,tsx}\""
+    "format:fix": "prettier --write \"packages/*/{src,tests}/**/*.{ts,tsx,css}\"",
+    "format:lint": "prettier --check \"packages/*/{src,tests}/**/*.{ts,tsx,css}\"",
+    "lint": "eslint \"packages/*/{src,tests}/**/*.{ts,tsx}\"",
+    "lint:fix": "eslint --fix \"packages/*/{src,tests}/**/*.{ts,tsx}\""
   },
   "repository": {
     "type": "git",

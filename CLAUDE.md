@@ -39,8 +39,15 @@ npm run start:web                      # the console on :5173, in a third
 `client` to their *source*, so HMR picks up edits there live. Flags need a `--`
 separator: `npm start -- --port 4000`.
 
-`npm test` skips the Postgres integration suite unless `MINI_CLOUD_TEST_DATABASE_URL`
-points at a throwaway database.
+## Tests
+
+`packages/<pkg>/tests/` mirrors that package's `src/`, so `src/data/pg-agent-dao.ts`
+is tested by `tests/data/pg-agent-dao.test.ts`. Helpers and fakes live beside the
+tests that use them, named anything but `*.test.ts`.
+
+`npm test` skips `packages/service/tests/data-integration/` — the suites needing a
+real PostgreSQL — unless `MINI_CLOUD_TEST_DATABASE_URL` points at a throwaway
+database. Everything else runs against fakes and needs nothing installed.
 
 ## Conventions
 

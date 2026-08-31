@@ -1,4 +1,4 @@
-import { SubstitutableFields, substituteLaunchFields, substituteVariables } from '../src/utils/variables';
+import { SubstitutableFields, substituteLaunchFields, substituteVariables } from '../../src/utils/variables';
 
 describe('substituteVariables', () => {
   it('replaces every occurrence of a known placeholder', () => {

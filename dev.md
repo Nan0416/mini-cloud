@@ -115,7 +115,7 @@ from anything. Point it at a different service with `VITE_MINI_CLOUD_API_URL` â€
 | `npm run migrate` | Build, then apply pending migrations and exit |
 | `npm run serve` / `npm run agent` | Same as the `start` pair, but skip the build |
 | `npm run build` | Build every package, in dependency order |
-| `npm test` | Run unit tests across all packages |
+| `npm test` | Run unit tests across all packages. Tests live in `packages/*/tests/`, mirroring each package's `src/` |
 | `npm run lint` | ESLint |
 | `npm run format:fix` | Prettier, in place |
 | `npm run clean` | Remove build output |

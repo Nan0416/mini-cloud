@@ -1,5 +1,5 @@
-import { AsyncQueue } from '../src/utils/async-queue';
-import { sleep } from '../src/utils/sleep';
+import { AsyncQueue } from '../../src/utils/async-queue';
+import { sleep } from '../../src/utils/sleep';
 
 describe('AsyncQueue', () => {
   it('handles events one at a time, in enqueue order', async () => {

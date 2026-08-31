@@ -1,12 +1,12 @@
 import { Pool } from 'pg';
 import path from 'node:path';
-import { migrate } from '../src/data/migrate';
-import { PgAgentDao } from '../src/data/pg-agent-dao';
-import { PgTaskDao } from '../src/data/pg-task-dao';
-import { PgTaskDynamicsDao } from '../src/data/pg-task-dynamics-dao';
-import { PgTaskInstanceDao } from '../src/data/pg-task-instance-dao';
-import { PgVariableDao } from '../src/data/pg-variable-dao';
-import { createPool } from '../src/data/pool';
+import { migrate } from '../../src/data/migrate';
+import { PgAgentDao } from '../../src/data/pg-agent-dao';
+import { PgTaskDao } from '../../src/data/pg-task-dao';
+import { PgTaskDynamicsDao } from '../../src/data/pg-task-dynamics-dao';
+import { PgTaskInstanceDao } from '../../src/data/pg-task-instance-dao';
+import { PgVariableDao } from '../../src/data/pg-variable-dao';
+import { createPool } from '../../src/data/pool';
 
 /**
  * Exercises the SQL against a real PostgreSQL.
@@ -36,7 +36,7 @@ describeIfDatabase('PostgreSQL DAOs', () => {
 
   beforeAll(async () => {
     pool = createPool({ connectionString: DATABASE_URL ?? '' });
-    await migrate(pool, path.resolve(__dirname, '..', 'migrations'));
+    await migrate(pool, path.resolve(__dirname, '..', '..', 'migrations'));
     taskDao = new PgTaskDao(pool);
     dynamicsDao = new PgTaskDynamicsDao(pool);
     instanceDao = new PgTaskInstanceDao(pool);
