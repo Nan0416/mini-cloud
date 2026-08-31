@@ -1,0 +1,83 @@
+# Publishes @mini-cloud/shared and @mini-cloud/reporter to npmjs.org.
+#
+# Triggered by a version tag, not by a merge: a release should be a deliberate act
+# with a name, and a tag is the record of exactly what shipped. `main` moving does
+# not publish anything.
+#
+# Authentication is npm Trusted Publishing over GitHub's OIDC, so there is no
+# NPM_TOKEN in this repository. GitHub mints a short-lived token that npm exchanges
+# for publish rights, scoped to this repo and this workflow file. Renaming this file
+# breaks publishing until the trusted publisher on npmjs.com is updated to match.
+#
+# One consequence worth knowing: npm generates provenance attestations automatically
+# under trusted publishing, so `--provenance` is deliberately absent below. Passing it
+# is not needed and only adds a way to be wrong.
+name: Publish
+on:
+  push:
+    tags:
+      - 'v*'
+permissions:
+  # The whole of the authentication story. Without it npm has no OIDC token to trade.
+  id-token: write
+  contents: read
+jobs:
+  publish:
+    name: Publish to npmjs.org
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout the repository
+        uses: actions/checkout@v4
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          # Trusted publishing needs Node 22.14.0 or newer; `22` resolves to the
+          # latest 22.x, which is well past that.
+          node-version: 22
+          registry-url: 'https://registry.npmjs.org'
+          # Caching is deliberately off. A release build should resolve everything
+          # from the registry rather than from whatever a previous run left behind.
+
+      - name: Upgrade npm
+        # Node 22 bundles npm 10.x, which has no OIDC support at all — publishing
+        # would fail asking for a token. Trusted publishing needs 11.5.1 or newer.
+        run: |
+          npm install -g npm@latest
+          npm --version
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Check the tag matches the package versions
+        # A tag that disagrees with package.json publishes a version nobody asked
+        # for, under a tag that then points at the wrong thing. Fail before the
+        # irreversible step rather than after it.
+        run: |
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          STATUS=0
+          for package in shared reporter; do
+            PACKAGE_VERSION="$(node -p "require('./packages/${package}/package.json').version")"
+            if [ "$PACKAGE_VERSION" != "$TAG_VERSION" ]; then
+              echo "::error::packages/${package} is at ${PACKAGE_VERSION}, but the tag says ${TAG_VERSION}."
+              STATUS=1
+            fi
+          done
+          exit $STATUS
+
+      - name: Build
+        run: npm run build
+
+      - name: Test
+        # A publish cannot be taken back after 72 hours, so the same gate the pull
+        # request had applies again to the exact commit being shipped.
+        run: npm test
+
+      - name: Publish @mini-cloud/shared
+        # First, because @mini-cloud/reporter depends on it. npm does not check that
+        # a dependency resolves at publish time, so the wrong order would leave a
+        # window in which `npm install @mini-cloud/reporter` fails.
+        run: npm publish --workspace @mini-cloud/shared
+
+      - name: Publish @mini-cloud/reporter
+        run: npm publish --workspace @mini-cloud/reporter
