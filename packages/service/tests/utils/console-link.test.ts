@@ -1,4 +1,4 @@
-import { consoleLink } from '../src/utils/console-link';
+import { consoleLink } from '../../src/utils/console-link';
 
 const CONSOLE = 'https://mini-cloud.example.com';
 

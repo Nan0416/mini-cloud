@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { listMigrationFiles } from '../src/data/migrate';
+import { listMigrationFiles } from '../../src/data/migrate';
 
 /**
  * Ordering is the whole contract of a migration runner: a migration that alters a
