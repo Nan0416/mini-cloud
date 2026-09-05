@@ -59,9 +59,11 @@ function explain(error: unknown): Explanation {
   if (error instanceof UnauthenticatedError) {
     return {
       title: 'The service requires a token',
-      // The console has no login screen by design, so the fix is a rebuild rather
-      // than anything the reader can do on this page.
-      detail: 'It is running with MINI_CLOUD_TOKEN set. Rebuild the console with VITE_MINI_CLOUD_TOKEN set to the same value, or start the service without a token.',
+      // Reached only by a console that was given a token and has since had it
+      // rejected — a rotated MINI_CLOUD_PUBLIC_TOKEN, most often. There is no
+      // "without a token" to suggest: the public listener always requires one.
+      detail:
+        'Its MINI_CLOUD_PUBLIC_TOKEN does not match the token this console is sending. Reconnect and paste the current value, or rebuild with VITE_MINI_CLOUD_TOKEN set to it.',
       retryable: false,
     };
   }

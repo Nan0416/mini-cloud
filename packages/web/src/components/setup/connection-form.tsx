@@ -20,9 +20,9 @@ import { isUsableApiUrl, normalizeApiUrl, readRecentUrls, type Connection, type 
 function failureMessage(outcome: ProbeOutcome, apiUrl: string): string {
   switch (outcome) {
     case 'needs-token':
-      return 'That service is running and wants a token. Paste the value of its MINI_CLOUD_TOKEN below.';
+      return 'That service is running and wants a token. Paste the value of its MINI_CLOUD_PUBLIC_TOKEN below.';
     case 'bad-token':
-      return 'That service rejected the token. Check it against the MINI_CLOUD_TOKEN the service was started with.';
+      return 'That service rejected the token. Check it against the MINI_CLOUD_PUBLIC_TOKEN the service was started with.';
     case 'unreachable':
       return `Nothing answered at ${apiUrl}. The service may be stopped, or the browser may have blocked the request before it left: MINI_CLOUD_CORS_ORIGINS on the service has to include ${window.location.origin}; a plain http:// address only works on the machine running this browser, and never in Safari; and Chrome asks permission before reaching one.`;
     default:
@@ -115,7 +115,7 @@ export function ConnectionForm(props: { readonly initial?: Connection; readonly 
             type="password"
             value={token}
             onChange={(event) => setToken(event.target.value)}
-            placeholder="MINI_CLOUD_TOKEN"
+            placeholder="MINI_CLOUD_PUBLIC_TOKEN"
             autoComplete="off"
             spellCheck={false}
           />
