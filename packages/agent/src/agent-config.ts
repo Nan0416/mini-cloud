@@ -9,7 +9,7 @@ export interface AgentConfig {
   /** Whether {@link agentId} was configured, or taken from this machine's hostname. */
   readonly agentIdSource: AgentIdSource;
   readonly name: string;
-  /** Base URL of the mini-cloud service, e.g. `http://127.0.0.1:3000`. */
+  /** Base URL of the service's internal listener, e.g. `http://127.0.0.1:3000`. */
   readonly serviceUrl: string;
   readonly token?: string;
   /** Port the local reporter API listens on. Bound to loopback only. */
@@ -84,7 +84,10 @@ export function loadAgentConfig(overrides: AgentConfigOverrides = {}): AgentConf
     // (`--id laptop-1-b`) would otherwise register under a name identical to the
     // first one's, and the console's Name column would stop telling them apart.
     name: overrides.name ?? getenv('MINI_CLOUD_AGENT_NAME', agentId),
-    serviceUrl: overrides.serviceUrl ?? getenv('MINI_CLOUD_SERVICE_URL', 'http://127.0.0.1:3000'),
+    // The internal listener: agents report there and take their commands from the hub
+    // attached to it. `MINI_CLOUD_SERVICE_URL` is still read, under its old meaning, so
+    // an agent already deployed with it keeps pointing where it always did.
+    serviceUrl: overrides.serviceUrl ?? getenv('MINI_CLOUD_INTERNAL_URL', getenv('MINI_CLOUD_SERVICE_URL', 'http://127.0.0.1:3000')),
     token: overrides.token ?? process.env['MINI_CLOUD_TOKEN'],
     port: overrides.port ?? getenvInteger('MINI_CLOUD_AGENT_PORT', 3100),
     workDir,

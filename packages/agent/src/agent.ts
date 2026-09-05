@@ -292,7 +292,7 @@ export class MiniCloudAgent {
    */
   private async resumeHealthChecks(): Promise<void> {
     await this.safely('resume health checks', async () => {
-      const { instances } = await this.client.listTaskInstances({ agentId: this.config.agentId, status: 'running' });
+      const { instances } = await this.client.listAgentInstances({ agentId: this.config.agentId, status: 'running' });
       if (instances.length === 0) {
         return;
       }

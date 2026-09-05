@@ -15,6 +15,7 @@ import {
 import { IncomingMessage, Server } from 'node:http';
 import { nanoid } from 'nanoid';
 import { WebSocket, WebSocketServer } from 'ws';
+import { describeUntrustedAddress, isTrustedAddress, parseSubnets } from '../utils/subnet';
 
 const logger = LoggerFactory.getLogger('WsMessageHub');
 
@@ -60,37 +61,66 @@ interface Subscriber {
 
 type VerifyClient = (info: { req: IncomingMessage }, done: (result: boolean, code?: number, message?: string) => void) => void;
 
+interface VerifyClientOptions {
+  readonly authToken?: string;
+  readonly trustedSubnets: ReadonlyArray<string>;
+}
+
 /**
- * Rejects the upgrade before a socket exists when a token is configured and the
- * request does not carry it. Returns undefined when no token is set, so `ws` skips
- * verification entirely rather than running a check that always passes.
+ * Rejects an upgrade before a socket exists: from outside the trusted subnets, or
+ * without the configured token.
+ *
+ * This duplicates what `subnetFilter` and `bearerTokenAuth` do for ordinary requests,
+ * and it has to. An upgrade never reaches the express middleware stack, so a hub that
+ * relied on those would be an unauthenticated, unfiltered way in while the HTTP API
+ * beside it was locked down — and the hub is the channel agents take their commands
+ * from.
+ *
+ * Returns undefined when neither check is configured, so `ws` skips verification
+ * entirely rather than running one that always passes.
  */
-function buildVerifyClient(authToken: string | undefined): VerifyClient | undefined {
-  if (authToken === undefined) {
+function buildVerifyClient(options: VerifyClientOptions): VerifyClient | undefined {
+  const subnets = parseSubnets(options.trustedSubnets);
+  const { authToken } = options;
+  if (authToken === undefined && subnets.length === 0) {
     return undefined;
   }
+
   return (info, done) => {
-    if (info.req.headers.authorization === `Bearer ${authToken}`) {
-      done(true);
+    // From the socket, never from `X-Forwarded-For`: a header the caller writes is
+    // not evidence of where the caller is.
+    const address = info.req.socket.remoteAddress;
+    if (subnets.length > 0 && !isTrustedAddress(address, subnets)) {
+      logger.warn(`Rejected a WebSocket upgrade from ${address ?? 'an unknown address'}: outside the trusted subnets.`);
+      done(false, 403, describeUntrustedAddress(address, subnets));
       return;
     }
-    logger.warn('Rejected a WebSocket upgrade: missing or invalid bearer token.');
-    done(false, 401, 'Unauthorized');
+
+    if (authToken !== undefined && info.req.headers.authorization !== `Bearer ${authToken}`) {
+      logger.warn('Rejected a WebSocket upgrade: missing or invalid bearer token.');
+      done(false, 401, 'Unauthorized');
+      return;
+    }
+
+    done(true);
   };
 }
 
 export interface WsMessageHubProps {
-  /** The service's HTTP server. Sharing it keeps mini-cloud on a single port. */
+  /**
+   * The HTTP server to attach to — the *internal* one.
+   *
+   * A WebSocket shares the listening port of the server it is attached to, so this
+   * choice is what decides which port `/ws` answers on — and it is the whole of what
+   * keeps the hub off the public listener. Nothing there claims the upgrade, so it
+   * falls through to that listener's 404, which names this one.
+   */
   readonly server: Server;
   readonly path?: string;
-  /**
-   * Bearer token required on the upgrade request.
-   *
-   * Checked here rather than in Express middleware: a WebSocket upgrade never
-   * reaches the middleware stack, so without this the socket would be an
-   * unauthenticated way in while the HTTP API was locked down.
-   */
+  /** Bearer token required on the upgrade request. Unset accepts any. */
   readonly authToken?: string;
+  /** CIDR blocks an upgrade may come from. Empty accepts any address. */
+  readonly trustedSubnets?: ReadonlyArray<string>;
 }
 
 /**
@@ -113,7 +143,7 @@ export class WsMessageHub implements MessageHub {
     this.wss = new WebSocketServer({
       server: props.server,
       path: props.path ?? '/ws',
-      verifyClient: buildVerifyClient(props.authToken),
+      verifyClient: buildVerifyClient({ authToken: props.authToken, trustedSubnets: props.trustedSubnets ?? [] }),
     });
     this.wss.on('connection', (socket) => this.onConnection(socket));
 

@@ -1,7 +1,7 @@
 import { WsSubscriber } from '@mini-cloud/client';
 import { EventEnvelope } from '@mini-cloud/shared';
 import { Command } from 'commander';
-import { GlobalOptions, createClient, resolveServiceUrl, resolveToken } from '../client-factory';
+import { GlobalOptions, createClient, resolveHubUrl, resolveToken } from '../client-factory';
 import { printJson, printTable } from '../output';
 
 /** Accepts JSON when it parses, and treats anything else as a plain string. */
@@ -74,9 +74,11 @@ export function buildPubSubCommand(): Command {
     .command('watch')
     .description('tail a topic until interrupted, and receive messages sent directly to this subscriber')
     .argument('<topic>')
-    .action(async function (this: Command, topic: string) {
+    .option('--hub <url>', 'internal listener base URL (env MINI_CLOUD_INTERNAL_URL, default http://127.0.0.1:3000)')
+    .action(async function (this: Command, topic: string, options: { hub?: string }) {
       const global: GlobalOptions = this.optsWithGlobals();
-      const url = `${resolveServiceUrl(global).replace(/^http/, 'ws').replace(/\/+$/, '')}/ws`;
+      // The hub is on the internal listener, not the public one `--service` names.
+      const url = `${resolveHubUrl(options.hub).replace(/^http/, 'ws').replace(/\/+$/, '')}/ws`;
 
       const subscriber = new WsSubscriber({
         url,

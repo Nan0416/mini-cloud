@@ -36,7 +36,7 @@ export function buildProgram(): Command {
     .name('mini-cloud')
     .description('a private cloud for your own machines')
     .version('1.0.0')
-    .option('--service <url>', 'service base URL (env MINI_CLOUD_SERVICE_URL, default http://127.0.0.1:3000)')
+    .option('--service <url>', 'service base URL (env MINI_CLOUD_SERVICE_URL, default http://127.0.0.1:3001 — the public listener)')
     .option('--token <token>', 'bearer token (env MINI_CLOUD_TOKEN)')
     .option('--json', 'print raw JSON instead of a table')
     .option('--log-level <level>', 'debug, info, warn or error', (value) => {

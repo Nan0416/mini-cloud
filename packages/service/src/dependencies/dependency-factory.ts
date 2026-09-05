@@ -14,8 +14,11 @@ import { TaskDispatcher } from '../facades/task-dispatcher';
 import { bearerTokenAuth } from '../middleware/auth';
 import { corsMiddleware } from '../middleware/cors';
 import { errorHandler } from '../middleware/error-handler';
+import { notFoundHandler } from '../middleware/not-found';
 import { requestLogger } from '../middleware/request-logger';
+import { subnetFilter } from '../middleware/subnet-filter';
 import { AgentEndpoints } from '../routes/agent-endpoints';
+import { AgentReportEndpoints } from '../routes/agent-report-endpoints';
 import { Endpoints } from '../routes/endpoints';
 import { HealthEndpoints } from '../routes/health-endpoints';
 import { PubSubEndpoints } from '../routes/pubsub-endpoints';
@@ -26,9 +29,22 @@ import { ServiceConfig } from '../stage-config';
 
 const logger = LoggerFactory.getLogger('DependencyFactory');
 
-export interface Dependencies {
+/** What each listener serves, for the hint in the other one's 404. */
+const INTERNAL_ROUTES: ReadonlyArray<string> = ['/agent-api/*', '/pubsub/*', '/ws'];
+const PUBLIC_ROUTES: ReadonlyArray<string> = ['/tasks', '/instances', '/agents', '/variables'];
+
+/** One express application's worth of wiring: what runs before the routes, and the routes. */
+export interface PlaneDependencies {
   readonly middleware: ReadonlyArray<RequestHandler>;
   readonly endpoints: ReadonlyArray<Endpoints>;
+  readonly notFound: RequestHandler;
+}
+
+export interface Dependencies {
+  /** Agents and LAN programs: reports, the pub/sub hub, health. */
+  readonly internal: PlaneDependencies;
+  /** The console and the CLI: tasks, instances, the fleet, variables. */
+  readonly public: PlaneDependencies;
   readonly errorHandler: ErrorRequestHandler;
   readonly scheduler: Scheduler;
   readonly taskService: TaskService;
@@ -47,6 +63,11 @@ export interface DependencyFactoryProps {
  * Every component takes its collaborators as constructor arguments and nothing
  * reaches for a module-level singleton, so a test can substitute a fake DAO or hub by
  * building the same graph with different leaves.
+ *
+ * The two listeners are two express applications over *one* set of services, DAOs and
+ * facades: the split decides what is reachable from where, not what exists. A route
+ * belongs to exactly one of them, and which one is decided by who calls it — agents
+ * report inward, people drive from outside.
  */
 export class DependencyFactory {
   constructor(private readonly props: DependencyFactoryProps) {}
@@ -79,34 +100,87 @@ export class DependencyFactory {
       config: config.scheduler,
     });
 
+    return {
+      internal: {
+        middleware: this.internalMiddleware(),
+        endpoints: [
+          new HealthEndpoints({ pool }),
+          new AgentReportEndpoints({ agentService, taskService }),
+          // Also on the public listener: the console shows hub status and can publish,
+          // while programs on the LAN publish here without needing the operator's token.
+          new PubSubEndpoints({ messageHub }),
+        ],
+        notFound: notFoundHandler({
+          plane: 'internal',
+          otherPlane: 'public',
+          otherPlanePort: config.public.port,
+          otherPlaneServes: PUBLIC_ROUTES,
+        }),
+      },
+      public: {
+        middleware: this.publicMiddleware(),
+        endpoints: [new HealthEndpoints({ pool }), new TaskEndpoints({ taskService }), new AgentEndpoints({ agentService }), new PubSubEndpoints({ messageHub })],
+        notFound: notFoundHandler({
+          plane: 'public',
+          otherPlane: 'internal',
+          otherPlanePort: config.internal.port,
+          otherPlaneServes: INTERNAL_ROUTES,
+        }),
+      },
+      errorHandler,
+      scheduler,
+      taskService,
+      agentService,
+    };
+  }
+
+  /**
+   * No CORS, deliberately. A browser cannot then read an answer from this listener,
+   * which is the difference between "a page you visited reached your agents" and
+   * "a page you visited was refused". The console never calls it.
+   */
+  private internalMiddleware(): ReadonlyArray<RequestHandler> {
+    const { internal } = this.props.config;
     const middleware: RequestHandler[] = [requestLogger()];
+
+    if (internal.trustedSubnets.length > 0) {
+      logger.info(`The internal listener accepts connections from [${internal.trustedSubnets.join(', ')}].`);
+      middleware.push(subnetFilter({ subnets: internal.trustedSubnets }));
+    } else {
+      logger.warn('MINI_CLOUD_TRUSTED_SUBNETS is empty: the internal listener accepts a connection from any address that can reach it.');
+    }
+
+    if (internal.authToken !== undefined) {
+      logger.info('The internal listener requires a bearer token.');
+      middleware.push(bearerTokenAuth(internal.authToken));
+    }
+    return middleware;
+  }
+
+  private publicMiddleware(): ReadonlyArray<RequestHandler> {
+    const { public: publicConfig } = this.props.config;
+    const middleware: RequestHandler[] = [requestLogger()];
+
     // Ahead of authentication on purpose: a browser preflight carries no bearer
     // token, so an auth-first ordering fails every cross-origin request.
-    if (config.corsOrigins.length > 0) {
+    if (publicConfig.corsOrigins.length > 0) {
       // Warned rather than logged, for the same reason the missing token is: a
       // service any page can drive should say so on every start, not only in a
       // document someone has to go and read.
-      if (config.corsOrigins.includes('*')) {
-        logger.warn('MINI_CLOUD_CORS_ORIGINS allows any origin: any web page the operator visits can call this service. Set it to your console origin to narrow that.');
+      if (publicConfig.corsOrigins.includes('*')) {
+        logger.warn('MINI_CLOUD_CORS_ORIGINS allows any origin: any web page the operator visits can call the public listener. Set it to your console origin to narrow that.');
       } else {
-        logger.info(`Cross-origin requests are allowed from [${config.corsOrigins.join(', ')}].`);
+        logger.info(`Cross-origin requests are allowed from [${publicConfig.corsOrigins.join(', ')}].`);
       }
-      middleware.push(corsMiddleware({ origins: config.corsOrigins }));
+      middleware.push(corsMiddleware({ origins: publicConfig.corsOrigins }));
     }
-    if (config.authToken !== undefined) {
-      logger.info('Bearer token authentication is enabled.');
-      middleware.push(bearerTokenAuth(config.authToken));
+
+    if (publicConfig.authToken !== undefined) {
+      logger.info('The public listener requires a bearer token.');
+      middleware.push(bearerTokenAuth(publicConfig.authToken));
     } else {
-      logger.warn('MINI_CLOUD_TOKEN is not set: the service is accepting unauthenticated requests.');
+      logger.warn(`MINI_CLOUD_PUBLIC_TOKEN is not set: anything that can reach ${publicConfig.host}:${publicConfig.port} can launch programs on your machines.`);
     }
-
-    const endpoints: Endpoints[] = [
-      new HealthEndpoints({ pool }),
-      new TaskEndpoints({ taskService }),
-      new AgentEndpoints({ agentService, taskService }),
-      new PubSubEndpoints({ messageHub }),
-    ];
-
-    return { middleware, endpoints, errorHandler, scheduler, taskService, agentService };
+    return middleware;
   }
 }

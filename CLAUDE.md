@@ -25,7 +25,8 @@ program launched by mini-cloud can import the reporter without vendoring it. The
 stay private. A release is a `v*` tag, never a merge — see [dev.md](./dev.md#releasing-to-npm).
 
 Inside `service`: `routes` parse and delegate → `services` answer requests →
-`facades` do work no request waits on → `data` talks to Postgres.
+`facades` do work no request waits on → `data` talks to Postgres. `DependencyFactory`
+decides which listener each route group is bound to.
 
 Schema lives in `packages/service/migrations/` as numbered SQL files, applied on
 startup. Never edit one that has shipped; add the next number.
@@ -33,10 +34,17 @@ startup. Never edit one that has shipped; add the next number.
 ## Running it
 
 ```bash
-npm start                              # control plane on :3000 (builds + migrates first)
+npm start                              # control plane (builds + migrates first)
 npm run start:agent                    # a worker agent, in another terminal
 npm run start:web                      # the console on :5173, in a third
 ```
+
+The control plane serves two HTTP listeners from one process. **Internal** (`:3000`)
+carries `/agent-api/*`, `/pubsub/*` and the WebSocket at `/ws`, and is what agents and
+LAN programs talk to. **Public** (`:3001`) carries `/tasks*`, `/instances*`, `/agents*`
+and `/variables`, and is what the console and the CLI talk to — the only one meant to
+face a port forward. A route belongs to exactly one of them; the 404 on the other names
+the right listener.
 
 `start` and `start:agent` rebuild first; skip that with `npm run cli -- serve` or
 `npm run cli -- agent start`. `start:web` needs no build — vite aliases `shared` and

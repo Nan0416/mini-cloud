@@ -49,7 +49,7 @@ function loadConfig(): WebConfig {
     listPollMs: 10_000,
     detailPollMs: 4_000,
     requestTimeoutMs: 15_000,
-    suggestedApiUrl: 'http://127.0.0.1:3000',
+    suggestedApiUrl: 'http://127.0.0.1:3001',
   };
 }
 

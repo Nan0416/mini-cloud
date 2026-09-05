@@ -276,3 +276,80 @@ describe('WsMessageHub', () => {
     expect(hub.publish({ method: 'p2p', to: listener.id }, { payload: {}, publishedAt: Date.now() })).toBe(0);
   });
 });
+
+/**
+ * Who is allowed to open a socket at all.
+ *
+ * An upgrade never passes through the express middleware stack, so neither the token
+ * check nor the subnet filter that guard ordinary requests apply to it. Whatever the
+ * hub does not check here is unchecked — and the hub is the channel agents take their
+ * launch commands from.
+ */
+describe('WsMessageHub upgrades', () => {
+  let server: Server;
+  let hub: WsMessageHub;
+
+  const startHub = async (props: { authToken?: string; trustedSubnets?: ReadonlyArray<string> }): Promise<number> => {
+    server = createServer();
+    hub = new WsMessageHub({ server, ...props });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const address: AddressInfo | string | null = server.address();
+    if (address === null || typeof address === 'string') {
+      throw new Error('Expected the test server to be listening on a TCP port.');
+    }
+    return address.port;
+  };
+
+  /** The HTTP status the handshake was refused with, or `'connected'` if it was not. */
+  const upgrade = async (port: number, headers: Record<string, string> = {}): Promise<number | 'connected'> => {
+    const socket = new WebSocket(`ws://127.0.0.1:${port}/ws`, { headers });
+    return new Promise<number | 'connected'>((resolve) => {
+      socket.on('open', () => {
+        socket.close();
+        resolve('connected');
+      });
+      socket.on('unexpected-response', (_request, response) => {
+        socket.terminate();
+        resolve(response.statusCode ?? 0);
+      });
+      socket.on('error', () => resolve(0));
+    });
+  };
+
+  afterEach(async () => {
+    await hub.terminate();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  });
+
+  it('accepts an upgrade when nothing is configured to refuse one', async () => {
+    expect(await upgrade(await startHub({}))).toBe('connected');
+  });
+
+  it('refuses an upgrade from outside the trusted subnets', async () => {
+    const port = await startHub({ trustedSubnets: ['10.0.0.0/8'] });
+
+    // 403 rather than 401: no credential would help, and a client told 401 retries
+    // with a token forever.
+    expect(await upgrade(port)).toBe(403);
+  });
+
+  it('accepts one from inside them', async () => {
+    expect(await upgrade(await startHub({ trustedSubnets: ['127.0.0.0/8'] }))).toBe('connected');
+  });
+
+  it('refuses an upgrade missing the token, before a socket exists', async () => {
+    const port = await startHub({ authToken: 's3cret' });
+
+    expect(await upgrade(port)).toBe(401);
+    expect(await upgrade(port, { authorization: 'Bearer wrong' })).toBe(401);
+    expect(await upgrade(port, { authorization: 'Bearer s3cret' })).toBe('connected');
+  });
+
+  it('applies both checks, and answers on the address first', async () => {
+    // Where the caller is decides whether the request should have been made at all;
+    // what it carries only matters once it should.
+    const port = await startHub({ authToken: 's3cret', trustedSubnets: ['10.0.0.0/8'] });
+
+    expect(await upgrade(port, { authorization: 'Bearer s3cret' })).toBe(403);
+  });
+});
