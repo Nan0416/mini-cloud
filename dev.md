@@ -14,34 +14,52 @@ brew install postgresql@18
 brew services start postgresql@18
 ```
 
-Create the databases. mini-cloud uses one per stage so a `beta` experiment cannot
-touch `prod` data:
+Create the database:
 
 ```bash
-createdb mini_cloud_beta
-createdb mini_cloud_prod
+createdb mini_cloud
 ```
 
 Point the service somewhere else with `MINI_CLOUD_DATABASE_URL` if you use a
-different host, port, user or database name.
+different host, port, user or database name. Running a second copy — an experiment you
+do not want touching your real tasks — is a second database and a second value for that
+variable, rather than anything mini-cloud knows about:
+
+```bash
+createdb mini_cloud_scratch
+MINI_CLOUD_DATABASE_URL=postgres://localhost:5432/mini_cloud_scratch npm start
+```
 
 If you would rather not run a daemon on your machine, a container works the same way:
 
 ```bash
 docker run -d --name mini-cloud-pg \
-  -e POSTGRES_USER=minicloud -e POSTGRES_PASSWORD=minicloud -e POSTGRES_DB=mini_cloud_beta \
+  -e POSTGRES_USER=minicloud -e POSTGRES_PASSWORD=minicloud -e POSTGRES_DB=mini_cloud \
   -p 5432:5432 postgres:17-alpine
-export MINI_CLOUD_DATABASE_URL=postgres://minicloud:minicloud@127.0.0.1:5432/mini_cloud_beta
+export MINI_CLOUD_DATABASE_URL=postgres://minicloud:minicloud@127.0.0.1:5432/mini_cloud
 ```
 
 ## Build and run
 
 ```bash
 npm install
+export MINI_CLOUD_PUBLIC_TOKEN=$(openssl rand -hex 32)
 npm start
 ```
 
-`npm start` builds every package, applies any pending migrations, and runs the
+The token is required, and `serve` refuses to start without one:
+
+```
+Error: MINI_CLOUD_PUBLIC_TOKEN is not set. The public listener will not start without
+one: it is the listener a port forward points at, and anything that reaches it can
+launch programs on your machines.
+```
+
+Put it somewhere it survives a new shell — a profile, an `EnvironmentFile=` in a
+systemd unit, a launchd plist — rather than generating a fresh one each time. The
+console stores the token you give it, so rotating the value logs every browser out.
+
+`npm start` then builds every package, applies any pending migrations, and runs the
 control plane in the foreground. Ctrl-C shuts it down cleanly.
 
 It prints two listeners and a link that opens the console already pointed at itself:
@@ -61,8 +79,9 @@ One process, two ports, and the split is by who calls:
 | Serves | `/agent-api/*`, `/pubsub/*`, `/ws`, `/ping`, `/health` | `/tasks*`, `/instances*`, `/agents*`, `/variables`, `/pubsub/*`, `/ping`, `/health` |
 | Called by | agents, and programs on your LAN | the console, the CLI, you |
 | Bind it to | the home network | wherever you reach it from |
-| CORS | none at all | `MINI_CLOUD_CORS_ORIGINS` |
+| Authentication | none — the source address is the credential | `MINI_CLOUD_PUBLIC_TOKEN`, always required |
 | Source check | `MINI_CLOUD_TRUSTED_SUBNETS` | none |
+| CORS | none at all | `MINI_CLOUD_CORS_ORIGINS` |
 
 The point is that they get exposed differently. The internal one carries agent reports
 and the WebSocket the fleet takes its commands from, so it stays on the LAN; the public
@@ -70,16 +89,39 @@ one is the only one a port forward should ever point at. They share one schedule
 database and one object graph — the split decides what is *reachable* from where, not
 what exists, so a bug in a public route can still touch everything.
 
+An agent presents no credential at all. What admits it is where it is connecting from,
+so `MINI_CLOUD_TRUSTED_SUBNETS` is not a second line of defence on the internal listener
+— it is the only one. Widen it and you have widened who can launch programs on your
+machines; empty it and anything that can reach the port can.
+
 The WebSocket is on the internal listener because that is the server it is attached to,
 and a socket shares the port of its server. Nothing claims an upgrade on the public
 listener, so one arriving there gets the same 404 as any other unknown path — no filter
-involved.
+involved. On the internal listener the upgrade is checked against the trusted subnets
+separately from ordinary requests, because an upgrade never passes through the
+middleware stack that checks those.
 
 Ask for a path on the wrong listener and the 404 says which one serves it:
 
 ```
 $ curl -s localhost:3000/tasks
 {"error":"GET /tasks is not served by the internal listener. The public listener (port 3001) serves /tasks, /instances, /agents, /variables.","errorCode":"NOT_FOUND"}
+```
+
+On the public listener the token is checked before anything is routed, so an
+unauthenticated request is a 401 whatever the path — a path that does not exist
+included, which is what stops someone mapping the API by reading which paths 404.
+`/ping` and `/health` are the two exceptions, left open so that a probe can tell a
+service that is down from one that is refusing it. The console's setup screen is built
+on exactly that difference:
+
+```
+$ curl -s -o /dev/null -w '%{http_code}\n' localhost:3001/ping
+200
+$ curl -s -o /dev/null -w '%{http_code}\n' localhost:3001/tasks
+401
+$ curl -s -o /dev/null -w '%{http_code}\n' -H "Authorization: Bearer $MINI_CLOUD_PUBLIC_TOKEN" localhost:3001/tasks
+200
 ```
 
 That console is a static page which talks to whatever address the link names — nothing
@@ -104,28 +146,33 @@ npm link -w @mini-cloud/cli
 ## Web console
 
 The console is a separate static app that calls the service's HTTP API directly, from
-its own origin. Nothing to configure:
+its own origin:
 
 ```bash
 npm start      # terminal 1 — the control plane
 npm run web    # terminal 2 — the console, on http://localhost:5173
 ```
 
-The console talks to the public listener — `http://127.0.0.1:3001` — which allows any
-origin by default, and that is what makes those two commands work together. **It is
-wider than it sounds**: the browser makes the request, so binding to loopback does not
-stop a page you happen to be visiting from reaching the listener and reading the answer
-— and an unauthenticated control plane will happily launch a command for it. Two ways
-to close that, either of which is worth doing before you leave it running:
+It talks to the public listener — `http://127.0.0.1:3001` — and asks for the address
+and the token on first load. Paste the value of `MINI_CLOUD_PUBLIC_TOKEN`; the browser
+stores it, so this is a first-run step rather than a per-session one. Baking both into
+the bundle instead is `VITE_MINI_CLOUD_API_URL` and `VITE_MINI_CLOUD_TOKEN`, below.
+
+That listener allows **any** browser origin by default, which is what makes those two
+commands work with no CORS setup — and it is wider than it sounds: the browser makes
+the request, so binding to loopback does not stop a page you happen to be visiting from
+reaching the listener. The token is what stops that page getting an answer; narrowing
+the origins closes it a step earlier, and is worth doing before you leave the service
+running:
 
 ```bash
 MINI_CLOUD_CORS_ORIGINS=http://localhost:5173    # only the console's origin
-MINI_CLOUD_PUBLIC_TOKEN=$(openssl rand -hex 32)  # or require a token from everyone
 ```
 
 The internal listener installs no CORS middleware at all, whatever this is set to. A
 page can still send it a request; without the response header the browser will not let
-that page read the answer, which is the difference that matters for agent traffic.
+that page read the answer, which is the difference that matters for agent traffic —
+that listener has no token to fall back on.
 
 Setting `MINI_CLOUD_CORS_ORIGINS` replaces the default rather than adding to it, so
 naming your own origins genuinely narrows things. Setting it to an empty value
@@ -179,22 +226,20 @@ reaches the service as a bare `4000` and fails.
 
 ## Configuration
 
-Every value has a default; nothing is required to run locally.
+Every value has a default except `MINI_CLOUD_PUBLIC_TOKEN`, which the control plane
+refuses to start without.
 
 ### Service
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `MINI_CLOUD_STAGE` | `beta` | `beta` or `prod`; selects the default database name |
+| `MINI_CLOUD_PUBLIC_TOKEN` | **required** | Bearer token for the public listener. There is no default and no way to run without one |
 | `MINI_CLOUD_INTERNAL_PORT` | `3000` | Internal listener: agent API, pub/sub, WebSocket. Also reads `MINI_CLOUD_PORT` |
 | `MINI_CLOUD_INTERNAL_HOST` | `127.0.0.1` | Internal bind address, e.g. your LAN address. Also reads `MINI_CLOUD_HOST` |
-| `MINI_CLOUD_INTERNAL_TOKEN` | *(unset)* | Bearer token for the internal listener and the WebSocket. Falls back to `MINI_CLOUD_TOKEN` |
-| `MINI_CLOUD_TRUSTED_SUBNETS` | loopback + RFC 1918 + ULA + link-local | CIDR blocks the internal listener accepts connections from. An empty value accepts any address |
+| `MINI_CLOUD_TRUSTED_SUBNETS` | loopback + RFC 1918 + ULA + link-local | CIDR blocks the internal listener accepts connections from, on requests and on WebSocket upgrades. The only thing guarding that listener — an empty value accepts any address |
 | `MINI_CLOUD_PUBLIC_PORT` | `3001` | Public listener: tasks, instances, the fleet, variables |
 | `MINI_CLOUD_PUBLIC_HOST` | `127.0.0.1` | Public bind address. Loopback by default — exposing this one should be deliberate |
-| `MINI_CLOUD_PUBLIC_TOKEN` | *(unset)* | Bearer token for the public listener. Falls back to `MINI_CLOUD_TOKEN` |
-| `MINI_CLOUD_DATABASE_URL` | `postgres://localhost:5432/mini_cloud_<stage>` | Connection string |
-| `MINI_CLOUD_TOKEN` | *(unset)* | Bearer token for both listeners at once. Unset means no authentication |
+| `MINI_CLOUD_DATABASE_URL` | `postgres://localhost:5432/mini_cloud` | Connection string |
 | `MINI_CLOUD_CORS_ORIGINS` | `*` | Comma-separated browser origins allowed to call the **public** listener. `*` allows any; an empty value installs no CORS middleware at all |
 | `MINI_CLOUD_JOB_TICK_MS` | `1000` | How often to check for due jobs. Must be at or below the shortest job interval |
 | `MINI_CLOUD_MAINTENANCE_TICK_MS` | `5000` | Agent probe and stuck-instance sweep interval |
@@ -226,11 +271,11 @@ Set them in `packages/web/.env` (copy `.env.example`). Both are optional, and bo
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `VITE_MINI_CLOUD_API_URL` | *(unset — the console asks on first load)* | Base URL of the service the console calls |
-| `VITE_MINI_CLOUD_TOKEN` | *(unset)* | Bearer token, for a service running with `MINI_CLOUD_TOKEN` set |
+| `VITE_MINI_CLOUD_TOKEN` | *(unset)* | Bearer token; the value of the service's `MINI_CLOUD_PUBLIC_TOKEN` |
 
 With neither set, the console shows a setup screen that asks for the service address,
-verifies it, and asks for a token only if the service turns out to want one. That is
-what lets one build be pointed at anyone's service — including from a phone, if the
+verifies it, and then asks for the token — which the public listener always wants. That
+is what lets one build be pointed at anyone's service — including from a phone, if the
 service is behind TLS. See [packages/web/README.md](./packages/web/README.md) for the
 precedence rules and what a browser will and will not let the console reach.
 

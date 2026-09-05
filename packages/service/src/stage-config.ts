@@ -1,45 +1,16 @@
-import { getenv, getenvInteger, getenvOneOf } from '@mini-cloud/shared';
+import { getenv, getenvInteger } from '@mini-cloud/shared';
 import { SchedulerConfig } from './facades/scheduler';
 
-export type Stage = 'beta' | 'prod';
-export const STAGES: ReadonlyArray<Stage> = ['beta', 'prod'];
-
-/**
- * Any origin, so that the console works wherever it is served from without
- * configuration.
- *
- * This is a deliberate choice for a home-lab control plane, and it is a wide one: a
- * browser sends the request, so binding to loopback does not keep a page the operator
- * happens to be visiting from reaching the service and reading the answer. It applies
- * to the public listener alone — the internal one installs no CORS middleware at all,
- * which is what keeps a visited page away from agent traffic and the hub.
- */
 const DEFAULT_CORS_ORIGINS: ReadonlyArray<string> = ['*'];
 
-/**
- * Loopback plus the ranges a home network actually uses: RFC 1918 for IPv4, unique
- * local and link-local for IPv6.
- *
- * Carrier-grade NAT (`100.64.0.0/10`) is left out on purpose even though Tailscale
- * hands out addresses from it — a range that admits a machine the operator never
- * joined to anything does not belong in a default. Add it when you run a mesh VPN.
- */
 const DEFAULT_TRUSTED_SUBNETS: ReadonlyArray<string> = ['127.0.0.0/8', '::1/128', '10.0.0.0/8', '172.16.0.0/12', '192.168.0.0/16', 'fc00::/7', 'fe80::/10'];
 
-/**
- * The hosted console, used only to build a link printed at startup. Nothing is ever
- * sent there — the console is a static page that talks to whichever service the
- * visitor names — but point `MINI_CLOUD_CONSOLE_URL` at your own copy if you serve
- * one, or set it empty to print nothing.
- */
 const DEFAULT_CONSOLE_URL = 'https://mini-cloud.qinnan.dev';
 
 /** What every listener has: where it binds, and what it demands of a caller. */
 export interface ListenerConfig {
   readonly host: string;
   readonly port: number;
-  /** Bearer token callers must present. Unset disables authentication on this listener. */
-  readonly authToken?: string;
 }
 
 /**
@@ -61,10 +32,17 @@ export interface PublicListenerConfig extends ListenerConfig {
    * disables CORS entirely, so only non-browser callers get through.
    */
   readonly corsOrigins: ReadonlyArray<string>;
+  /**
+   * Bearer token every caller must present. Required in practice — the listener
+   * refuses to start without one — but read as optional here so that *importing* this
+   * module never throws. `config` resolves in a module-level initialiser, and the CLI
+   * imports it for every command, so a required read makes `mini-cloud task list` and
+   * even `--help` die on a missing variable before they parse an argument.
+   */
+  readonly authToken?: string;
 }
 
 export interface ServiceConfig {
-  readonly stage: Stage;
   readonly databaseUrl: string;
   readonly internal: InternalListenerConfig;
   readonly public: PublicListenerConfig;
@@ -94,31 +72,15 @@ function getenvClearableList(name: string, fallback: ReadonlyArray<string>): Rea
     .filter((entry) => entry.length > 0);
 }
 
-/**
- * The single place the service reads `process.env`. Everything else takes its
- * configuration as constructor arguments, which is what makes the pieces testable
- * without setting environment variables.
- *
- * `MINI_CLOUD_HOST`, `MINI_CLOUD_PORT` and `MINI_CLOUD_TOKEN` still configure the
- * internal listener under their old names. That is where an existing deployment's
- * agents already point, and where the WebSocket has always been — so an upgrade moves
- * the operator's own port, which is one address in one console, rather than every
- * agent's, which is a machine at a time.
- */
 function loadConfig(): ServiceConfig {
-  const stage = getenvOneOf('MINI_CLOUD_STAGE', STAGES, 'beta');
-  const sharedToken = process.env['MINI_CLOUD_TOKEN'];
-
   return {
-    stage,
-    databaseUrl: getenv('MINI_CLOUD_DATABASE_URL', `postgres://localhost:5432/mini_cloud_${stage}`),
+    databaseUrl: getenv('MINI_CLOUD_DATABASE_URL', `postgres://localhost:5432/mini_cloud`),
     internal: {
       // Loopback by default: the service commands processes on your machines, so
       // exposing it needs to be a deliberate act. Set it to the LAN address agents
       // reach this host on.
       host: getenv('MINI_CLOUD_INTERNAL_HOST', getenv('MINI_CLOUD_HOST', '127.0.0.1')),
       port: getenvInteger('MINI_CLOUD_INTERNAL_PORT', getenvInteger('MINI_CLOUD_PORT', 3000)),
-      authToken: process.env['MINI_CLOUD_INTERNAL_TOKEN'] ?? sharedToken,
       trustedSubnets: getenvClearableList('MINI_CLOUD_TRUSTED_SUBNETS', DEFAULT_TRUSTED_SUBNETS),
     },
     public: {
@@ -127,7 +89,7 @@ function loadConfig(): ServiceConfig {
       // step needed to publish a remote-execution API.
       host: getenv('MINI_CLOUD_PUBLIC_HOST', '127.0.0.1'),
       port: getenvInteger('MINI_CLOUD_PUBLIC_PORT', 3001),
-      authToken: process.env['MINI_CLOUD_PUBLIC_TOKEN'] ?? sharedToken,
+      authToken: process.env['MINI_CLOUD_PUBLIC_TOKEN'],
       // Setting the variable replaces the default rather than adding to it, so naming
       // your own origins genuinely narrows the service instead of widening it.
       corsOrigins: getenvClearableList('MINI_CLOUD_CORS_ORIGINS', DEFAULT_CORS_ORIGINS),

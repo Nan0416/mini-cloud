@@ -2,12 +2,8 @@ import { InvalidRequestError, getenv, getenvInteger } from '@mini-cloud/shared';
 import os from 'node:os';
 import path from 'node:path';
 
-export type AgentIdSource = 'supplied' | 'hostname';
-
 export interface AgentConfig {
   readonly agentId: string;
-  /** Whether {@link agentId} was configured, or taken from this machine's hostname. */
-  readonly agentIdSource: AgentIdSource;
   readonly name: string;
   /** Base URL of the service's internal listener, e.g. `http://127.0.0.1:3000`. */
   readonly serviceUrl: string;
@@ -79,10 +75,6 @@ export function loadAgentConfig(overrides: AgentConfigOverrides = {}): AgentConf
 
   return {
     agentId,
-    agentIdSource: agentId === supplied ? 'supplied' : 'hostname',
-    // Follows the resolved id, not the hostname: a second agent on the same box
-    // (`--id laptop-1-b`) would otherwise register under a name identical to the
-    // first one's, and the console's Name column would stop telling them apart.
     name: overrides.name ?? getenv('MINI_CLOUD_AGENT_NAME', agentId),
     // The internal listener: agents report there and take their commands from the hub
     // attached to it. Deliberately not `MINI_CLOUD_SERVICE_URL`, which the CLI reads

@@ -27,10 +27,11 @@ class FakeHub implements MessageHub {
 }
 
 const aConfig = (overrides: Partial<ServiceConfig> = {}): ServiceConfig => ({
-  stage: 'beta',
   databaseUrl: 'postgres://localhost:5432/mini_cloud_test',
   internal: { host: '127.0.0.1', port: 3000, trustedSubnets: ['127.0.0.0/8'] },
-  public: { host: '127.0.0.1', port: 3001, corsOrigins: ['*'] },
+  // A token, because the public listener will not be built without one. The internal
+  // listener has no equivalent field: the source address is what guards it.
+  public: { host: '127.0.0.1', port: 3001, corsOrigins: ['*'], authToken: 'operator' },
   consoleUrl: '',
   scheduler: {
     jobTickMs: 1_000,
@@ -72,10 +73,16 @@ const start = async (config: ServiceConfig = aConfig()): Promise<Listeners> => {
   };
 };
 
+/** The token `aConfig` gives the public listener, which every probe of it must carry. */
+const AUTHORIZED = { authorization: 'Bearer operator' };
+
 /**
  * Probes are chosen to stop at the routing layer: a GET that reads an empty table, or
  * a POST with a body the parser rejects. Either way the answer distinguishes "this
  * listener serves the path" from 404, without a request reaching Postgres.
+ *
+ * The public ones authenticate, because that listener answers 401 before it routes —
+ * so an unauthenticated probe cannot tell a path it does not serve from one it does.
  */
 const ROUTES: ReadonlyArray<{ method: 'GET' | 'POST'; path: string; internal: boolean; public: boolean }> = [
   { method: 'GET', path: '/ping', internal: true, public: true },
@@ -106,8 +113,9 @@ describe('which listener serves what', () => {
   it.each(ROUTES)('serves $method $path on the listeners it belongs to', async (route) => {
     listeners = await start();
 
-    const onInternal = await listeners.internal.request(route.method, route.path, route.method === 'POST' ? {} : undefined);
-    const onPublic = await listeners.public.request(route.method, route.path, route.method === 'POST' ? {} : undefined);
+    const body = route.method === 'POST' ? {} : undefined;
+    const onInternal = await listeners.internal.request(route.method, route.path, body);
+    const onPublic = await listeners.public.request(route.method, route.path, body, AUTHORIZED);
 
     expect(onInternal.status === 404).toBe(!route.internal);
     expect(onPublic.status === 404).toBe(!route.public);
@@ -118,7 +126,7 @@ describe('which listener serves what', () => {
 
     // The single most consequential line of the split: an agent's report path, and
     // with it the topics that command agents, must not be reachable from outside.
-    const response = await listeners.public.post('/agent-api/heartbeat', { agentId: 'mac-mini', name: 'Mac mini' });
+    const response = await listeners.public.post('/agent-api/heartbeat', { agentId: 'mac-mini', name: 'Mac mini' }, AUTHORIZED);
 
     expect(response.status).toBe(404);
   });
@@ -152,13 +160,36 @@ describe('what runs before the routes', () => {
     expect(response.headers.get('access-control-allow-origin')).toBe('https://console.example.com');
   });
 
-  it('lets each listener demand its own token, or none', async () => {
-    // The arrangement this is built for: agents on the LAN need no secret, while the
-    // listener that faces the internet refuses anything without one.
-    const config = aConfig();
-    listeners = await start({ ...config, public: { ...config.public, authToken: 'operator' } });
+  it('answers 401 before routing, so an unauthenticated caller learns no paths', async () => {
+    listeners = await start();
+
+    // Even for a path it does not serve. Ordering auth after the routes would let
+    // anyone map the API by reading which paths 404 and which do not.
+    expect((await listeners.public.get('/agent-api/nonsense')).status).toBe(401);
+    expect((await listeners.public.get('/agent-api/nonsense', AUTHORIZED)).status).toBe(404);
+  });
+
+  it('demands a token on the public listener and none on the internal one', async () => {
+    // The arrangement this is built for: agents on the LAN present no secret and are
+    // admitted by address, while the listener that faces the internet refuses anything
+    // without a token. The 400 is the agent route being reached and rejecting an empty
+    // body — which is the point, since a 401 would mean it had asked for a credential.
+    listeners = await start();
 
     expect((await listeners.public.get('/tasks')).status).toBe(401);
     expect((await listeners.internal.post('/agent-api/heartbeat', {})).status).toBe(400);
+  });
+
+  it('refuses to build a public listener with no token at all', async () => {
+    const config = aConfig();
+
+    // Enforced here rather than when the environment is read: `config` resolves at
+    // import and the CLI imports it for every command, so a required read there makes
+    // `mini-cloud task list` die on a missing variable before parsing an argument.
+    expect(() =>
+      new DependencyFactory({ config: { ...config, public: { ...config.public, authToken: undefined } }, pool: new FakePool().asPool(), messageHub: new FakeHub() }).build(),
+    ).toThrow(/MINI_CLOUD_PUBLIC_TOKEN is not set/);
+
+    listeners = await start();
   });
 });

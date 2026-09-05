@@ -4,11 +4,12 @@ The mini-cloud web console: tasks, instances, agents, replacement variables and 
 pub/sub hub, in a browser.
 
 ```bash
-npm start      # terminal 1 — the control plane
+npm start      # terminal 1 — the control plane, with MINI_CLOUD_PUBLIC_TOKEN set
 npm run web    # terminal 2 — the console
 ```
 
-Then open http://localhost:5173. Nothing to configure.
+Then open http://localhost:5173. It asks for the service address and the token once,
+and remembers both.
 
 ## How it talks to the service
 
@@ -28,14 +29,19 @@ default — which is the one serving tasks, instances, the fleet and variables. 
 internal listener on `:3000` carries agent traffic and the WebSocket hub, installs no
 CORS middleware at all, and answers a console request with a 404 that says so.
 
+Every request carries a bearer token: the public listener always requires one, so the
+console asks for it on first load and stores it. `/ping` is the exception it relies on
+— left open so the setup screen can tell a service that is not there from one that is
+refusing the token it was given.
+
 The console is served from its own origin, so the public listener answers it under
 CORS. It allows **any** origin by default, which is what makes the two commands above
 work with no setup — and is wider than a loopback bind makes it sound: the browser
-sends the request, so a page you visit can reach the listener and read the answer, and
-an unauthenticated control plane will launch a command for it. Narrow it with
-`MINI_CLOUD_CORS_ORIGINS=http://localhost:5173`, or require a token with
-`MINI_CLOUD_PUBLIC_TOKEN`. Setting the origins variable replaces the default rather
-than adding to it; setting it empty installs no CORS middleware at all.
+sends the request, so a page you visit can reach the listener, and only the token stops
+it getting an answer. Narrow the origins with
+`MINI_CLOUD_CORS_ORIGINS=http://localhost:5173` to close that a step earlier. Setting
+the variable replaces the default rather than adding to it; setting it empty installs
+no CORS middleware at all.
 
 Development deliberately has **no Vite proxy**, so the request is cross-origin in
 development exactly as it is in production and nothing about the request path
@@ -51,11 +57,12 @@ Decided at runtime, not at build time, so one bundle can serve anyone. In order:
 3. **`VITE_MINI_CLOUD_API_URL`**, if the bundle was built with one.
 4. **The setup screen**, when none of the above answered.
 
-The screen verifies before it accepts: `/ping` proves the service is reachable without
-needing a token, then an authenticated call decides whether to ask for one — a 401 is
-the only way to discover that a service wants a token at all. Catching a typo there is
-the point, because a wrong address stored instead surfaces minutes later as an offline
-banner and reads like a broken service.
+The screen verifies before it accepts, in two calls because one cannot answer both
+questions. `/ping` proves the service is reachable, and needs no token — so "nothing
+answered" is separated from "something answered and refused you". Then an authenticated
+call proves the token is the right one, a 401 being the only way to find that out.
+Catching a typo there is the point, because a wrong address or a mistyped token stored
+instead surfaces minutes later as an offline banner and reads like a broken service.
 
 The chosen service shows in the top bar; clicking it switches, which discards the
 cached data belonging to the one being left. "Stay connected" chooses `localStorage`
@@ -65,7 +72,8 @@ on a shared machine leave it off and it ends with the tab.
 ### Configuration
 
 Copy `.env.example` to `.env`. Vite inlines these at build time, so a change means a
-rebuild. Both are optional.
+rebuild. Both are optional — unset means the console asks, rather than that it goes
+without.
 
 | Variable | Default | What it does |
 | --- | --- | --- |
