@@ -69,24 +69,22 @@ describe('loadAgentConfig', () => {
     expect(loadAgentConfig({}).serviceUrl).toBe('http://127.0.0.1:3000');
   });
 
-  it('prefers the flag over the environment, and reports the id as supplied', () => {
+  it('prefers the flag over the environment', () => {
     process.env['MINI_CLOUD_AGENT_ID'] = 'from-env';
-    const config = loadAgentConfig({ agentId: 'from-flag' });
-    expect(config.agentId).toBe('from-flag');
-    expect(config.agentIdSource).toBe('supplied');
+
+    // Flag over environment, so one shell can start a second agent on a machine that
+    // already exports an id for the first.
+    expect(loadAgentConfig({ agentId: 'from-flag' }).agentId).toBe('from-flag');
   });
 
-  it('falls back to the environment, and still reports the id as supplied', () => {
+  it('falls back to the environment when no flag is given', () => {
     process.env['MINI_CLOUD_AGENT_ID'] = 'from-env';
-    const config = loadAgentConfig();
-    expect(config.agentId).toBe('from-env');
-    expect(config.agentIdSource).toBe('supplied');
+
+    expect(loadAgentConfig().agentId).toBe('from-env');
   });
 
   it('names the machine after itself when nothing is configured', () => {
-    const config = loadAgentConfig();
-    expect(config.agentId).toBe('nans-macbook-pro');
-    expect(config.agentIdSource).toBe('hostname');
+    expect(loadAgentConfig().agentId).toBe('nans-macbook-pro');
   });
 
   it('treats an empty configured id as absent rather than as an id', () => {

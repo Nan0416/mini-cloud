@@ -150,10 +150,6 @@ export class DependencyFactory {
       logger.warn('MINI_CLOUD_TRUSTED_SUBNETS is empty: the internal listener accepts a connection from any address that can reach it.');
     }
 
-    if (internal.authToken !== undefined) {
-      logger.info('The internal listener requires a bearer token.');
-      middleware.push(bearerTokenAuth(internal.authToken));
-    }
     return middleware;
   }
 
@@ -175,12 +171,17 @@ export class DependencyFactory {
       middleware.push(corsMiddleware({ origins: publicConfig.corsOrigins }));
     }
 
-    if (publicConfig.authToken !== undefined) {
-      logger.info('The public listener requires a bearer token.');
-      middleware.push(bearerTokenAuth(publicConfig.authToken));
-    } else {
-      logger.warn(`MINI_CLOUD_PUBLIC_TOKEN is not set: anything that can reach ${publicConfig.host}:${publicConfig.port} can launch programs on your machines.`);
+    // Refused here rather than on the way in from the environment, so the failure
+    // lands when a listener is about to be built rather than when the package is
+    // imported — the CLI imports it for every command, `--help` included.
+    if (publicConfig.authToken === undefined) {
+      throw new Error(
+        'MINI_CLOUD_PUBLIC_TOKEN is not set. The public listener will not start without one: it is the listener a port forward points at, and anything that reaches it can launch programs on your machines.',
+      );
     }
+    logger.info('The public listener requires a bearer token.');
+    middleware.push(bearerTokenAuth(publicConfig.authToken));
+
     return middleware;
   }
 }

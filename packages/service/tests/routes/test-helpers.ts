@@ -54,22 +54,22 @@ export class TestServer {
     return new TestServer(server, `http://127.0.0.1:${port}`);
   }
 
-  async request<T = unknown>(method: string, path: string, body?: unknown): Promise<TestResponse<T>> {
+  async request<T = unknown>(method: string, path: string, body?: unknown, headers: Record<string, string> = {}): Promise<TestResponse<T>> {
     const response = await fetch(`${this.origin}${path}`, {
       method,
-      headers: body === undefined ? {} : { 'Content-Type': 'application/json' },
+      headers: { ...(body === undefined ? {} : { 'Content-Type': 'application/json' }), ...headers },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
     const text = await response.text();
     return { status: response.status, body: (text.length === 0 ? undefined : JSON.parse(text)) as T };
   }
 
-  get<T = unknown>(path: string): Promise<TestResponse<T>> {
-    return this.request<T>('GET', path);
+  get<T = unknown>(path: string, headers?: Record<string, string>): Promise<TestResponse<T>> {
+    return this.request<T>('GET', path, undefined, headers);
   }
 
-  post<T = unknown>(path: string, body?: unknown): Promise<TestResponse<T>> {
-    return this.request<T>('POST', path, body ?? {});
+  post<T = unknown>(path: string, body?: unknown, headers?: Record<string, string>): Promise<TestResponse<T>> {
+    return this.request<T>('POST', path, body ?? {}, headers);
   }
 
   put<T = unknown>(path: string, body?: unknown): Promise<TestResponse<T>> {

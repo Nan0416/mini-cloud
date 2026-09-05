@@ -5,7 +5,7 @@ import { AddressInfo } from 'node:net';
 import { Pool } from 'pg';
 import { migrate } from './data/migrate';
 import { createPool } from './data/pool';
-import { DependencyFactory, PlaneDependencies } from './dependencies/dependency-factory';
+import { Dependencies, DependencyFactory, PlaneDependencies } from './dependencies/dependency-factory';
 import { WsMessageHub } from './facades/message-hub';
 import { Scheduler } from './facades/scheduler';
 import { Service } from './service';
@@ -62,10 +62,6 @@ export class MiniCloudServer {
 
     const pool = createPool({ connectionString: config.databaseUrl });
 
-    if (options.runMigrations !== false) {
-      await migrate(pool);
-    }
-
     // The hub attaches to the internal HTTP server, which is what puts `/ws` on the
     // internal port and nowhere else. Both servers must exist before the dependency
     // graph that publishes through the hub. Requests are routed once the apps are
@@ -74,13 +70,25 @@ export class MiniCloudServer {
     const publicServer = http.createServer();
     const hub = new WsMessageHub({
       server: internalServer,
-      authToken: config.internal.authToken,
       trustedSubnets: config.internal.trustedSubnets,
     });
 
-    const dependencies = new DependencyFactory({ config, pool, messageHub: hub }).build();
+    // Built before the migrations run, so a configuration this process will not accept
+    // — a missing public token — is refused before the database is touched. Nothing
+    // here queries; the DAOs only hold the pool, and the scheduler starts further down.
+    let dependencies: Dependencies;
+    try {
+      dependencies = new DependencyFactory({ config, pool, messageHub: hub }).build();
+    } catch (err) {
+      await pool.end();
+      throw err;
+    }
     internalServer.on('request', buildApp('internal', dependencies.internal, dependencies.errorHandler));
     publicServer.on('request', buildApp('public', dependencies.public, dependencies.errorHandler));
+
+    if (options.runMigrations !== false) {
+      await migrate(pool);
+    }
 
     // Both or neither. A second port already in use would otherwise leave the first
     // listener bound and the pool open behind a rejected start, so the retry after

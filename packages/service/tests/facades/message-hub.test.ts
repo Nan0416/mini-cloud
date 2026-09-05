@@ -280,16 +280,17 @@ describe('WsMessageHub', () => {
 /**
  * Who is allowed to open a socket at all.
  *
- * An upgrade never passes through the express middleware stack, so neither the token
- * check nor the subnet filter that guard ordinary requests apply to it. Whatever the
- * hub does not check here is unchecked — and the hub is the channel agents take their
- * launch commands from.
+ * An upgrade never passes through the express middleware stack, so the subnet filter
+ * guarding ordinary requests on this listener does not see it. Whatever the hub does
+ * not check here is unchecked — and since the source address is the only thing
+ * guarding the internal listener, that would leave the channel agents take their
+ * launch commands from open to anything that can reach the port.
  */
 describe('WsMessageHub upgrades', () => {
   let server: Server;
   let hub: WsMessageHub;
 
-  const startHub = async (props: { authToken?: string; trustedSubnets?: ReadonlyArray<string> }): Promise<number> => {
+  const startHub = async (props: { trustedSubnets?: ReadonlyArray<string> }): Promise<number> => {
     server = createServer();
     hub = new WsMessageHub({ server, ...props });
     await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -337,19 +338,13 @@ describe('WsMessageHub upgrades', () => {
     expect(await upgrade(await startHub({ trustedSubnets: ['127.0.0.0/8'] }))).toBe('connected');
   });
 
-  it('refuses an upgrade missing the token, before a socket exists', async () => {
-    const port = await startHub({ authToken: 's3cret' });
+  it('asks for no credential from an address it trusts', async () => {
+    // Deliberate: an agent presents no token, and the internal listener authorizes by
+    // where a connection comes from. A check here would be a secret to distribute
+    // across the fleet without adding a boundary the subnet does not already draw.
+    const port = await startHub({ trustedSubnets: ['127.0.0.0/8'] });
 
-    expect(await upgrade(port)).toBe(401);
-    expect(await upgrade(port, { authorization: 'Bearer wrong' })).toBe(401);
-    expect(await upgrade(port, { authorization: 'Bearer s3cret' })).toBe('connected');
-  });
-
-  it('applies both checks, and answers on the address first', async () => {
-    // Where the caller is decides whether the request should have been made at all;
-    // what it carries only matters once it should.
-    const port = await startHub({ authToken: 's3cret', trustedSubnets: ['10.0.0.0/8'] });
-
-    expect(await upgrade(port, { authorization: 'Bearer s3cret' })).toBe(403);
+    expect(await upgrade(port)).toBe('connected');
+    expect(await upgrade(port, { authorization: 'Bearer nonsense' })).toBe('connected');
   });
 });

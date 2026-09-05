@@ -7,18 +7,15 @@ import type { ServiceConfig } from '../src/stage-config';
  * `process.env`, and everything else takes its configuration as arguments.
  */
 const VARIABLES = [
-  'MINI_CLOUD_STAGE',
   'MINI_CLOUD_PORT',
   'MINI_CLOUD_HOST',
   'MINI_CLOUD_INTERNAL_PORT',
   'MINI_CLOUD_INTERNAL_HOST',
-  'MINI_CLOUD_INTERNAL_TOKEN',
   'MINI_CLOUD_TRUSTED_SUBNETS',
   'MINI_CLOUD_PUBLIC_PORT',
   'MINI_CLOUD_PUBLIC_HOST',
   'MINI_CLOUD_PUBLIC_TOKEN',
   'MINI_CLOUD_DATABASE_URL',
-  'MINI_CLOUD_TOKEN',
   'MINI_CLOUD_CORS_ORIGINS',
   'MINI_CLOUD_CONSOLE_URL',
   'MINI_CLOUD_JOB_TICK_MS',
@@ -86,23 +83,31 @@ describe('defaults', () => {
     expect(trustedSubnets).toContain('fc00::/7');
   });
 
-  it('defaults to the beta stage, and names the database after it', () => {
-    const config = loadWith({});
-
-    // Stage-suffixed, so a beta service cannot quietly point at the prod database.
-    expect(config.stage).toBe('beta');
-    expect(config.databaseUrl).toBe('postgres://localhost:5432/mini_cloud_beta');
+  it('points at the local database when none is named', () => {
+    expect(loadWith({}).databaseUrl).toBe('postgres://localhost:5432/mini_cloud');
   });
 
-  it('names the database after whichever stage is set', () => {
-    expect(loadWith({ MINI_CLOUD_STAGE: 'prod' }).databaseUrl).toBe('postgres://localhost:5432/mini_cloud_prod');
+  /**
+   * The internal listener has no token of its own, by design: the source address is
+   * what guards it. There is deliberately nothing here to assert but the absence —
+   * `InternalListenerConfig` carries no `authToken`, so a token could not be read for
+   * it even if one were set.
+   */
+  it('reads no token for the internal listener, which is guarded by address alone', () => {
+    expect(loadWith({}).internal).toEqual({
+      host: '127.0.0.1',
+      port: 3000,
+      trustedSubnets: expect.arrayContaining(['192.168.0.0/16']),
+    });
   });
 
-  it('leaves authentication off on both listeners, so local development needs no setup', () => {
-    const config = loadWith({});
-
-    expect(config.internal.authToken).toBeUndefined();
-    expect(config.public.authToken).toBeUndefined();
+  it('leaves the public token unset rather than throwing, so importing never fails', () => {
+    // `config` resolves in a module-level initialiser and the CLI imports it for every
+    // command. A required read here makes `mini-cloud task list` — and `--help` — die
+    // on a missing variable before parsing an argument. The listener refuses to start
+    // without one; that is enforced where a listener is built, not where it is read.
+    expect(() => loadWith({})).not.toThrow();
+    expect(loadWith({}).public.authToken).toBeUndefined();
   });
 
   it('allows any origin, so the console works wherever it is served from', () => {
@@ -149,11 +154,11 @@ describe('overrides', () => {
   });
 
   it('keeps the pre-split variables pointed at the internal listener', () => {
-    const config = loadWith({ MINI_CLOUD_HOST: '192.168.1.50', MINI_CLOUD_PORT: '4000', MINI_CLOUD_TOKEN: 's3cret' });
+    const config = loadWith({ MINI_CLOUD_HOST: '192.168.1.50', MINI_CLOUD_PORT: '4000' });
 
     // An upgrade must not silently move the port agents are configured for. These
-    // three named the only listener there was, and they still name that one.
-    expect(config.internal).toMatchObject({ host: '192.168.1.50', port: 4000, authToken: 's3cret' });
+    // named the only listener there was, and they still name that one.
+    expect(config.internal).toMatchObject({ host: '192.168.1.50', port: 4000 });
   });
 
   it('lets the explicit names win over the pre-split ones', () => {
@@ -175,20 +180,10 @@ describe('overrides', () => {
     expect(config.internal.host).toBe('127.0.0.1');
   });
 
-  it('enables authentication on both listeners when one token is set', () => {
-    const config = loadWith({ MINI_CLOUD_TOKEN: 's3cret' });
-
-    expect(config.internal.authToken).toBe('s3cret');
-    expect(config.public.authToken).toBe('s3cret');
-  });
-
-  it('lets each listener have its own token', () => {
-    // The console's copy of a token lives in a browser on whatever device was last
-    // used; an agent's lives in a service file. One leaking must not be the other.
-    const config = loadWith({ MINI_CLOUD_TOKEN: 'shared', MINI_CLOUD_PUBLIC_TOKEN: 'operator', MINI_CLOUD_INTERNAL_TOKEN: 'fleet' });
-
-    expect(config.internal.authToken).toBe('fleet');
-    expect(config.public.authToken).toBe('operator');
+  it('takes the public listener\u2019s token from its own variable', () => {
+    // One variable, for the one listener that has a token. An agent never presents a
+    // credential, so there is no fleet-wide token for a leaked console copy to be.
+    expect(loadWith({ MINI_CLOUD_PUBLIC_TOKEN: 'operator' }).public.authToken).toBe('operator');
   });
 
   it('replaces the CORS default rather than adding to it', () => {
@@ -234,12 +229,6 @@ describe('overrides', () => {
       retentionDays: 30,
       retentionTickMs: 60_000,
     });
-  });
-
-  it('refuses a stage it does not recognise, at startup', () => {
-    // Silently falling back to beta would point a service someone believed was
-    // production at the wrong database.
-    expect(() => loadWith({ MINI_CLOUD_STAGE: 'gamma' })).toThrow(/must be one of \[beta, prod]/);
   });
 
   it('refuses a non-numeric port, at startup', () => {

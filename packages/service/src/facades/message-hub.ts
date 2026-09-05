@@ -61,28 +61,22 @@ interface Subscriber {
 
 type VerifyClient = (info: { req: IncomingMessage }, done: (result: boolean, code?: number, message?: string) => void) => void;
 
-interface VerifyClientOptions {
-  readonly authToken?: string;
-  readonly trustedSubnets: ReadonlyArray<string>;
-}
-
 /**
- * Rejects an upgrade before a socket exists: from outside the trusted subnets, or
- * without the configured token.
+ * Rejects an upgrade from outside the trusted subnets, before a socket exists.
  *
- * This duplicates what `subnetFilter` and `bearerTokenAuth` do for ordinary requests,
- * and it has to. An upgrade never reaches the express middleware stack, so a hub that
- * relied on those would be an unauthenticated, unfiltered way in while the HTTP API
- * beside it was locked down — and the hub is the channel agents take their commands
- * from.
+ * This duplicates what `subnetFilter` does for ordinary requests, and it has to: an
+ * upgrade never reaches the express middleware stack, so the filter guarding the rest
+ * of the internal listener does not see it. Since the source address is now the only
+ * thing guarding that listener, a hub without this check is an unguarded way in — and
+ * the hub is the channel agents take their launch commands from, so reaching it is
+ * enough to run a command on every machine in the fleet.
  *
- * Returns undefined when neither check is configured, so `ws` skips verification
- * entirely rather than running one that always passes.
+ * Returns undefined when no subnets are configured, so `ws` skips verification
+ * entirely rather than running a check that always passes.
  */
-function buildVerifyClient(options: VerifyClientOptions): VerifyClient | undefined {
-  const subnets = parseSubnets(options.trustedSubnets);
-  const { authToken } = options;
-  if (authToken === undefined && subnets.length === 0) {
+function buildVerifyClient(trustedSubnets: ReadonlyArray<string>): VerifyClient | undefined {
+  const subnets = parseSubnets(trustedSubnets);
+  if (subnets.length === 0) {
     return undefined;
   }
 
@@ -90,19 +84,12 @@ function buildVerifyClient(options: VerifyClientOptions): VerifyClient | undefin
     // From the socket, never from `X-Forwarded-For`: a header the caller writes is
     // not evidence of where the caller is.
     const address = info.req.socket.remoteAddress;
-    if (subnets.length > 0 && !isTrustedAddress(address, subnets)) {
-      logger.warn(`Rejected a WebSocket upgrade from ${address ?? 'an unknown address'}: outside the trusted subnets.`);
-      done(false, 403, describeUntrustedAddress(address, subnets));
+    if (isTrustedAddress(address, subnets)) {
+      done(true);
       return;
     }
-
-    if (authToken !== undefined && info.req.headers.authorization !== `Bearer ${authToken}`) {
-      logger.warn('Rejected a WebSocket upgrade: missing or invalid bearer token.');
-      done(false, 401, 'Unauthorized');
-      return;
-    }
-
-    done(true);
+    logger.warn(`Rejected a WebSocket upgrade from ${address ?? 'an unknown address'}: outside the trusted subnets.`);
+    done(false, 403, describeUntrustedAddress(address, subnets));
   };
 }
 
@@ -117,8 +104,6 @@ export interface WsMessageHubProps {
    */
   readonly server: Server;
   readonly path?: string;
-  /** Bearer token required on the upgrade request. Unset accepts any. */
-  readonly authToken?: string;
   /** CIDR blocks an upgrade may come from. Empty accepts any address. */
   readonly trustedSubnets?: ReadonlyArray<string>;
 }
@@ -143,7 +128,7 @@ export class WsMessageHub implements MessageHub {
     this.wss = new WebSocketServer({
       server: props.server,
       path: props.path ?? '/ws',
-      verifyClient: buildVerifyClient({ authToken: props.authToken, trustedSubnets: props.trustedSubnets ?? [] }),
+      verifyClient: buildVerifyClient(props.trustedSubnets ?? []),
     });
     this.wss.on('connection', (socket) => this.onConnection(socket));
 
