@@ -52,7 +52,9 @@ export class MiniCloudAgent {
 
   constructor(config: AgentConfig) {
     this.config = config;
-    this.client = new MiniCloudClient({ baseUrl: config.serviceUrl, token: config.token });
+    // No token: the internal listener authorizes by source address, so an agent holds
+    // no credential to present.
+    this.client = new MiniCloudClient({ baseUrl: config.serviceUrl });
     this.healthMonitor = new HealthMonitor({
       passiveToleranceMs: config.passiveToleranceMs,
       pingFailureThreshold: config.pingFailureThreshold,
@@ -73,7 +75,6 @@ export class MiniCloudAgent {
     const wsUrl = `${config.serviceUrl.replace(/^http/, 'ws').replace(/\/+$/, '')}/ws`;
     this.subscriber = new WsSubscriber({
       url: wsUrl,
-      token: config.token,
       onEvent: (envelope) => this.onEnvelope(envelope),
       onStateChange: (state) => logger.info(`Connection to the service is ${state}.`),
     });

@@ -7,7 +7,6 @@ export interface AgentConfig {
   readonly name: string;
   /** Base URL of the service's internal listener, e.g. `http://127.0.0.1:3000`. */
   readonly serviceUrl: string;
-  readonly token?: string;
   /** Port the local reporter API listens on. Bound to loopback only. */
   readonly port: number;
   /** Root for offline reports and default stdout/stderr files. */
@@ -25,7 +24,6 @@ export interface AgentConfigOverrides {
   readonly agentId?: string;
   readonly name?: string;
   readonly serviceUrl?: string;
-  readonly token?: string;
   readonly port?: number;
 }
 
@@ -81,7 +79,6 @@ export function loadAgentConfig(overrides: AgentConfigOverrides = {}): AgentConf
     // for the public listener — one variable naming two different ports depending on
     // which command read it is a shell that works until you run the other command.
     serviceUrl: overrides.serviceUrl ?? getenv('MINI_CLOUD_INTERNAL_URL', 'http://127.0.0.1:3000'),
-    token: overrides.token ?? process.env['MINI_CLOUD_TOKEN'],
     port: overrides.port ?? getenvInteger('MINI_CLOUD_AGENT_PORT', 3100),
     workDir,
     // Three heartbeats fit inside the service's default 15s offline window, so one

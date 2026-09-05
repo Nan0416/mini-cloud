@@ -39,8 +39,14 @@ export function serviceUrlOverride(options: GlobalOptions): string | undefined {
   return options.service;
 }
 
+/**
+ * The public listener's token, which is the only one there is. `MINI_CLOUD_TOKEN` was
+ * read here until the listener split, and reading it still would mean the variable the
+ * service documents — `MINI_CLOUD_PUBLIC_TOKEN` — is the one variable that does not
+ * authenticate the CLI.
+ */
 export function resolveToken(options: GlobalOptions): string | undefined {
-  return options.token ?? process.env['MINI_CLOUD_TOKEN'];
+  return options.token ?? process.env['MINI_CLOUD_PUBLIC_TOKEN'];
 }
 
 export function createClient(options: GlobalOptions): MiniCloudClient {
