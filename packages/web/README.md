@@ -23,14 +23,19 @@ a Node package a browser bundle cannot resolve. A browser that needs to subscrib
 should use the platform `WebSocket` against `/ws`; the subscriber exists for the
 reconnect and replay logic Node callers need.
 
-The console is served from its own origin, so the service answers it under CORS. It
-allows **any** origin by default, which is what makes the two commands above work
-with no setup — and is wider than a loopback bind makes it sound: the browser sends
-the request, so a page you visit can reach the service and read the answer, and an
-unauthenticated control plane will launch a command for it. Narrow it with
+The console talks to the service's **public listener** — `http://127.0.0.1:3001` by
+default — which is the one serving tasks, instances, the fleet and variables. The
+internal listener on `:3000` carries agent traffic and the WebSocket hub, installs no
+CORS middleware at all, and answers a console request with a 404 that says so.
+
+The console is served from its own origin, so the public listener answers it under
+CORS. It allows **any** origin by default, which is what makes the two commands above
+work with no setup — and is wider than a loopback bind makes it sound: the browser
+sends the request, so a page you visit can reach the listener and read the answer, and
+an unauthenticated control plane will launch a command for it. Narrow it with
 `MINI_CLOUD_CORS_ORIGINS=http://localhost:5173`, or require a token with
-`MINI_CLOUD_TOKEN`. Setting the origins variable replaces the default rather than
-adding to it; setting it empty installs no CORS middleware at all.
+`MINI_CLOUD_PUBLIC_TOKEN`. Setting the origins variable replaces the default rather
+than adding to it; setting it empty installs no CORS middleware at all.
 
 Development deliberately has **no Vite proxy**, so the request is cross-origin in
 development exactly as it is in production and nothing about the request path
@@ -65,7 +70,7 @@ rebuild. Both are optional.
 | Variable | Default | What it does |
 | --- | --- | --- |
 | `VITE_MINI_CLOUD_API_URL` | unset — the console asks | Base URL of the service, when a bundle is built for one |
-| `VITE_MINI_CLOUD_TOKEN` | unset | Sent as `Authorization: Bearer`, for a service running with `MINI_CLOUD_TOKEN` |
+| `VITE_MINI_CLOUD_TOKEN` | unset | Sent as `Authorization: Bearer`, for a service running with `MINI_CLOUD_PUBLIC_TOKEN` |
 
 ### What a browser will let it reach
 

@@ -19,6 +19,8 @@ import {
   HeartbeatResponse,
   LaunchTaskRequest,
   LaunchTaskResponse,
+  ListAgentInstancesRequest,
+  ListAgentInstancesResponse,
   ListAgentsRequest,
   ListAgentsResponse,
   ListHealthChecksRequest,
@@ -164,6 +166,15 @@ export class MiniCloudClient {
 
   async reportTaskEvent(request: ReportTaskEventRequest): Promise<ReportTaskEventResponse> {
     return this.http.request('POST', '/agent-api/instance-event', { body: request });
+  }
+
+  /**
+   * The agent plane's instance list. `listTaskInstances` answers the same question for
+   * the console and the CLI, but from the public listener — an agent only ever talks
+   * to the internal one.
+   */
+  async listAgentInstances(request: ListAgentInstancesRequest): Promise<ListAgentInstancesResponse> {
+    return this.http.request('POST', '/agent-api/instances', { body: request });
   }
 
   async listHealthChecks(request: ListHealthChecksRequest): Promise<ListHealthChecksResponse> {

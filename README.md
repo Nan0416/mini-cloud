@@ -27,10 +27,12 @@ that your own programs can use too.
 ## How it fits together
 
 ```
-  CLI ──HTTP──▶ ┌──────────────────────────────┐
+  CLI ──HTTP──▶ ┌─ :3001 public ───────────────┐
                 │  service                     │
   web ──HTTP──▶ │  • task + instance store     │──▶ PostgreSQL
    console      │  • scheduler                 │
+                ├─ :3000 internal ─────────────┤
+                │  • agent API                 │
                 │  • pub/sub hub (WebSocket)   │
                 └──────────────────────────────┘
                     │  commands            ▲  reports
@@ -45,6 +47,11 @@ that your own programs can use too.
                     ▼                 │
                   your program ───────┘   (optional: @mini-cloud/reporter)
 ```
+
+Two listeners, one process. Agents and your own programs talk to the **internal** one
+and never leave the house; the **public** one is what a person drives, and the only one
+to point a port forward at. A route belongs to exactly one of them — ask the wrong
+listener and the 404 names the right one.
 
 Commands travel out over WebSocket because they are one-way and need push delivery.
 Reports come back over HTTP because they need an acknowledgement the agent can retry.
@@ -127,10 +134,10 @@ npm start      # terminal 1
 npm run web    # terminal 2, then open http://localhost:5173
 ```
 
-The console is a static bundle that calls the service's HTTP API directly — no proxy
-tier, no server of its own. The service allows any browser origin by default so those
-two commands work together; narrow it with `MINI_CLOUD_CORS_ORIGINS`, or require a
-token with `MINI_CLOUD_TOKEN`, before leaving it running unattended. See
+The console is a static bundle that calls the public listener's HTTP API directly — no
+proxy tier, no server of its own. That listener allows any browser origin by default so
+those two commands work together; narrow it with `MINI_CLOUD_CORS_ORIGINS`, or require a
+token with `MINI_CLOUD_PUBLIC_TOKEN`, before leaving it running unattended. See
 [packages/web/README.md](./packages/web/README.md).
 
 ## Status

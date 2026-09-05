@@ -15,6 +15,12 @@ export interface FakeRequestInit {
   readonly path?: string;
   readonly originalUrl?: string;
   readonly headers?: Record<string, string | string[] | undefined>;
+  /**
+   * What the kernel says the peer is, as `req.socket.remoteAddress`. Deliberately not
+   * `req.ip`: that one follows `X-Forwarded-For`, and a test that set it would be
+   * asserting on a value a caller can write.
+   */
+  readonly remoteAddress?: string | null;
 }
 
 export function fakeRequest(init: FakeRequestInit = {}): Request {
@@ -23,6 +29,7 @@ export function fakeRequest(init: FakeRequestInit = {}): Request {
     path: init.path ?? '/tasks',
     originalUrl: init.originalUrl ?? init.path ?? '/tasks',
     headers: init.headers ?? {},
+    socket: { remoteAddress: init.remoteAddress === null ? undefined : (init.remoteAddress ?? '127.0.0.1') },
   } as unknown as Request;
 }
 

@@ -1,4 +1,4 @@
-import { MiniCloudServer, config, createPool, migrate } from '@mini-cloud/service';
+import { MiniCloudServer, ServiceConfig, config, createPool, migrate } from '@mini-cloud/service';
 import { LoggerFactory } from '@mini-cloud/shared';
 import { Command } from 'commander';
 import { parsePositiveInteger } from '../args';
@@ -7,16 +7,21 @@ const logger = LoggerFactory.getLogger('serve');
 
 export function buildServeCommand(): Command {
   return new Command('serve')
-    .description('start the control plane: HTTP API, pub/sub hub and scheduler')
-    .option('--port <port>', 'port to listen on', (value) => parsePositiveInteger(value, 'port'))
-    .option('--host <host>', 'bind address (default: 127.0.0.1)')
+    .description('start the control plane: two HTTP listeners, the pub/sub hub and the scheduler')
+    .option('--port <port>', 'internal listener port — agents, pub/sub and the WebSocket (default: 3000)', (value) => parsePositiveInteger(value, 'port'))
+    .option('--host <host>', 'internal listener bind address (default: 127.0.0.1)')
+    .option('--public-port <port>', 'public listener port — tasks, instances, the fleet (default: 3001)', (value) => parsePositiveInteger(value, 'public-port'))
+    .option('--public-host <host>', 'public listener bind address (default: 127.0.0.1)')
     .option('--database-url <url>', 'PostgreSQL connection string')
     .option('--skip-migrations', 'do not apply pending migrations on startup')
-    .action(async (options: { port?: number; host?: string; databaseUrl?: string; skipMigrations?: boolean }) => {
-      const effective = {
+    .action(async (options: { port?: number; host?: string; publicPort?: number; publicHost?: string; databaseUrl?: string; skipMigrations?: boolean }) => {
+      // `--port` and `--host` stay pointed at the internal listener, under the names
+      // they had when there was only one: that is where every already-deployed agent
+      // is configured to look.
+      const effective: ServiceConfig = {
         ...config,
-        port: options.port ?? config.port,
-        host: options.host ?? config.host,
+        internal: { ...config.internal, port: options.port ?? config.internal.port, host: options.host ?? config.internal.host },
+        public: { ...config.public, port: options.publicPort ?? config.public.port, host: options.publicHost ?? config.public.host },
         databaseUrl: options.databaseUrl ?? config.databaseUrl,
       };
 

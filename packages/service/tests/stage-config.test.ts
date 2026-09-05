@@ -10,6 +10,13 @@ const VARIABLES = [
   'MINI_CLOUD_STAGE',
   'MINI_CLOUD_PORT',
   'MINI_CLOUD_HOST',
+  'MINI_CLOUD_INTERNAL_PORT',
+  'MINI_CLOUD_INTERNAL_HOST',
+  'MINI_CLOUD_INTERNAL_TOKEN',
+  'MINI_CLOUD_TRUSTED_SUBNETS',
+  'MINI_CLOUD_PUBLIC_PORT',
+  'MINI_CLOUD_PUBLIC_HOST',
+  'MINI_CLOUD_PUBLIC_TOKEN',
   'MINI_CLOUD_DATABASE_URL',
   'MINI_CLOUD_TOKEN',
   'MINI_CLOUD_CORS_ORIGINS',
@@ -51,13 +58,32 @@ describe('defaults', () => {
     expect(() => loadWith({})).not.toThrow();
   });
 
-  it('binds to loopback, because exposing the service must be deliberate', () => {
+  it('binds both listeners to loopback, because exposing either must be deliberate', () => {
     const config = loadWith({});
 
     // It commands processes on your machines. Listening on 0.0.0.0 by default would
-    // make a laptop on an untrusted network an open remote-execution endpoint.
-    expect(config.host).toBe('127.0.0.1');
-    expect(config.port).toBe(3000);
+    // make a laptop on an untrusted network an open remote-execution endpoint — and
+    // for the public listener it would make opening the router the only step needed.
+    expect(config.internal).toMatchObject({ host: '127.0.0.1', port: 3000 });
+    expect(config.public).toMatchObject({ host: '127.0.0.1', port: 3001 });
+  });
+
+  it('keeps the agent-facing listener on the port agents already use', () => {
+    // The split moves the operator's port, not the fleet's: one address in one
+    // console, rather than a config change on every machine running an agent.
+    expect(loadWith({}).internal.port).toBe(3000);
+    expect(loadWith({}).internal.port).not.toBe(loadWith({}).public.port);
+  });
+
+  it('trusts loopback and the private ranges a home network uses', () => {
+    const { trustedSubnets } = loadWith({}).internal;
+
+    expect(trustedSubnets).toContain('192.168.0.0/16');
+    expect(trustedSubnets).toContain('10.0.0.0/8');
+    expect(trustedSubnets).toContain('127.0.0.0/8');
+    // IPv6 is not optional on a modern home LAN: a device that picks it would be
+    // refused by an allow-list written only in IPv4.
+    expect(trustedSubnets).toContain('fc00::/7');
   });
 
   it('defaults to the beta stage, and names the database after it', () => {
@@ -72,12 +98,15 @@ describe('defaults', () => {
     expect(loadWith({ MINI_CLOUD_STAGE: 'prod' }).databaseUrl).toBe('postgres://localhost:5432/mini_cloud_prod');
   });
 
-  it('leaves authentication off, so local development needs no setup', () => {
-    expect(loadWith({}).authToken).toBeUndefined();
+  it('leaves authentication off on both listeners, so local development needs no setup', () => {
+    const config = loadWith({});
+
+    expect(config.internal.authToken).toBeUndefined();
+    expect(config.public.authToken).toBeUndefined();
   });
 
   it('allows any origin, so the console works wherever it is served from', () => {
-    expect(loadWith({}).corsOrigins).toEqual(['*']);
+    expect(loadWith({}).public.corsOrigins).toEqual(['*']);
   });
 
   it('sets scheduler intervals that keep the job tick at or below the minimum interval', () => {
@@ -115,14 +144,51 @@ describe('defaults', () => {
 });
 
 describe('overrides', () => {
-  it('takes the host, port and database from the environment', () => {
-    const config = loadWith({ MINI_CLOUD_HOST: '0.0.0.0', MINI_CLOUD_PORT: '4000', MINI_CLOUD_DATABASE_URL: 'postgres://db/mc' });
-
-    expect(config).toMatchObject({ host: '0.0.0.0', port: 4000, databaseUrl: 'postgres://db/mc' });
+  it('takes the database from the environment', () => {
+    expect(loadWith({ MINI_CLOUD_DATABASE_URL: 'postgres://db/mc' }).databaseUrl).toBe('postgres://db/mc');
   });
 
-  it('enables authentication when a token is set', () => {
-    expect(loadWith({ MINI_CLOUD_TOKEN: 's3cret' }).authToken).toBe('s3cret');
+  it('keeps the pre-split variables pointed at the internal listener', () => {
+    const config = loadWith({ MINI_CLOUD_HOST: '192.168.1.50', MINI_CLOUD_PORT: '4000', MINI_CLOUD_TOKEN: 's3cret' });
+
+    // An upgrade must not silently move the port agents are configured for. These
+    // three named the only listener there was, and they still name that one.
+    expect(config.internal).toMatchObject({ host: '192.168.1.50', port: 4000, authToken: 's3cret' });
+  });
+
+  it('lets the explicit names win over the pre-split ones', () => {
+    const config = loadWith({
+      MINI_CLOUD_HOST: '192.168.1.50',
+      MINI_CLOUD_PORT: '4000',
+      MINI_CLOUD_INTERNAL_HOST: '10.0.0.2',
+      MINI_CLOUD_INTERNAL_PORT: '4100',
+    });
+
+    expect(config.internal).toMatchObject({ host: '10.0.0.2', port: 4100 });
+  });
+
+  it('configures the public listener separately', () => {
+    const config = loadWith({ MINI_CLOUD_PUBLIC_HOST: '0.0.0.0', MINI_CLOUD_PUBLIC_PORT: '8080' });
+
+    expect(config.public).toMatchObject({ host: '0.0.0.0', port: 8080 });
+    // Naming the public listener must not drag the internal one out with it.
+    expect(config.internal.host).toBe('127.0.0.1');
+  });
+
+  it('enables authentication on both listeners when one token is set', () => {
+    const config = loadWith({ MINI_CLOUD_TOKEN: 's3cret' });
+
+    expect(config.internal.authToken).toBe('s3cret');
+    expect(config.public.authToken).toBe('s3cret');
+  });
+
+  it('lets each listener have its own token', () => {
+    // The console's copy of a token lives in a browser on whatever device was last
+    // used; an agent's lives in a service file. One leaking must not be the other.
+    const config = loadWith({ MINI_CLOUD_TOKEN: 'shared', MINI_CLOUD_PUBLIC_TOKEN: 'operator', MINI_CLOUD_INTERNAL_TOKEN: 'fleet' });
+
+    expect(config.internal.authToken).toBe('fleet');
+    expect(config.public.authToken).toBe('operator');
   });
 
   it('replaces the CORS default rather than adding to it', () => {
@@ -130,8 +196,22 @@ describe('overrides', () => {
 
     // Naming origins has to genuinely narrow the service. Appending to the `*` default
     // would leave it wide open while looking restricted.
-    expect(config.corsOrigins).toEqual(['http://localhost:5173', 'https://console.example.com']);
-    expect(config.corsOrigins).not.toContain('*');
+    expect(config.public.corsOrigins).toEqual(['http://localhost:5173', 'https://console.example.com']);
+    expect(config.public.corsOrigins).not.toContain('*');
+  });
+
+  it('narrows the trusted subnets to exactly what is named', () => {
+    expect(loadWith({ MINI_CLOUD_TRUSTED_SUBNETS: '192.168.1.0/24, 100.64.0.0/10' }).internal.trustedSubnets).toEqual(['192.168.1.0/24', '100.64.0.0/10']);
+  });
+
+  /**
+   * An empty value has to mean "off" for both of these, and `getenvList` cannot say
+   * it: it treats empty as unset and hands back the default, which turns the
+   * documented way to disable a check into the way to keep it on.
+   */
+  it('honours an explicitly empty list as "no check at all"', () => {
+    expect(loadWith({ MINI_CLOUD_CORS_ORIGINS: '' }).public.corsOrigins).toEqual([]);
+    expect(loadWith({ MINI_CLOUD_TRUSTED_SUBNETS: '' }).internal.trustedSubnets).toEqual([]);
   });
 
   it('takes every scheduler interval from the environment', () => {
@@ -165,6 +245,7 @@ describe('overrides', () => {
   it('refuses a non-numeric port, at startup', () => {
     // Number('abc') is NaN, which binds to a random port rather than failing.
     expect(() => loadWith({ MINI_CLOUD_PORT: 'abc' })).toThrow(/must be an integer/);
+    expect(() => loadWith({ MINI_CLOUD_PUBLIC_PORT: 'abc' })).toThrow(/must be an integer/);
   });
 });
 

@@ -1,4 +1,5 @@
 import express from 'express';
+import type { Express } from 'express';
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { errorHandler } from '../../src/middleware/error-handler';
@@ -24,7 +25,8 @@ export interface TestResponse<T = unknown> {
 export class TestServer {
   private constructor(
     private readonly server: Server,
-    private readonly origin: string,
+    /** Where this listener is, for a test that needs to shape the request itself. */
+    readonly origin: string,
   ) {}
 
   static async start(...endpoints: ReadonlyArray<Endpoints>): Promise<TestServer> {
@@ -36,7 +38,15 @@ export class TestServer {
     // Registered last, as in the real service: express identifies the error handler
     // by its four-argument signature and only reaches it after every route.
     app.use(errorHandler);
+    return TestServer.startApp(app);
+  }
 
+  /**
+   * Runs an application that is already assembled — one of the two `Service` builds,
+   * middleware and 404 handler included — rather than routes on a bare express app.
+   * That is what lets a test ask which listener actually answers a path.
+   */
+  static async startApp(app: Express): Promise<TestServer> {
     const server = await new Promise<Server>((resolve) => {
       const listening = app.listen(0, '127.0.0.1', () => resolve(listening));
     });

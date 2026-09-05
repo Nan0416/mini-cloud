@@ -44,16 +44,47 @@ npm start
 `npm start` builds every package, applies any pending migrations, and runs the
 control plane in the foreground. Ctrl-C shuts it down cleanly.
 
-It prints a link that opens the console already pointed at itself:
+It prints two listeners and a link that opens the console already pointed at itself:
 
 ```
-mini-cloud is listening on http://127.0.0.1:3000 (WebSocket at ws://127.0.0.1:3000/ws).
-Open the console: https://mini-cloud.qinnan.dev/?backend=http%3A%2F%2F127.0.0.1%3A3000
+Internal listener (agents, pub/sub) on http://127.0.0.1:3000 — WebSocket at ws://127.0.0.1:3000/ws.
+Public listener (console, CLI) on http://127.0.0.1:3001.
+Open the console: https://mini-cloud.qinnan.dev/?backend=http%3A%2F%2F127.0.0.1%3A3001
+```
+
+### Two listeners
+
+One process, two ports, and the split is by who calls:
+
+| | Internal — `:3000` | Public — `:3001` |
+| --- | --- | --- |
+| Serves | `/agent-api/*`, `/pubsub/*`, `/ws`, `/ping`, `/health` | `/tasks*`, `/instances*`, `/agents*`, `/variables`, `/pubsub/*`, `/ping`, `/health` |
+| Called by | agents, and programs on your LAN | the console, the CLI, you |
+| Bind it to | the home network | wherever you reach it from |
+| CORS | none at all | `MINI_CLOUD_CORS_ORIGINS` |
+| Source check | `MINI_CLOUD_TRUSTED_SUBNETS` | none |
+
+The point is that they get exposed differently. The internal one carries agent reports
+and the WebSocket the fleet takes its commands from, so it stays on the LAN; the public
+one is the only one a port forward should ever point at. They share one scheduler, one
+database and one object graph — the split decides what is *reachable* from where, not
+what exists, so a bug in a public route can still touch everything.
+
+The WebSocket is on the internal listener because that is the server it is attached to,
+and a socket shares the port of its server. Nothing claims an upgrade on the public
+listener, so one arriving there gets the same 404 as any other unknown path — no filter
+involved.
+
+Ask for a path on the wrong listener and the 404 says which one serves it:
+
+```
+$ curl -s localhost:3000/tasks
+{"error":"GET /tasks is not served by the internal listener. The public listener (port 3001) serves /tasks, /instances, /agents, /variables.","errorCode":"NOT_FOUND"}
 ```
 
 That console is a static page which talks to whatever address the link names — nothing
 is sent anywhere else, and the link never carries a token. It is printed only when a
-browser on this machine could follow it, so binding `MINI_CLOUD_HOST` to one LAN
+browser on this machine could follow it, so binding `MINI_CLOUD_PUBLIC_HOST` to one LAN
 interface prints no link: loopback would not reach the service, and the interface's own
 `http://` address is one an HTTPS page may not call. `MINI_CLOUD_CONSOLE_URL` points it
 at your own console, or set it empty for no link at all.
@@ -80,17 +111,21 @@ npm start      # terminal 1 — the control plane
 npm run web    # terminal 2 — the console, on http://localhost:5173
 ```
 
-The service allows any origin by default, which is what makes those two commands work
-together. **That is wider than it sounds**: the browser makes the request, so binding
-to loopback does not stop a page you happen to be visiting from reaching the service
-and reading the answer — and an unauthenticated control plane will happily launch a
-command for it. Two ways to close that, either of which is worth doing before you
-leave it running:
+The console talks to the public listener — `http://127.0.0.1:3001` — which allows any
+origin by default, and that is what makes those two commands work together. **It is
+wider than it sounds**: the browser makes the request, so binding to loopback does not
+stop a page you happen to be visiting from reaching the listener and reading the answer
+— and an unauthenticated control plane will happily launch a command for it. Two ways
+to close that, either of which is worth doing before you leave it running:
 
 ```bash
 MINI_CLOUD_CORS_ORIGINS=http://localhost:5173    # only the console's origin
-MINI_CLOUD_TOKEN=$(openssl rand -hex 32)         # or require a token from everyone
+MINI_CLOUD_PUBLIC_TOKEN=$(openssl rand -hex 32)  # or require a token from everyone
 ```
+
+The internal listener installs no CORS middleware at all, whatever this is set to. A
+page can still send it a request; without the response header the browser will not let
+that page read the answer, which is the difference that matters for agent traffic.
 
 Setting `MINI_CLOUD_CORS_ORIGINS` replaces the default rather than adding to it, so
 naming your own origins genuinely narrows things. Setting it to an empty value
@@ -113,7 +148,7 @@ from anything. Point it at a different service with `VITE_MINI_CLOUD_API_URL` �
 | `npm run web` | Run the web console's dev server on :5173 |
 | `npm run cli -- <args>` | Run any CLI command, e.g. `npm run cli -- task list` |
 | `npm run migrate` | Build, then apply pending migrations and exit |
-| `npm run serve` / `npm run agent` | Same as the `start` pair, but skip the build |
+| `npm run cli -- serve` / `npm run cli -- agent start` | Same as the `start` pair, but skip the build |
 | `npm run build` | Build every package, in dependency order |
 | `npm test` | Run unit tests across all packages. Tests live in `packages/*/tests/`, mirroring each package's `src/` |
 | `npm run lint` | ESLint |
@@ -130,10 +165,14 @@ first — it costs under two seconds and means you never run stale code. `serve`
 Everything after `--` goes to the command, not to npm:
 
 ```bash
-npm start -- --port 4000
+npm start -- --port 4000 --public-port 4001
 npm run start:agent -- --id laptop-1 --name "mac mini"
 npm run cli -- instance list --status running
 ```
+
+`serve` keeps `--port` and `--host` pointed at the internal listener, under the names
+they had when there was only one: that is where already-deployed agents look. The
+public listener takes `--public-port` and `--public-host`.
 
 The `--` matters. Without it npm consumes the flags itself, so `npm start --port 4000`
 reaches the service as a bare `4000` and fails.
@@ -147,11 +186,16 @@ Every value has a default; nothing is required to run locally.
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `MINI_CLOUD_STAGE` | `beta` | `beta` or `prod`; selects the default database name |
-| `MINI_CLOUD_PORT` | `3000` | HTTP and WebSocket port |
-| `MINI_CLOUD_HOST` | `127.0.0.1` | Bind address. Loopback by default — exposing the service should be deliberate |
+| `MINI_CLOUD_INTERNAL_PORT` | `3000` | Internal listener: agent API, pub/sub, WebSocket. Also reads `MINI_CLOUD_PORT` |
+| `MINI_CLOUD_INTERNAL_HOST` | `127.0.0.1` | Internal bind address, e.g. your LAN address. Also reads `MINI_CLOUD_HOST` |
+| `MINI_CLOUD_INTERNAL_TOKEN` | *(unset)* | Bearer token for the internal listener and the WebSocket. Falls back to `MINI_CLOUD_TOKEN` |
+| `MINI_CLOUD_TRUSTED_SUBNETS` | loopback + RFC 1918 + ULA + link-local | CIDR blocks the internal listener accepts connections from. An empty value accepts any address |
+| `MINI_CLOUD_PUBLIC_PORT` | `3001` | Public listener: tasks, instances, the fleet, variables |
+| `MINI_CLOUD_PUBLIC_HOST` | `127.0.0.1` | Public bind address. Loopback by default — exposing this one should be deliberate |
+| `MINI_CLOUD_PUBLIC_TOKEN` | *(unset)* | Bearer token for the public listener. Falls back to `MINI_CLOUD_TOKEN` |
 | `MINI_CLOUD_DATABASE_URL` | `postgres://localhost:5432/mini_cloud_<stage>` | Connection string |
-| `MINI_CLOUD_TOKEN` | *(unset)* | Bearer token for HTTP and WebSocket. Unset means no authentication |
-| `MINI_CLOUD_CORS_ORIGINS` | `*` | Comma-separated browser origins allowed to call the API. `*` allows any; an empty value installs no CORS middleware at all |
+| `MINI_CLOUD_TOKEN` | *(unset)* | Bearer token for both listeners at once. Unset means no authentication |
+| `MINI_CLOUD_CORS_ORIGINS` | `*` | Comma-separated browser origins allowed to call the **public** listener. `*` allows any; an empty value installs no CORS middleware at all |
 | `MINI_CLOUD_JOB_TICK_MS` | `1000` | How often to check for due jobs. Must be at or below the shortest job interval |
 | `MINI_CLOUD_MAINTENANCE_TICK_MS` | `5000` | Agent probe and stuck-instance sweep interval |
 | `MINI_CLOUD_AGENT_OFFLINE_AFTER_MS` | `15000` | Silence after which an agent is marked offline |
@@ -167,7 +211,7 @@ Every value has a default; nothing is required to run locally.
 | --- | --- | --- |
 | `MINI_CLOUD_AGENT_ID` | this machine's hostname, lowercased with a trailing `.local` stripped | Unique per agent — two sharing an id would receive each other's commands. Needed only for a second agent on one machine, or when the hostname is `localhost` |
 | `MINI_CLOUD_AGENT_NAME` | the agent id | Display name |
-| `MINI_CLOUD_SERVICE_URL` | `http://127.0.0.1:3000` | Where the control plane is |
+| `MINI_CLOUD_INTERNAL_URL` | `http://127.0.0.1:3000` | The control plane's internal listener. Not `MINI_CLOUD_SERVICE_URL` — that one names the public listener, for the CLI |
 | `MINI_CLOUD_AGENT_PORT` | `3100` | Loopback port the reporter API listens on |
 | `MINI_CLOUD_AGENT_DIR` | `~/.mini-cloud/agent` | Offline reports and default stdout/stderr files |
 | `MINI_CLOUD_PING_FAILURE_THRESHOLD` | `3` | Consecutive failed probes before an instance is unhealthy |

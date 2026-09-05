@@ -7,6 +7,7 @@ import {
   HeartbeatRequest,
   InvalidRequestError,
   LaunchTaskRequest,
+  ListAgentInstancesRequest,
   ListHealthChecksRequest,
   ListTaskInstancesRequest,
   ReportInstancePidRequest,
@@ -167,6 +168,22 @@ export function parseListTaskInstancesQuery(query: unknown): ListTaskInstancesRe
     from: parseOptionalIntegerParam(record['from'], 'from'),
     to: parseOptionalIntegerParam(record['to'], 'to'),
     limit: parseOptionalIntegerParam(record['limit'], 'limit'),
+  };
+}
+
+/**
+ * The agent plane's instance list, parsed from a body rather than a query string.
+ *
+ * Separate from `parseListTaskInstancesQuery` because it accepts less: an agent id and
+ * optionally a status, and nothing else. The operator's version exists to answer
+ * questions about the fleet's history; this one exists so a restarted agent can find
+ * out what it is still supervising.
+ */
+export function parseListAgentInstancesRequest(body: unknown): ListAgentInstancesRequest {
+  const record = assertRecord(body, 'body');
+  return {
+    agentId: assertNonEmptyString(record['agentId'], 'agentId'),
+    status: record['status'] === undefined ? undefined : assertOneOf(record['status'], 'status', TASK_INSTANCE_STATUSES),
   };
 }
 

@@ -2,7 +2,7 @@ import { MiniCloudAgent, loadAgentConfig } from '@mini-cloud/agent';
 import { LoggerFactory, TaskAgent } from '@mini-cloud/shared';
 import { Command } from 'commander';
 import { parsePositiveInteger } from '../args';
-import { GlobalOptions, createClient, resolveServiceUrl, resolveToken } from '../client-factory';
+import { GlobalOptions, createClient, resolveToken, serviceUrlOverride } from '../client-factory';
 import { Column, formatAge, printJson, printTable } from '../output';
 
 const logger = LoggerFactory.getLogger('agent');
@@ -29,7 +29,7 @@ export function buildAgentCommand(): Command {
         agentId: options.id,
         name: options.name,
         port: options.port,
-        serviceUrl: resolveServiceUrl(global),
+        serviceUrl: serviceUrlOverride(global),
         token: resolveToken(global),
       });
 

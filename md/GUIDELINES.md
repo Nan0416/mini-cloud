@@ -32,6 +32,22 @@ specific bug, the bug is named — a rule you can't justify is a rule that gets 
    launch, the background ticks — `data` talks to Postgres, `utils` holds pure
    helpers. A route never touches a DAO. A facade never calls a service: it takes
    the DAOs it needs, so the dependency only ever points service → facade.
+3b. **A route belongs to exactly one listener**, and which one is decided by who calls
+   it: agents and LAN programs report *inward* to the internal listener, people drive
+   the public one. `DependencyFactory` is the only place that decision is written down,
+   and `tests/dependencies/dependency-factory.test.ts` asserts the whole matrix in both
+   directions. The bug this prevents is silent: a route added to the wrong endpoint
+   group compiles, passes its own test, and is also answering on the port that faces
+   the internet. Endpoint classes split along the same line for the same reason —
+   `AgentReportEndpoints` is what agents call, `AgentEndpoints` is the operator's view
+   of the same fleet, and one class holding both could only ever be bound to one
+   listener.
+3c. **Anything that guards the HTTP API must guard the WebSocket separately.** An
+   upgrade never reaches the express middleware stack, so the token check and the
+   subnet filter are duplicated into the hub's `verifyClient`. Without that the socket
+   is an unauthenticated way in while the API beside it is locked down — and the hub is
+   the channel agents take their launch commands from. The same applies to anything
+   added later: rate limiting, IP logging, request tracing.
 
 ## Configuration
 

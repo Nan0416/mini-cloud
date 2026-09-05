@@ -1,14 +1,15 @@
 import { LoggerFactory } from '@mini-cloud/shared';
+import type { ErrorRequestHandler, Express } from 'express';
 import http from 'node:http';
 import { AddressInfo } from 'node:net';
 import { Pool } from 'pg';
 import { migrate } from './data/migrate';
 import { createPool } from './data/pool';
-import { DependencyFactory } from './dependencies/dependency-factory';
+import { DependencyFactory, PlaneDependencies } from './dependencies/dependency-factory';
 import { WsMessageHub } from './facades/message-hub';
 import { Scheduler } from './facades/scheduler';
 import { Service } from './service';
-import { ServiceConfig } from './stage-config';
+import { ListenerConfig, ServiceConfig } from './stage-config';
 import { consoleLink } from './utils/console-link';
 
 const logger = LoggerFactory.getLogger('MiniCloudServer');
@@ -18,66 +19,105 @@ export interface StartServerOptions {
   readonly runMigrations?: boolean;
 }
 
+/** Binds one listener and reports the port it actually got, which `0` makes useful. */
+async function listen(server: http.Server, config: ListenerConfig): Promise<number> {
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(config.port, config.host, () => {
+      server.removeListener('error', reject);
+      resolve();
+    });
+  });
+  const address = server.address();
+  return address !== null && typeof address !== 'string' ? address.port : config.port;
+}
+
+function portOf(server: http.Server, fallback: number): number {
+  const address: AddressInfo | string | null = server.address();
+  return address !== null && typeof address !== 'string' ? address.port : fallback;
+}
+
 /**
- * A running mini-cloud control plane: HTTP API, WebSocket hub and background
- * scheduler, all on one port and in one process.
+ * A running mini-cloud control plane: two HTTP listeners, the WebSocket hub and the
+ * background scheduler, in one process.
+ *
+ * The listeners exist to be exposed differently, not to isolate anything from each
+ * other — they share one scheduler, one pool and one object graph. The *internal* one
+ * carries agent reports and the hub and is meant to stay on the home network; the
+ * *public* one carries what a person drives and is the only one a port forward should
+ * ever point at. Which routes each serves is decided in `DependencyFactory`.
  */
 export class MiniCloudServer {
   private constructor(
-    private readonly httpServer: http.Server,
+    private readonly internalServer: http.Server,
+    private readonly publicServer: http.Server,
     private readonly hub: WsMessageHub,
     private readonly scheduler: Scheduler,
     private readonly pool: Pool,
+    private readonly config: ServiceConfig,
   ) {}
 
   static async start(config: ServiceConfig, options: StartServerOptions = {}): Promise<MiniCloudServer> {
+    assertDistinctListeners(config);
+
     const pool = createPool({ connectionString: config.databaseUrl });
 
     if (options.runMigrations !== false) {
       await migrate(pool);
     }
 
-    // The hub attaches to the HTTP server so both share one port, which means the
-    // server object must exist before the dependency graph that publishes through it.
-    // Requests are routed only once the app is built, a few lines below.
-    const httpServer = http.createServer();
-    const hub = new WsMessageHub({ server: httpServer, authToken: config.authToken });
+    // The hub attaches to the internal HTTP server, which is what puts `/ws` on the
+    // internal port and nowhere else. Both servers must exist before the dependency
+    // graph that publishes through the hub. Requests are routed once the apps are
+    // built, a few lines below.
+    const internalServer = http.createServer();
+    const publicServer = http.createServer();
+    const hub = new WsMessageHub({
+      server: internalServer,
+      authToken: config.internal.authToken,
+      trustedSubnets: config.internal.trustedSubnets,
+    });
 
     const dependencies = new DependencyFactory({ config, pool, messageHub: hub }).build();
-    const app = new Service({
-      middleware: dependencies.middleware,
-      endpoints: dependencies.endpoints,
-      errorHandler: dependencies.errorHandler,
-    }).init();
-    httpServer.on('request', app);
+    internalServer.on('request', buildApp('internal', dependencies.internal, dependencies.errorHandler));
+    publicServer.on('request', buildApp('public', dependencies.public, dependencies.errorHandler));
 
-    await new Promise<void>((resolve, reject) => {
-      httpServer.once('error', reject);
-      httpServer.listen(config.port, config.host, () => {
-        httpServer.removeListener('error', reject);
-        resolve();
-      });
-    });
+    // Both or neither. A second port already in use would otherwise leave the first
+    // listener bound and the pool open behind a rejected start, so the retry after
+    // freeing the port fails on the port that was fine.
+    let internalPort: number;
+    let publicPort: number;
+    try {
+      [internalPort, publicPort] = await Promise.all([listen(internalServer, config.internal), listen(publicServer, config.public)]);
+    } catch (err) {
+      await Promise.all([closeQuietly(internalServer), closeQuietly(publicServer), hub.terminate(), pool.end()]);
+      throw err;
+    }
 
     dependencies.scheduler.start();
 
-    const address = httpServer.address();
-    const port = address !== null && typeof address !== 'string' ? address.port : config.port;
-    logger.info(`mini-cloud is listening on http://${config.host}:${port} (WebSocket at ws://${config.host}:${port}/ws).`);
+    logger.info(`Internal listener (agents, pub/sub) on http://${config.internal.host}:${internalPort} — WebSocket at ws://${config.internal.host}:${internalPort}/ws.`);
+    logger.info(`Public listener (console, CLI) on http://${config.public.host}:${publicPort}.`);
 
     // A second line only when a browser on this machine could actually follow it, so
-    // first-time setup is a click rather than a copied hostname and a typed port.
-    const link = consoleLink({ consoleUrl: config.consoleUrl, host: config.host, port });
+    // first-time setup is a click rather than a copied hostname and a typed port. The
+    // console talks to the public listener, so that is the port it names.
+    const link = consoleLink({ consoleUrl: config.consoleUrl, host: config.public.host, port: publicPort });
     if (link !== undefined) {
       logger.info(`Open the console: ${link}`);
     }
 
-    return new MiniCloudServer(httpServer, hub, dependencies.scheduler, pool);
+    return new MiniCloudServer(internalServer, publicServer, hub, dependencies.scheduler, pool, config);
   }
 
-  get port(): number {
-    const address: AddressInfo | string | null = this.httpServer.address();
-    return address !== null && typeof address !== 'string' ? address.port : 0;
+  /** The port agents and the hub are on. */
+  get internalPort(): number {
+    return portOf(this.internalServer, this.config.internal.port);
+  }
+
+  /** The port the console and the CLI are on. */
+  get publicPort(): number {
+    return portOf(this.publicServer, this.config.public.port);
   }
 
   /** Stops accepting work, then releases the hub and the database pool in order. */
@@ -85,8 +125,33 @@ export class MiniCloudServer {
     logger.info('Shutting down.');
     this.scheduler.stop();
     await this.hub.terminate();
-    await new Promise<void>((resolve) => this.httpServer.close(() => resolve()));
+    await Promise.all([new Promise<void>((resolve) => this.internalServer.close(() => resolve())), new Promise<void>((resolve) => this.publicServer.close(() => resolve()))]);
     await this.pool.end();
     logger.info('Shutdown complete.');
+  }
+}
+
+function buildApp(name: string, plane: PlaneDependencies, errorHandler: ErrorRequestHandler): Express {
+  return new Service({ name, middleware: plane.middleware, endpoints: plane.endpoints, notFound: plane.notFound, errorHandler }).init();
+}
+
+/** Closes a server that may never have bound, without turning that into the failure. */
+async function closeQuietly(server: http.Server): Promise<void> {
+  await new Promise<void>((resolve) => server.close(() => resolve()));
+}
+
+/**
+ * Refuses two listeners on one address before either binds.
+ *
+ * Left to the kernel this surfaces as `EADDRINUSE` against mini-cloud's own port,
+ * which reads as "something else is already running" and sends the operator hunting
+ * for a process that does not exist.
+ */
+function assertDistinctListeners(config: ServiceConfig): void {
+  if (config.internal.port === config.public.port && config.internal.host === config.public.host) {
+    throw new Error(
+      `The internal and public listeners are both configured for ${config.internal.host}:${config.internal.port}. ` +
+        'Give them different ports — the split is what keeps agent traffic and the hub off the port you forward.',
+    );
   }
 }
