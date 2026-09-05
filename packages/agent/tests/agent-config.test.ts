@@ -29,7 +29,7 @@ describe('defaultAgentId', () => {
 });
 
 describe('loadAgentConfig', () => {
-  const AGENT_ENV = ['MINI_CLOUD_AGENT_ID', 'MINI_CLOUD_AGENT_NAME'] as const;
+  const AGENT_ENV = ['MINI_CLOUD_AGENT_ID', 'MINI_CLOUD_AGENT_NAME', 'MINI_CLOUD_INTERNAL_URL', 'MINI_CLOUD_SERVICE_URL'] as const;
   const saved = new Map<string, string | undefined>();
 
   beforeEach(() => {
@@ -51,6 +51,22 @@ describe('loadAgentConfig', () => {
         process.env[key] = value;
       }
     }
+  });
+
+  it('points at the internal listener, which is the only one that serves an agent', () => {
+    expect(loadAgentConfig({}).serviceUrl).toBe('http://127.0.0.1:3000');
+
+    process.env['MINI_CLOUD_INTERNAL_URL'] = 'http://192.168.1.50:3000';
+    expect(loadAgentConfig({}).serviceUrl).toBe('http://192.168.1.50:3000');
+  });
+
+  it('ignores MINI_CLOUD_SERVICE_URL, which names the public listener', () => {
+    // The CLI reads that one for tasks and instances. Honouring it here would mean a
+    // single variable naming two different ports depending on which command read it,
+    // and an agent silently pointed at the listener that does not serve it.
+    process.env['MINI_CLOUD_SERVICE_URL'] = 'http://192.168.1.50:3001';
+
+    expect(loadAgentConfig({}).serviceUrl).toBe('http://127.0.0.1:3000');
   });
 
   it('prefers the flag over the environment, and reports the id as supplied', () => {

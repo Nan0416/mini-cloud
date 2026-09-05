@@ -211,7 +211,7 @@ Every value has a default; nothing is required to run locally.
 | --- | --- | --- |
 | `MINI_CLOUD_AGENT_ID` | this machine's hostname, lowercased with a trailing `.local` stripped | Unique per agent — two sharing an id would receive each other's commands. Needed only for a second agent on one machine, or when the hostname is `localhost` |
 | `MINI_CLOUD_AGENT_NAME` | the agent id | Display name |
-| `MINI_CLOUD_INTERNAL_URL` | `http://127.0.0.1:3000` | The control plane's internal listener. Also reads `MINI_CLOUD_SERVICE_URL`, which meant this before the split |
+| `MINI_CLOUD_INTERNAL_URL` | `http://127.0.0.1:3000` | The control plane's internal listener. Not `MINI_CLOUD_SERVICE_URL` — that one names the public listener, for the CLI |
 | `MINI_CLOUD_AGENT_PORT` | `3100` | Loopback port the reporter API listens on |
 | `MINI_CLOUD_AGENT_DIR` | `~/.mini-cloud/agent` | Offline reports and default stdout/stderr files |
 | `MINI_CLOUD_PING_FAILURE_THRESHOLD` | `3` | Consecutive failed probes before an instance is unhealthy |
