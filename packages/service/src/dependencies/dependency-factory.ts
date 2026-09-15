@@ -25,7 +25,7 @@ import { PubSubEndpoints } from '../routes/pubsub-endpoints';
 import { TaskEndpoints } from '../routes/task-endpoints';
 import { AgentService } from '../services/agent-service';
 import { TaskService } from '../services/task-service';
-import { ServiceConfig } from '../stage-config';
+import { isDefaultPublicToken, ServiceConfig } from '../stage-config';
 
 const logger = LoggerFactory.getLogger('DependencyFactory');
 
@@ -171,15 +171,21 @@ export class DependencyFactory {
       middleware.push(corsMiddleware({ origins: publicConfig.corsOrigins }));
     }
 
-    // Refused here rather than on the way in from the environment, so the failure
-    // lands when a listener is about to be built rather than when the package is
-    // imported — the CLI imports it for every command, `--help` included.
-    if (publicConfig.authToken === undefined) {
-      throw new Error(
-        'MINI_CLOUD_PUBLIC_TOKEN is not set. The public listener will not start without one: it is the listener a port forward points at, and anything that reaches it can launch programs on your machines.',
+    // No check for a missing token: `authToken` is a plain string, and `loadConfig`
+    // falls back to the published default rather than leaving it unset. What is worth
+    // saying is whether that default is what is in force.
+    if (isDefaultPublicToken(publicConfig.authToken)) {
+      // Warned on every start, for the same reason the `*` CORS default is: this is
+      // published in `stage-config.ts`, so it is a placeholder rather than a secret,
+      // and anyone who has read the repository can present it. A line in a document
+      // someone has to go and find is not good enough for the one credential standing
+      // between a port forward and arbitrary code on the operator's machines.
+      logger.warn(
+        `MINI_CLOUD_PUBLIC_TOKEN is not set, so the public listener is running on the default token "${publicConfig.authToken}" — which is also what to paste into the console. It is published in this project, so anyone who knows mini-cloud can drive this service and launch programs on your machines. Set the variable to a secret of your own before exposing this listener: export MINI_CLOUD_PUBLIC_TOKEN=$(openssl rand -hex 32).`,
       );
+    } else {
+      logger.info('The public listener requires a bearer token.');
     }
-    logger.info('The public listener requires a bearer token.');
     middleware.push(bearerTokenAuth(publicConfig.authToken));
 
     return middleware;

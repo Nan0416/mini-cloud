@@ -1,5 +1,5 @@
 import { ServiceUnreachableError, UnauthenticatedError, NotFoundError } from '@mini-cloud/shared';
-import { classifyProbeFailure, isUsableApiUrl, normalizeApiUrl, parseBackendParam, resolveConnection } from '@/lib/connection';
+import { classifyProbeFailure, gateFor, isUsableApiUrl, normalizeApiUrl, parseBackendParam, resolveConnection } from '@/lib/connection';
 
 describe('normalizeApiUrl', () => {
   it('drops trailing slashes, so one service is not two entries', () => {
@@ -59,6 +59,37 @@ describe('resolveConnection', () => {
 
   it('resolves to nothing when there is no answer, which is what shows the setup screen', () => {
     expect(resolveConnection({})).toBeUndefined();
+  });
+});
+
+describe('gateFor', () => {
+  it('asks, with nothing to seed the form, when there is no candidate at all', () => {
+    expect(gateFor(undefined)).toEqual({ status: 'setup' });
+  });
+
+  it('asks without probing when the candidate carries no token', () => {
+    // The `?backend=` link's ordinary case. The public listener has no unauthenticated
+    // mode, so a round trip could only confirm what is already visible — and the
+    // console used to render in full here, leaving every panel to meet its own 401
+    // while the offline banner stayed quiet, because /ping needs no token.
+    const candidate = { apiUrl: 'http://link:3001' };
+
+    expect(gateFor(candidate)).toEqual({ status: 'setup', candidate });
+  });
+
+  it('keeps the candidate when it asks, so the address survives into the form', () => {
+    // Following the link printed at startup should cost the token and nothing else.
+    const gate = gateFor({ apiUrl: 'http://127.0.0.1:3001' });
+
+    expect(gate.candidate?.apiUrl).toBe('http://127.0.0.1:3001');
+  });
+
+  it('probes a candidate that has a token, rather than trusting it', () => {
+    // Having a token is not the same as having one the service still accepts: rotating
+    // MINI_CLOUD_PUBLIC_TOKEN leaves every browser holding a stale one.
+    const candidate = { apiUrl: 'http://stored:3001', token: 'stored-token' };
+
+    expect(gateFor(candidate)).toEqual({ status: 'probe', candidate });
   });
 });
 

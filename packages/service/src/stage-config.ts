@@ -7,6 +7,16 @@ const DEFAULT_TRUSTED_SUBNETS: ReadonlyArray<string> = ['127.0.0.0/8', '::1/128'
 
 const DEFAULT_CONSOLE_URL = 'https://mini-cloud.qinnan.dev';
 
+/**
+ * The token a service that was never configured with one runs under.
+ *
+ * Published in this file, so it is known to anyone who can read the repository — which
+ * makes it a placeholder, not a secret. It buys a first five minutes that need no
+ * setup; what keeps it from being a hole is that the public listener says so on every
+ * start, loudly, and that it binds to loopback unless told otherwise.
+ */
+export const DEFAULT_PUBLIC_TOKEN = '1234';
+
 /** What every listener has: where it binds, and what it demands of a caller. */
 export interface ListenerConfig {
   readonly host: string;
@@ -33,13 +43,16 @@ export interface PublicListenerConfig extends ListenerConfig {
    */
   readonly corsOrigins: ReadonlyArray<string>;
   /**
-   * Bearer token every caller must present. Required in practice — the listener
-   * refuses to start without one — but read as optional here so that *importing* this
-   * module never throws. `config` resolves in a module-level initialiser, and the CLI
-   * imports it for every command, so a required read makes `mini-cloud task list` and
-   * even `--help` die on a missing variable before they parse an argument.
+   * Bearer token every caller must present. Always a string, because there is no such
+   * thing as a public listener without one: it is the listener a port forward points
+   * at, and anything that reaches it can launch programs on your machines.
+   *
+   * Unset means {@link DEFAULT_PUBLIC_TOKEN}, which is a published value and therefore
+   * no protection at all against anyone who has read this repository. Check it with
+   * {@link isDefaultPublicToken} before doing anything that assumes the caller was
+   * authenticated by it.
    */
-  readonly authToken?: string;
+  readonly authToken: string;
 }
 
 export interface ServiceConfig {
@@ -72,7 +85,41 @@ function getenvClearableList(name: string, fallback: ReadonlyArray<string>): Rea
     .filter((entry) => entry.length > 0);
 }
 
-function loadConfig(): ServiceConfig {
+/**
+ * The operator's token, or the published placeholder when they have not set one.
+ *
+ * An empty value is as unset as a missing one: `MINI_CLOUD_PUBLIC_TOKEN=` is what a
+ * shell leaves behind when the variable it was meant to expand was itself unset, and
+ * honouring it would start a listener whose token is the empty string — which is worse
+ * than the default, because nothing warns about it.
+ */
+function resolvePublicToken(): string {
+  const token = process.env['MINI_CLOUD_PUBLIC_TOKEN']?.trim();
+  return token === undefined || token.length === 0 ? DEFAULT_PUBLIC_TOKEN : token;
+}
+
+/**
+ * Whether this service is running on the published placeholder.
+ *
+ * Compares the value rather than tracking where it came from, deliberately: a token
+ * typed out in full is exactly as guessable as one that was defaulted into, so an
+ * operator who set `MINI_CLOUD_PUBLIC_TOKEN=1234` by hand deserves the same warning.
+ */
+export function isDefaultPublicToken(token: string): boolean {
+  return token === DEFAULT_PUBLIC_TOKEN;
+}
+
+/**
+ * Reads the environment. The single place this package does.
+ *
+ * A function, deliberately, rather than a constant resolved at import. The CLI imports
+ * this package for every command, so an import-time read would mean `mini-cloud task
+ * list` — and `--help` — depended on the service's environment to get as far as parsing
+ * an argument. Reading it in the command that actually serves requests keeps that
+ * dependency where it belongs, and lets a test load a configuration without reaching
+ * through the module registry to do it.
+ */
+export function loadConfig(): ServiceConfig {
   return {
     databaseUrl: getenv('MINI_CLOUD_DATABASE_URL', `postgres://localhost:5432/mini_cloud`),
     internal: {
@@ -89,7 +136,7 @@ function loadConfig(): ServiceConfig {
       // step needed to publish a remote-execution API.
       host: getenv('MINI_CLOUD_PUBLIC_HOST', '127.0.0.1'),
       port: getenvInteger('MINI_CLOUD_PUBLIC_PORT', 3001),
-      authToken: process.env['MINI_CLOUD_PUBLIC_TOKEN'],
+      authToken: resolvePublicToken(),
       // Setting the variable replaces the default rather than adding to it, so naming
       // your own origins genuinely narrows the service instead of widening it.
       corsOrigins: getenvClearableList('MINI_CLOUD_CORS_ORIGINS', DEFAULT_CORS_ORIGINS),
@@ -112,11 +159,3 @@ function loadConfig(): ServiceConfig {
     },
   };
 }
-
-/**
- * Resolved once at import. Every value has a default, so importing the service
- * package never throws for missing configuration.
- */
-export const config = loadConfig();
-
-export default config;

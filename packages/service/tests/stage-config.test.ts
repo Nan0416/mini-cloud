@@ -1,10 +1,9 @@
-import type { ServiceConfig } from '../src/stage-config';
+import { DEFAULT_PUBLIC_TOKEN, isDefaultPublicToken, loadConfig, type ServiceConfig } from '../src/stage-config';
 
 /**
- * The config resolves once, in a module-level initialiser, so each case has to reset
- * the module registry and re-import it under a different environment. That is also
- * what the test is really about: this is the single place the service reads
- * `process.env`, and everything else takes its configuration as arguments.
+ * Every variable the service reads. This is the single place it touches
+ * `process.env`, and everything else takes its configuration as arguments — so
+ * clearing this list between cases is enough to isolate them.
  */
 const VARIABLES = [
   'MINI_CLOUD_PORT',
@@ -27,17 +26,25 @@ const VARIABLES = [
   'MINI_CLOUD_RETENTION_TICK_MS',
 ] as const;
 
-const loadWith = (env: Partial<Record<(typeof VARIABLES)[number], string>>): ServiceConfig => {
+type Environment = Partial<Record<(typeof VARIABLES)[number], string>>;
+
+/** Loads under exactly the environment given, and nothing inherited from the shell. */
+const loadRaw = (env: Environment): ServiceConfig => {
   for (const name of VARIABLES) {
     delete process.env[name];
   }
   Object.assign(process.env, env);
-  let config: ServiceConfig | undefined;
-  jest.isolateModules(() => {
-    config = (require('../src/stage-config') as { config: ServiceConfig }).config;
-  });
-  return config as ServiceConfig;
+  return loadConfig();
 };
+
+/**
+ * The same, with the one mandatory variable supplied.
+ *
+ * Every case below is about some *other* value, and repeating the token in each of
+ * them would assert nothing while burying what the case is actually checking. The
+ * cases that are about the token call {@link loadRaw} instead.
+ */
+const loadWith = (env: Environment): ServiceConfig => loadRaw({ MINI_CLOUD_PUBLIC_TOKEN: 'operator', ...env });
 
 const originalEnv = { ...process.env };
 
@@ -49,10 +56,11 @@ afterEach(() => {
 });
 
 describe('defaults', () => {
-  it('starts with every value set, so importing the package never throws', () => {
+  it('starts with every value set, so the first five minutes need no configuration', () => {
     // A control plane that needs configuration before it will start is a worse first
-    // five minutes than one that starts with sane defaults and says what they are.
-    expect(() => loadWith({})).not.toThrow();
+    // five minutes than one that starts with sane defaults and says what they are —
+    // and for the token, saying so is the whole of what makes the default safe.
+    expect(() => loadRaw({})).not.toThrow();
   });
 
   it('binds both listeners to loopback, because exposing either must be deliberate', () => {
@@ -101,13 +109,40 @@ describe('defaults', () => {
     });
   });
 
-  it('leaves the public token unset rather than throwing, so importing never fails', () => {
-    // `config` resolves in a module-level initialiser and the CLI imports it for every
-    // command. A required read here makes `mini-cloud task list` — and `--help` — die
-    // on a missing variable before parsing an argument. The listener refuses to start
-    // without one; that is enforced where a listener is built, not where it is read.
-    expect(() => loadWith({})).not.toThrow();
-    expect(loadWith({}).public.authToken).toBeUndefined();
+  it('falls back to the published default token rather than refusing to start', () => {
+    // The listener always has a token to check, so there is no unauthenticated mode
+    // to reason about — but an unconfigured one is guarding nothing, which is why
+    // `isDefaultPublicToken` exists and why the factory warns on every start.
+    expect(loadRaw({}).public.authToken).toBe(DEFAULT_PUBLIC_TOKEN);
+    expect(isDefaultPublicToken(loadRaw({}).public.authToken)).toBe(true);
+  });
+
+  it('treats an empty token as unset, because that is what an unexpanded variable leaves', () => {
+    // `export MINI_CLOUD_PUBLIC_TOKEN=$UNSET_SOMEWHERE` is the way this happens.
+    // Honouring it would start a listener whose token is the empty string — worse than
+    // the default, because nothing would warn about it.
+    expect(loadRaw({ MINI_CLOUD_PUBLIC_TOKEN: '' }).public.authToken).toBe(DEFAULT_PUBLIC_TOKEN);
+    expect(loadRaw({ MINI_CLOUD_PUBLIC_TOKEN: '   ' }).public.authToken).toBe(DEFAULT_PUBLIC_TOKEN);
+  });
+
+  it('calls a hand-typed copy of the default what it is', () => {
+    // The risk is the value being guessable, not where it came from. Someone who set
+    // the variable to `1234` themselves is in exactly the position the warning is for.
+    expect(isDefaultPublicToken(loadRaw({ MINI_CLOUD_PUBLIC_TOKEN: DEFAULT_PUBLIC_TOKEN }).public.authToken)).toBe(true);
+    expect(isDefaultPublicToken(loadRaw({ MINI_CLOUD_PUBLIC_TOKEN: 'a-real-secret' }).public.authToken)).toBe(false);
+  });
+
+  /**
+   * Importing must stay free of configuration, which is why `loadConfig` is a
+   * function. The CLI imports this package for every command, so a module-level
+   * initialiser that threw would make `mini-cloud --help` die on a missing variable
+   * before it parsed an argument.
+   */
+  it('reads nothing at import, so no CLI command depends on the service environment', () => {
+    for (const name of VARIABLES) {
+      delete process.env[name];
+    }
+    expect(() => require('../src/stage-config')).not.toThrow();
   });
 
   it('allows any origin, so the console works wherever it is served from', () => {
@@ -183,7 +218,10 @@ describe('overrides', () => {
   it('takes the public listener\u2019s token from its own variable', () => {
     // One variable, for the one listener that has a token. An agent never presents a
     // credential, so there is no fleet-wide token for a leaked console copy to be.
-    expect(loadWith({ MINI_CLOUD_PUBLIC_TOKEN: 'operator' }).public.authToken).toBe('operator');
+    expect(loadRaw({ MINI_CLOUD_PUBLIC_TOKEN: 'operator' }).public.authToken).toBe('operator');
+    // Trimmed, so a token pasted with a trailing newline is the token the console
+    // sends rather than one that never matches.
+    expect(loadRaw({ MINI_CLOUD_PUBLIC_TOKEN: '  operator\n' }).public.authToken).toBe('operator');
   });
 
   it('replaces the CORS default rather than adding to it', () => {

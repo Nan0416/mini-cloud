@@ -20,7 +20,7 @@ import { isUsableApiUrl, normalizeApiUrl, readRecentUrls, type Connection, type 
 function failureMessage(outcome: ProbeOutcome, apiUrl: string): string {
   switch (outcome) {
     case 'needs-token':
-      return 'That service is running and wants a token. Paste the value of its MINI_CLOUD_PUBLIC_TOKEN below.';
+      return 'That service is running, and it needs a token. Fill in the token field with the value of its MINI_CLOUD_PUBLIC_TOKEN.';
     case 'bad-token':
       return 'That service rejected the token. Check it against the MINI_CLOUD_PUBLIC_TOKEN the service was started with.';
     case 'unreachable':
@@ -37,15 +37,22 @@ function failureMessage(outcome: ProbeOutcome, apiUrl: string): string {
  * the same question and a second copy of this form is a second place for the failure
  * copy to drift.
  */
-export function ConnectionForm(props: { readonly initial?: Connection; readonly onConnect: (connection: Connection, remember: boolean) => void; readonly submitLabel?: string }) {
+export function ConnectionForm(props: {
+  readonly initial?: Connection;
+  readonly onConnect: (connection: Connection, remember: boolean) => void;
+  readonly submitLabel?: string;
+  /** How a candidate failed on load, so the screen opens explaining itself. */
+  readonly initialOutcome?: ProbeOutcome;
+}) {
   // Seeded once, on mount. Callers give this a fresh mount when they need it
   // reseeded — a dialog rendering its body only while open — rather than syncing it
   // from an effect, which would overwrite whatever had been half-typed.
   const [apiUrl, setApiUrl] = useState(props.initial?.apiUrl ?? config.suggestedApiUrl);
   const [token, setToken] = useState(props.initial?.token ?? '');
   const [remember, setRemember] = useState(true);
-  const [tokenRequired, setTokenRequired] = useState(props.initial?.token !== undefined);
-  const [failure, setFailure] = useState<string | undefined>(undefined);
+  const [failure, setFailure] = useState<string | undefined>(() =>
+    props.initialOutcome === undefined ? undefined : failureMessage(props.initialOutcome, props.initial?.apiUrl ?? config.suggestedApiUrl),
+  );
   const [busy, setBusy] = useState(false);
   const [recent] = useState(readRecentUrls);
 
@@ -68,9 +75,6 @@ export function ConnectionForm(props: { readonly initial?: Connection; readonly 
     if (outcome === 'ok') {
       props.onConnect(candidate, remember);
       return;
-    }
-    if (outcome === 'needs-token') {
-      setTokenRequired(true);
     }
     setFailure(failureMessage(outcome, candidate.apiUrl));
   };
@@ -107,23 +111,26 @@ export function ConnectionForm(props: { readonly initial?: Connection; readonly 
         </div>
       )}
 
-      {tokenRequired ? (
-        <div className="space-y-1.5">
-          <Label htmlFor="connection-token">Token</Label>
-          <Input
-            id="connection-token"
-            type="password"
-            value={token}
-            onChange={(event) => setToken(event.target.value)}
-            placeholder="MINI_CLOUD_PUBLIC_TOKEN"
-            autoComplete="off"
-            spellCheck={false}
-          />
-          <p className="text-xs text-muted-foreground">
-            Stored in this browser, where any script on this page could read it. On a shared machine, leave “Stay connected” off so it ends with the tab.
-          </p>
-        </div>
-      ) : null}
+      {/* Always shown, never revealed by a failed probe. The public listener has no
+          unauthenticated mode, so a token is not a thing some services want — it is
+          the second half of the address, and a form that hid it made the ordinary
+          first run take two submits to get to the field it always needed. */}
+      <div className="space-y-1.5">
+        <Label htmlFor="connection-token">Token</Label>
+        <Input
+          id="connection-token"
+          type="password"
+          value={token}
+          onChange={(event) => setToken(event.target.value)}
+          placeholder="MINI_CLOUD_PUBLIC_TOKEN"
+          autoComplete="off"
+          spellCheck={false}
+        />
+        <p className="text-xs text-muted-foreground">
+          The value your service was started with. Stored in this browser, where any script on this page could read it — on a shared machine, leave “Stay connected” off so it ends
+          with the tab.
+        </p>
+      </div>
 
       <div className="flex items-center gap-2">
         <Checkbox id="connection-remember" checked={remember} onCheckedChange={(checked) => setRemember(checked === true)} />

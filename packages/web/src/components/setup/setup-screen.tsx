@@ -3,6 +3,7 @@ import { ConnectionForm } from './connection-form';
 import { ThemeToggle } from '@/components/layout/theme-toggle';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useConnection } from '@/hooks/use-connection';
+import type { Connection, ProbeOutcome } from '@/lib/connection';
 
 /**
  * What a visitor sees before the console knows where their service is.
@@ -13,7 +14,7 @@ import { useConnection } from '@/hooks/use-connection';
  * asking a stranger to point a page at the control plane of their own machines is
  * only reasonable if the page says what it is going to do.
  */
-export function SetupScreen() {
+export function SetupScreen(props: { readonly initial?: Connection; readonly outcome?: ProbeOutcome }) {
   const { connect } = useConnection();
 
   return (
@@ -38,7 +39,7 @@ export function SetupScreen() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
-            <ConnectionForm onConnect={connect} />
+            <ConnectionForm initial={props.initial} initialOutcome={props.outcome} onConnect={connect} />
 
             <div className="space-y-2 border-t border-border pt-4 text-xs text-muted-foreground">
               <p>

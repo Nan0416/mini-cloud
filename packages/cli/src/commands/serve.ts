@@ -1,4 +1,4 @@
-import { MiniCloudServer, ServiceConfig, config, createPool, migrate } from '@mini-cloud/service';
+import { MiniCloudServer, ServiceConfig, createPool, loadConfig, migrate } from '@mini-cloud/service';
 import { LoggerFactory } from '@mini-cloud/shared';
 import { Command } from 'commander';
 import { parsePositiveInteger } from '../args';
@@ -15,6 +15,10 @@ export function buildServeCommand(): Command {
     .option('--database-url <url>', 'PostgreSQL connection string')
     .option('--skip-migrations', 'do not apply pending migrations on startup')
     .action(async (options: { port?: number; host?: string; publicPort?: number; publicHost?: string; databaseUrl?: string; skipMigrations?: boolean }) => {
+      // Read here rather than at import: the token has no default, so resolving it
+      // eagerly would make every other command die on a missing variable.
+      const config = loadConfig();
+
       // `--port` and `--host` stay pointed at the internal listener, under the names
       // they had when there was only one: that is where every already-deployed agent
       // is configured to look.
@@ -54,7 +58,11 @@ export function buildMigrateCommand(): Command {
     .description('apply pending database migrations and exit')
     .option('--database-url <url>', 'PostgreSQL connection string')
     .action(async (options: { databaseUrl?: string }) => {
-      const pool = createPool({ connectionString: options.databaseUrl ?? config.databaseUrl });
+      // Migrating is part of bringing the control plane up, so it reads the same
+      // configuration `serve` does — including the token, which it has no use for but
+      // which anyone about to start the service has set anyway. One loader, one
+      // failure message, rather than a second narrower path to keep in step.
+      const pool = createPool({ connectionString: options.databaseUrl ?? loadConfig().databaseUrl });
       try {
         const applied = await migrate(pool);
         console.log(applied.length > 0 ? `Applied ${applied.length} migration(s): ${applied.join(', ')}` : 'Schema is already up to date.');

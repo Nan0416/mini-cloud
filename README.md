@@ -81,7 +81,7 @@ conventions the code follows.
 ```bash
 npm install
 createdb mini_cloud                                # one-time; see dev.md for installing PostgreSQL
-export MINI_CLOUD_PUBLIC_TOKEN=$(openssl rand -hex 32)   # required; the console will ask for it
+export MINI_CLOUD_PUBLIC_TOKEN=$(openssl rand -hex 32)   # else it runs on a published default, and says so
 npm start                                          # builds, applies the schema, starts the control plane
 ```
 
