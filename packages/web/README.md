@@ -9,7 +9,7 @@ npm run web    # terminal 2 — the console
 ```
 
 Then open http://localhost:5173. It asks for the service address and the token once,
-and remembers both.
+and remembers both — rechecking the token against the service on each load.
 
 ## How it talks to the service
 
@@ -30,9 +30,9 @@ internal listener on `:3000` carries agent traffic and the WebSocket hub, instal
 CORS middleware at all, and answers a console request with a 404 that says so.
 
 Every request carries a bearer token: the public listener always requires one, so the
-console asks for it on first load and stores it. `/ping` is the exception it relies on
-— left open so the setup screen can tell a service that is not there from one that is
-refusing the token it was given.
+console asks for it on first load, beside the address, and stores it. `/ping` is the
+exception it relies on — left open so the setup screen can tell a service that is not
+there from one that is refusing the token it was given.
 
 The console is served from its own origin, so the public listener answers it under
 CORS. It allows **any** origin by default, which is what makes the two commands above
@@ -63,6 +63,13 @@ answered" is separated from "something answered and refused you". Then an authen
 call proves the token is the right one, a 401 being the only way to find that out.
 Catching a typo there is the point, because a wrong address or a mistyped token stored
 instead surfaces minutes later as an offline banner and reads like a broken service.
+
+The same two calls run against a *stored* connection on every load, which is what
+decides between the console and the setup screen. A candidate carrying no token skips
+them and goes straight to the screen: the listener always wants one, so there is
+nothing to ask. That is the ordinary path for the link the service prints at startup,
+which carries an address and deliberately never a token — following it fills the
+address in for you and leaves the token to type.
 
 The chosen service shows in the top bar; clicking it switches, which discards the
 cached data belonging to the one being left. "Stay connected" chooses `localStorage`

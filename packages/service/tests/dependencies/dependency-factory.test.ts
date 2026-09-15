@@ -1,8 +1,8 @@
-import { HubStatus, Target } from '@mini-cloud/shared';
+import { HubStatus, LoggerFactory, Target } from '@mini-cloud/shared';
 import { DependencyFactory } from '../../src/dependencies/dependency-factory';
 import { MessageHub, OutboundMessage } from '../../src/facades/message-hub';
 import { Service } from '../../src/service';
-import { ServiceConfig } from '../../src/stage-config';
+import { DEFAULT_PUBLIC_TOKEN, ServiceConfig } from '../../src/stage-config';
 import { FakePool } from '../data/test-helpers';
 import { TestServer } from '../routes/test-helpers';
 
@@ -29,8 +29,10 @@ class FakeHub implements MessageHub {
 const aConfig = (overrides: Partial<ServiceConfig> = {}): ServiceConfig => ({
   databaseUrl: 'postgres://localhost:5432/mini_cloud_test',
   internal: { host: '127.0.0.1', port: 3000, trustedSubnets: ['127.0.0.0/8'] },
-  // A token, because the public listener will not be built without one. The internal
-  // listener has no equivalent field: the source address is what guards it.
+  // A token of its own, rather than the default one `loadConfig` falls back to: these
+  // cases are about what each listener serves, and running them on the default would
+  // put a warning nobody is asserting on in the middle of it. The internal listener has
+  // no equivalent field — the source address is what guards it.
   public: { host: '127.0.0.1', port: 3001, corsOrigins: ['*'], authToken: 'operator' },
   consoleUrl: '',
   scheduler: {
@@ -103,10 +105,16 @@ const ROUTES: ReadonlyArray<{ method: 'GET' | 'POST'; path: string; internal: bo
   { method: 'GET', path: '/variables', internal: false, public: true },
 ];
 
-let listeners: Listeners;
+let listeners: Listeners | undefined;
 
+/**
+ * Guarded and cleared, because not every case starts a listener — and closing the
+ * previous case's servers a second time surfaces as "Server is not running" inside
+ * whichever test happened to run next, which is a long way from the cause.
+ */
 afterEach(async () => {
-  await listeners.close();
+  await listeners?.close();
+  listeners = undefined;
 });
 
 describe('which listener serves what', () => {
@@ -180,16 +188,47 @@ describe('what runs before the routes', () => {
     expect((await listeners.internal.post('/agent-api/heartbeat', {})).status).toBe(400);
   });
 
-  it('refuses to build a public listener with no token at all', async () => {
+  // There is deliberately no case here for a public listener built without a token.
+  // `PublicListenerConfig.authToken` is a plain string, so such a config cannot be
+  // constructed to test with — `loadConfig` falls back to the published default, and
+  // that fallback is covered in `tests/stage-config.test.ts`.
+});
+
+describe('the default token', () => {
+  const warnings = (): jest.SpyInstance => jest.spyOn(LoggerFactory.getLogger('DependencyFactory'), 'warn').mockImplementation(() => undefined);
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  const buildWith = (authToken: string): jest.SpyInstance => {
+    const warn = warnings();
     const config = aConfig();
+    new DependencyFactory({ config: { ...config, public: { ...config.public, authToken } }, pool: new FakePool().asPool(), messageHub: new FakeHub() }).build();
+    return warn;
+  };
 
-    // Enforced here rather than when the environment is read: `config` resolves at
-    // import and the CLI imports it for every command, so a required read there makes
-    // `mini-cloud task list` die on a missing variable before parsing an argument.
-    expect(() =>
-      new DependencyFactory({ config: { ...config, public: { ...config.public, authToken: undefined } }, pool: new FakePool().asPool(), messageHub: new FakeHub() }).build(),
-    ).toThrow(/MINI_CLOUD_PUBLIC_TOKEN is not set/);
+  it('says so on every start, because it is published and guards nothing', () => {
+    // The whole of what makes shipping a known token defensible. Someone who never set
+    // the variable has a service that anyone who has read this project can drive, and
+    // a line in a document they would have to go and find does not tell them that.
+    const warn = buildWith(DEFAULT_PUBLIC_TOKEN);
 
-    listeners = await start();
+    const said = warn.mock.calls.map((call) => String(call[0])).join('\n');
+    expect(said).toContain('MINI_CLOUD_PUBLIC_TOKEN');
+    // The value itself, because it is also what the operator has to paste into the
+    // console's token field — and a warning that withholds it sends them to the source.
+    expect(said).toContain(DEFAULT_PUBLIC_TOKEN);
+    // And the fix, not just the problem.
+    expect(said).toContain('openssl rand -hex 32');
+  });
+
+  it('stays quiet about a token the operator actually chose', () => {
+    // A warning on every start is only heard if it is not also printed when nothing is
+    // wrong. `aConfig` allows any CORS origin, which has a warning of its own — so this
+    // asserts on the token line specifically rather than on silence.
+    const warn = buildWith('a-real-secret');
+
+    expect(warn.mock.calls.map((call) => String(call[0])).join('\n')).not.toContain('default token');
   });
 });

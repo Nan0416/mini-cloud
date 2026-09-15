@@ -90,6 +90,33 @@ export function resolveConnection(sources: ConnectionSources): Connection | unde
   return sources.fromBuild;
 }
 
+/**
+ * What the console does with a resolved candidate, before it opens.
+ *
+ * Pure, and separate from the hook that acts on it, because this is the decision the
+ * whole first paint turns on: a candidate that cannot work must reach the setup screen
+ * rather than a dashboard whose every panel is about to be refused.
+ */
+export type Gate =
+  /** Ask. `candidate` is whatever we had, so the form opens seeded rather than blank. */
+  | { readonly status: 'setup'; readonly candidate?: Connection }
+  /** Worth checking against the service before the console commits to it. */
+  | { readonly status: 'probe'; readonly candidate: Connection };
+
+export function gateFor(candidate: Connection | undefined): Gate {
+  if (candidate === undefined) {
+    return { status: 'setup' };
+  }
+  // A candidate with no token cannot pass, and probing to be told so would spend a
+  // round trip on an answer already in hand. This is the `?backend=` link's ordinary
+  // case: it carries a URL and deliberately never a token, so following one lands on
+  // the setup screen with the address filled in and the cursor in the token field.
+  if (candidate.token === undefined) {
+    return { status: 'setup', candidate };
+  }
+  return { status: 'probe', candidate };
+}
+
 /** What probing a candidate service told us. */
 export type ProbeOutcome =
   /** Reachable, and it answered an authenticated call. */

@@ -1,12 +1,22 @@
 import type { MiniCloudClient } from '@mini-cloud/client';
 import { useQueryClient } from '@tanstack/react-query';
-import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react';
-import { createApi } from '@/lib/api';
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { createApi, probeConnection } from '@/lib/api';
 import { config } from '@/lib/config';
-import { clearStoredConnection, parseBackendParam, readStoredConnection, resolveConnection, storeConnection, type Connection } from '@/lib/connection';
+import { clearStoredConnection, gateFor, parseBackendParam, readStoredConnection, resolveConnection, storeConnection, type Connection, type ProbeOutcome } from '@/lib/connection';
+
+/** Where the console is before it knows it can talk to anything. */
+type ConnectionState =
+  /** Checking a stored or linked candidate. The splash, and nothing else, renders. */
+  | { readonly status: 'probing'; readonly candidate: Connection }
+  /** Ask the visitor. `candidate` seeds the form; `outcome` says why, when there is a why. */
+  | { readonly status: 'setup'; readonly candidate?: Connection; readonly outcome?: ProbeOutcome }
+  /** Verified against the service. The console proper renders. */
+  | { readonly status: 'connected'; readonly connection: Connection };
 
 interface ConnectionContextValue {
-  /** Undefined until the visitor has chosen a service. The app is gated on this. */
+  readonly state: ConnectionState;
+  /** The live connection, or undefined until one has been verified. */
   readonly connection?: Connection;
   readonly connect: (connection: Connection, remember: boolean) => void;
   readonly disconnect: () => void;
@@ -18,19 +28,54 @@ const ApiContext = createContext<MiniCloudClient | undefined>(undefined);
 /**
  * Owns which service the console is talking to, and the client built from it.
  *
- * Resolved once, on mount, rather than in an effect: an effect would render the
- * setup screen for a frame before replacing it, and this value is available
- * synchronously.
+ * The candidate resolves synchronously on mount — a link, then this browser's storage,
+ * then anything baked into the bundle — but having a candidate is not the same as
+ * having a working connection, so the console does not open on one. It is checked
+ * first, and anything short of success sends the visitor to the setup screen with the
+ * address already filled in.
+ *
+ * That check costs a splash on every load, which buys the thing it replaces: a console
+ * that used to render in full against a token it did not have, leaving every panel to
+ * discover the same 401 separately while the offline banner stayed quiet because
+ * `/ping` needs no token.
  */
 export function ConnectionProvider(props: { readonly children: ReactNode }) {
   const queryClient = useQueryClient();
-  const [connection, setConnection] = useState<Connection | undefined>(() =>
-    resolveConnection({
+  const [state, setState] = useState<ConnectionState>(() => {
+    const candidate = resolveConnection({
       fromQuery: parseBackendParam(window.location.search),
       fromStorage: readStoredConnection(),
       fromBuild: config.defaultApiUrl === undefined ? undefined : { apiUrl: config.defaultApiUrl, token: config.defaultToken },
-    }),
-  );
+    });
+    const gate = gateFor(candidate);
+    return gate.status === 'probe' ? { status: 'probing', candidate: gate.candidate } : { status: 'setup', candidate: gate.candidate };
+  });
+
+  useEffect(() => {
+    if (state.status !== 'probing') {
+      return;
+    }
+    const candidate = state.candidate;
+    // Guarded rather than aborted: a probe that lands after the visitor has already
+    // moved on must not overwrite what they did. `probeConnection` resolves either
+    // way, so there is nothing to cancel. This is also what makes StrictMode's double
+    // mount in development harmless — the first pass is discarded, and both passes are
+    // idempotent GETs.
+    let live = true;
+    void probeConnection(candidate).then((outcome) => {
+      if (!live) {
+        return;
+      }
+      // One rule, no exceptions: only a service that answered an authenticated call
+      // opens the console. A service that is merely unreachable could be asleep, but
+      // it could equally be the wrong address, and the setup screen is where both of
+      // those are fixed.
+      setState(outcome === 'ok' ? { status: 'connected', connection: candidate } : { status: 'setup', candidate, outcome });
+    });
+    return () => {
+      live = false;
+    };
+  }, [state]);
 
   const connect = useCallback(
     (next: Connection, remember: boolean): void => {
@@ -39,7 +84,9 @@ export function ConnectionProvider(props: { readonly children: ReactNode }) {
       // being left, and react-query would otherwise serve one machine's tasks under
       // another machine's name until each query refetched.
       queryClient.clear();
-      setConnection(next);
+      // Straight to connected, with no second probe: the form only calls this once
+      // its own verification has come back `ok`.
+      setState({ status: 'connected', connection: next });
     },
     [queryClient],
   );
@@ -47,10 +94,11 @@ export function ConnectionProvider(props: { readonly children: ReactNode }) {
   const disconnect = useCallback((): void => {
     clearStoredConnection();
     queryClient.clear();
-    setConnection(undefined);
+    setState({ status: 'setup' });
   }, [queryClient]);
 
-  const value = useMemo<ConnectionContextValue>(() => ({ connection, connect, disconnect }), [connection, connect, disconnect]);
+  const connection = state.status === 'connected' ? state.connection : undefined;
+  const value = useMemo<ConnectionContextValue>(() => ({ state, connection, connect, disconnect }), [state, connection, connect, disconnect]);
   // Rebuilt only when the connection changes, so hooks depending on it are not
   // handed a new client — and a new query function — on every render.
   const api = useMemo(() => (connection === undefined ? undefined : createApi(connection)), [connection]);

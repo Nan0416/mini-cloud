@@ -1,4 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { Cloud } from 'lucide-react';
 import { BrowserRouter, Route, Routes } from 'react-router-dom';
 import { Toaster } from 'sonner';
 import { AppShell } from '@/components/layout/app-shell';
@@ -44,16 +45,37 @@ function ThemedToaster() {
 }
 
 /**
- * The console proper, or the screen that asks where the service is.
+ * Held while the stored connection is checked.
+ *
+ * Deliberately almost nothing: it is on screen for one round trip against a service
+ * that is usually on the same machine, and a layout that resolved into the console
+ * would flash harder than a mark that simply disappears.
+ */
+function ConnectingSplash() {
+  return (
+    <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-background text-muted-foreground">
+      <Cloud className="size-6 animate-pulse text-primary" />
+      <p className="text-sm">Connecting…</p>
+    </div>
+  );
+}
+
+/**
+ * The console proper, the screen that asks where the service is, or the splash between
+ * them.
  *
  * A gate rather than a route: every page below depends on there being a client to
  * call, so rendering them without one would mean each panel discovering the same
- * missing answer separately.
+ * missing answer separately — which is exactly what a console pointed at a service it
+ * could not authenticate against used to do.
  */
 function ConnectedApp() {
-  const { connection } = useConnection();
-  if (connection === undefined) {
-    return <SetupScreen />;
+  const { state } = useConnection();
+  if (state.status === 'probing') {
+    return <ConnectingSplash />;
+  }
+  if (state.status === 'setup') {
+    return <SetupScreen initial={state.candidate} outcome={state.outcome} />;
   }
 
   return (

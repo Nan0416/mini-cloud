@@ -47,16 +47,26 @@ export MINI_CLOUD_PUBLIC_TOKEN=$(openssl rand -hex 32)
 npm start
 ```
 
-The token is required, and `serve` refuses to start without one:
+`npm start` works without that line — the public listener falls back to the token
+`1234` — and then says so on every start:
 
 ```
-Error: MINI_CLOUD_PUBLIC_TOKEN is not set. The public listener will not start without
-one: it is the listener a port forward points at, and anything that reaches it can
-launch programs on your machines.
+WARN [DependencyFactory] MINI_CLOUD_PUBLIC_TOKEN is not set, so the public listener is
+running on the default token. It is published in this project, so anyone who knows
+mini-cloud can drive this service and launch programs on your machines. Set the
+variable to a secret of your own before exposing this listener:
+export MINI_CLOUD_PUBLIC_TOKEN=$(openssl rand -hex 32).
 ```
 
-Put it somewhere it survives a new shell — a profile, an `EnvironmentFile=` in a
-systemd unit, a launchd plist — rather than generating a fresh one each time. The
+Take that warning literally. The default is a placeholder, not a secret: it is written
+down in `packages/service/src/stage-config.ts`, so it authenticates nobody who has seen
+this repository. What makes it survivable is the other default beside it — the public
+listener binds to `127.0.0.1`, so nothing off this machine can present the token in the
+first place. Set a real one before you change `MINI_CLOUD_PUBLIC_HOST` or point a port
+forward at it, and treat the two as a single step.
+
+Put your own token somewhere it survives a new shell — a profile, an `EnvironmentFile=`
+in a systemd unit, a launchd plist — rather than generating a fresh one each time. The
 console stores the token you give it, so rotating the value logs every browser out.
 
 `npm start` then builds every package, applies any pending migrations, and runs the
@@ -79,7 +89,7 @@ One process, two ports, and the split is by who calls:
 | Serves | `/agent-api/*`, `/pubsub/*`, `/ws`, `/ping`, `/health` | `/tasks*`, `/instances*`, `/agents*`, `/variables`, `/pubsub/*`, `/ping`, `/health` |
 | Called by | agents, and programs on your LAN | the console, the CLI, you |
 | Bind it to | the home network | wherever you reach it from |
-| Authentication | none — the source address is the credential | `MINI_CLOUD_PUBLIC_TOKEN`, always required |
+| Authentication | none — the source address is the credential | `MINI_CLOUD_PUBLIC_TOKEN`, always demanded; `1234` until you set one |
 | Source check | `MINI_CLOUD_TRUSTED_SUBNETS` | none |
 | CORS | none at all | `MINI_CLOUD_CORS_ORIGINS` |
 
@@ -154,9 +164,17 @@ npm run web    # terminal 2 — the console, on http://localhost:5173
 ```
 
 It talks to the public listener — `http://127.0.0.1:3001` — and asks for the address
-and the token on first load. Paste the value of `MINI_CLOUD_PUBLIC_TOKEN`; the browser
-stores it, so this is a first-run step rather than a per-session one. Baking both into
-the bundle instead is `VITE_MINI_CLOUD_API_URL` and `VITE_MINI_CLOUD_TOKEN`, below.
+and the token together on first load. Paste the value of `MINI_CLOUD_PUBLIC_TOKEN`; the
+browser stores it, so this is a first-run step rather than a per-session one. Baking
+both into the bundle instead is `VITE_MINI_CLOUD_API_URL` and `VITE_MINI_CLOUD_TOKEN`,
+below.
+
+Every load then checks the stored token against the service before the console opens,
+and anything short of an authenticated answer shows the setup screen again with the
+address already filled in — a rotated token, a wrong address, a service that is not
+running. The console never renders against a token it has not just seen work, because
+one that did left every panel to meet the same 401 on its own while the offline banner
+stayed quiet: `/ping` needs no token, so reachability looked fine throughout.
 
 That listener allows **any** browser origin by default, which is what makes those two
 commands work with no CORS setup — and it is wider than it sounds: the browser makes
@@ -226,14 +244,15 @@ reaches the service as a bare `4000` and fails.
 
 ## Configuration
 
-Every value has a default except `MINI_CLOUD_PUBLIC_TOKEN`, which the control plane
-refuses to start without.
+Every value has a default, `MINI_CLOUD_PUBLIC_TOKEN` included — and that one is the
+only default that is a placeholder rather than a sensible choice. The control plane
+warns about it on every start.
 
 ### Service
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `MINI_CLOUD_PUBLIC_TOKEN` | **required** | Bearer token for the public listener. There is no default and no way to run without one |
+| `MINI_CLOUD_PUBLIC_TOKEN` | `1234` | Bearer token for the public listener. The default is published in this repository, so it protects nothing — the service warns on every start until you set your own. An empty value counts as unset. Read by `serve` and `migrate`; other CLI commands take it from the environment or `--token` |
 | `MINI_CLOUD_INTERNAL_PORT` | `3000` | Internal listener: agent API, pub/sub, WebSocket. Also reads `MINI_CLOUD_PORT` |
 | `MINI_CLOUD_INTERNAL_HOST` | `127.0.0.1` | Internal bind address, e.g. your LAN address. Also reads `MINI_CLOUD_HOST` |
 | `MINI_CLOUD_TRUSTED_SUBNETS` | loopback + RFC 1918 + ULA + link-local | CIDR blocks the internal listener accepts connections from, on requests and on WebSocket upgrades. The only thing guarding that listener — an empty value accepts any address |
@@ -273,10 +292,12 @@ Set them in `packages/web/.env` (copy `.env.example`). Both are optional, and bo
 | `VITE_MINI_CLOUD_API_URL` | *(unset — the console asks on first load)* | Base URL of the service the console calls |
 | `VITE_MINI_CLOUD_TOKEN` | *(unset)* | Bearer token; the value of the service's `MINI_CLOUD_PUBLIC_TOKEN` |
 
-With neither set, the console shows a setup screen that asks for the service address,
-verifies it, and then asks for the token — which the public listener always wants. That
-is what lets one build be pointed at anyone's service — including from a phone, if the
-service is behind TLS. See [packages/web/README.md](./packages/web/README.md) for the
+With neither set, the console shows a setup screen that asks for the service address
+and the token, then verifies both before it opens. The token field is always there
+rather than appearing once a service has refused: the public listener has no
+unauthenticated mode, so a token is not something some services happen to want — it is
+the second half of the address. That is what lets one build be pointed at anyone's
+service — including from a phone, if the service is behind TLS. See [packages/web/README.md](./packages/web/README.md) for the
 precedence rules and what a browser will and will not let the console reach.
 
 ## Database schema
