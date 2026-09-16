@@ -1,0 +1,180 @@
+# Builds the self-contained `mini-cloud` binary for macOS and Linux and attaches it to
+# a GitHub Release.
+#
+# Separate from release-sdk.yml, and on a separate tag. That one fires on `sdk-v*` and publishes
+# @mini-cloud/shared and @mini-cloud/reporter to npm — two libraries other programs
+# import, whose versions are pinned to each other. This ships an executable for people
+# who want to run mini-cloud without installing Node, and there is no reason the two
+# have to move together: a CLI fix is not a reason to republish a library, and a library
+# release is not a reason to rebuild four binaries.
+#
+# The binary is a Node Single Executable Application — a copy of Node with the whole CLI
+# injected into it, including the SQL migrations, so the machine it lands on needs no
+# Node, no npm install and no checkout. That is also why it is ~110MB.
+#
+# Not signed with a Developer ID. A tarball downloaded in a browser carries macOS's
+# quarantine attribute, so a user has to clear it themselves — see the release notes
+# below. Signing and notarization would need an Apple Developer account and secrets this
+# repository does not have.
+name: Release CLI
+on:
+  push:
+    tags:
+      - 'cli-v*'
+  # Buildable without shipping, so a change to the SEA pipeline can be proven on a
+  # branch rather than by pushing a tag and hoping.
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to stamp into the binaries (no release is published)'
+        required: false
+        default: '0.0.0-dev'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-cli-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  version:
+    name: Resolve the version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.resolve.outputs.version }}
+    steps:
+      - id: resolve
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "version=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            # refs/tags/cli-v1.2.3 -> 1.2.3
+            echo "version=${GITHUB_REF#refs/tags/cli-v}" >> "$GITHUB_OUTPUT"
+          fi
+
+  build:
+    name: ${{ matrix.target }}
+    needs: version
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    strategy:
+      # One platform failing should not hide whether the others work.
+      fail-fast: false
+      matrix:
+        include:
+          - target: darwin-arm64
+            runner: macos-latest
+          - target: darwin-x64
+            runner: macos-13
+          - target: linux-x64
+            runner: ubuntu-latest
+          - target: linux-arm64
+            runner: ubuntu-24.04-arm
+    steps:
+      - name: Checkout the repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          # The binary IS this Node: the build copies the runner's executable and
+          # injects the bundle into it, so this pins what ships.
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Stamp the version
+        run: npm pkg set version="${{ needs.version.outputs.version }}" --workspace @mini-cloud/cli
+
+      # The SEA bundle resolves @mini-cloud/* from their compiled dist, so the
+      # workspace has to be built first — skipping this silently bundles whatever
+      # dist happened to be lying around, which on a clean checkout is nothing.
+      - name: Build the workspace
+        run: npm run build
+
+      # Unsigned on macOS for now: signing needs a Developer ID certificate and notary
+      # credentials this repository does not have. `build:sea:mac:signed` is the path
+      # for when it does — it fails loudly rather than silently falling back, so a
+      # release cannot quietly ship unsigned once signing is expected.
+      - name: Build the binary
+        run: npm run ${{ startsWith(matrix.target, 'darwin') && 'build:sea:mac' || 'build:sea:linux' }} --workspace @mini-cloud/cli
+
+      - name: Check it runs
+        run: |
+          cd packages/cli/build/sea
+          ./mini-cloud --version
+          ./mini-cloud --help > /dev/null
+          # Proves the migrations were compiled in: `daemon status` loads the whole
+          # command tree, and a binary missing its embedded SQL still passes --help.
+          ./mini-cloud daemon status
+
+      - name: Package the tarball
+        run: |
+          cd packages/cli/build/sea
+          tar -czf "mini-cloud-${{ matrix.target }}.tar.gz" mini-cloud
+
+      - name: Upload the build
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ matrix.target }}
+          retention-days: 7
+          path: packages/cli/build/sea/*.tar.gz
+
+  release:
+    name: Publish the release
+    needs: [version, build]
+    # A dispatch run builds and verifies but ships nothing: there is no tag to hang a
+    # release on, and inventing one would put an untagged build in the release list.
+    if: startsWith(github.ref, 'refs/tags/cli-v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Collect the builds
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          path: artifacts
+
+      - name: Assemble the release directory
+        run: |
+          mkdir -p release
+          find artifacts -type f -name '*.tar.gz' -exec cp {} release/ \;
+          cd release
+          # Checksums, because the binaries are not signed: this is the only way
+          # someone can tell that what they downloaded is what CI built.
+          sha256sum *.tar.gz > SHA256SUMS
+          ls -la
+
+      - name: Publish
+        uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3
+        with:
+          files: release/*
+          generate_release_notes: true
+          body: |
+            Self-contained `mini-cloud` binaries. No Node, no `npm install`, no checkout —
+            the CLI, the control plane, the agent and the database migrations are all
+            inside the executable.
+
+            Download with `curl`, not the browser:
+
+            ```bash
+            curl -fsSL https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/mini-cloud-darwin-arm64.tar.gz | tar -xz
+            ./mini-cloud --help
+            ```
+
+            That is not a style preference. macOS attaches a quarantine attribute to
+            anything a **browser** downloads, and these binaries are ad-hoc signed rather
+            than notarized, so Gatekeeper refuses a quarantined copy. `curl` sets no such
+            attribute and the binary runs immediately. If you did download it in a
+            browser, clear it by hand:
+
+            ```bash
+            xattr -d com.apple.quarantine ./mini-cloud
+            ```
+
+            Verify what you downloaded against `SHA256SUMS`:
+
+            ```bash
+            sha256sum -c SHA256SUMS --ignore-missing
+            ```

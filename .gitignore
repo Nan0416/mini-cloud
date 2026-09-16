@@ -37,6 +37,11 @@ bower_components
 # Compiled binary addons (https://nodejs.org/api/addons.html)
 build/Release
 
+# Single-executable build output: the bundle, the SEA blob, the generated
+# migrations module and the ~109MB binary itself. All reproducible from `npm run
+# build:sea`, none of it belongs in a repository.
+build/
+
 # Dependency directories
 node_modules/
 jspm_packages/

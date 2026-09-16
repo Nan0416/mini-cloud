@@ -2,6 +2,7 @@ import { LoggerFactory } from '@mini-cloud/shared';
 import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { Pool } from 'pg';
+import { EMBEDDED_MIGRATIONS } from './embedded-migrations';
 
 const logger = LoggerFactory.getLogger('Migrator');
 
@@ -36,16 +37,27 @@ interface MigrationFile {
  *   The sequence is parsed and compared as a number instead, so padding is cosmetic.
  */
 export function listMigrationFiles(migrationsDir: string): ReadonlyArray<string> {
+  return orderMigrations(readdirSync(migrationsDir, { withFileTypes: true }).flatMap((entry) => (entry.isFile() ? [entry.name] : [])));
+}
+
+/**
+ * The same rules, applied to names that came from somewhere other than a directory.
+ *
+ * Split out because a single-file build has no directory to read: the SQL is compiled
+ * into the binary, and it has to be ordered and validated by exactly the code that
+ * orders the files on disk, or the two would drift and only one of them would be
+ * tested.
+ */
+export function orderMigrations(filenames: ReadonlyArray<string>): ReadonlyArray<string> {
   const migrations: MigrationFile[] = [];
   const bySequence = new Map<number, string>();
 
-  // withFileTypes so a directory that happens to end in .sql is skipped rather than
-  // failing the name check.
-  for (const entry of readdirSync(migrationsDir, { withFileTypes: true })) {
-    if (!entry.isFile() || !entry.name.endsWith('.sql')) {
+  for (const file of filenames) {
+    // Anything that is not SQL is somebody else's file — a README, a .keep — and
+    // holding it to the naming rule would fail a build over a note.
+    if (!file.endsWith('.sql')) {
       continue;
     }
-    const file = entry.name;
     const match = MIGRATION_FILENAME.exec(file);
     if (match === null) {
       throw new Error(`Migration "${file}" is not named <sequence>_<name>.sql, for example 002_add_artifacts.sql. Rename it so its position in the order is unambiguous.`);
@@ -66,16 +78,67 @@ export function listMigrationFiles(migrationsDir: string): ReadonlyArray<string>
 }
 
 /**
- * Applies every `.sql` file in `migrationsDir` that has not been applied yet, in
- * filename order, each in its own transaction. Safe to run on every service start.
+ * Where the SQL comes from: a directory on disk, or the binary itself.
+ *
+ * An interface rather than a path, because a single-file build has no directory to
+ * point at. Both implementations go through the same ordering and validation, so
+ * "which migrations, in what order" cannot differ between the two.
  */
-export async function migrate(pool: Pool, migrationsDir: string = defaultMigrationsDir()): Promise<ReadonlyArray<string>> {
+export interface MigrationSource {
+  /** Filenames, already in the order they must be applied. */
+  list(): ReadonlyArray<string>;
+  read(file: string): string;
+  /** Where these came from, for the log line that says what ran. */
+  describe(): string;
+}
+
+export function directoryMigrations(migrationsDir: string = defaultMigrationsDir()): MigrationSource {
+  return {
+    list: () => listMigrationFiles(migrationsDir),
+    read: (file) => readFileSync(path.join(migrationsDir, file), 'utf-8'),
+    describe: () => migrationsDir,
+  };
+}
+
+export function embeddedMigrations(files: Readonly<Record<string, string>> = EMBEDDED_MIGRATIONS): MigrationSource {
+  return {
+    list: () => orderMigrations(Object.keys(files)),
+    read: (file) => {
+      const sql = files[file];
+      if (sql === undefined) {
+        throw new Error(`Migration "${file}" is not compiled into this build. The binary was built from a different set of migrations than it is trying to apply.`);
+      }
+      return sql;
+    },
+    describe: () => 'this build',
+  };
+}
+
+/**
+ * Compiled-in migrations when there are any, the directory otherwise.
+ *
+ * The check is "did the build put anything here", not "am I a binary": it needs no
+ * knowledge of SEA, and a test can exercise either path by passing a source directly.
+ */
+export function defaultMigrationSource(): MigrationSource {
+  return Object.keys(EMBEDDED_MIGRATIONS).length > 0 ? embeddedMigrations() : directoryMigrations();
+}
+
+/**
+ * Applies every migration that has not been applied yet, in order, each in its own
+ * transaction. Safe to run on every service start.
+ *
+ * Takes a directory for backwards compatibility with callers that pass one; anything
+ * else is a {@link MigrationSource}.
+ */
+export async function migrate(pool: Pool, source: MigrationSource | string = defaultMigrationSource()): Promise<ReadonlyArray<string>> {
+  const migrations = typeof source === 'string' ? directoryMigrations(source) : source;
   await pool.query('CREATE TABLE IF NOT EXISTS schema_migration (id TEXT PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT now())');
 
   const applied = await pool.query<{ id: string }>('SELECT id FROM schema_migration');
   const appliedIds = new Set(applied.rows.map((row) => row.id));
 
-  const files = listMigrationFiles(migrationsDir);
+  const files = migrations.list();
 
   const newlyApplied: string[] = [];
   for (const file of files) {
@@ -83,7 +146,7 @@ export async function migrate(pool: Pool, migrationsDir: string = defaultMigrati
       continue;
     }
     logger.info(`Applying migration ${file}.`);
-    const sql = readFileSync(path.join(migrationsDir, file), 'utf-8');
+    const sql = migrations.read(file);
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
@@ -102,7 +165,7 @@ export async function migrate(pool: Pool, migrationsDir: string = defaultMigrati
   }
 
   if (newlyApplied.length === 0) {
-    logger.info(`Schema is up to date (${files.length} migrations already applied).`);
+    logger.info(`Schema is up to date (${files.length} migrations from ${migrations.describe()} already applied).`);
   }
   return newlyApplied;
 }
