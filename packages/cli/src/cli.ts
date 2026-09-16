@@ -46,8 +46,8 @@ export function buildProgram(): Command {
     .name('mini-cloud')
     .description('a private cloud for your own machines')
     .version('1.0.0')
-    .option('--service <url>', 'service base URL (env MINI_CLOUD_SERVICE_URL, default http://127.0.0.1:3001 — the public listener)')
-    .option('--token <token>', 'bearer token for the public listener (env MINI_CLOUD_PUBLIC_TOKEN)')
+    .option('--service <url>', 'service base URL (config.json cli.serviceUrl, default http://127.0.0.1:3001 — the public listener)')
+    .option('--token <token>', 'bearer token for the public listener (default: publicToken from ~/.mini-cloud/secret.json)')
     .option('--json', 'print raw JSON instead of a table')
     .option('--config <path>', 'read settings from this file instead of ~/.mini-cloud/config.json')
     .option('--log-level <level>', 'debug, info, warn or error', (value) => {

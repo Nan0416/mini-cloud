@@ -20,11 +20,11 @@ import { isUsableApiUrl, normalizeApiUrl, readRecentUrls, type Connection, type 
 function failureMessage(outcome: ProbeOutcome, apiUrl: string): string {
   switch (outcome) {
     case 'needs-token':
-      return 'That service is running, and it needs a token. Fill in the token field with the value of its MINI_CLOUD_PUBLIC_TOKEN.';
+      return 'That service is running, and it needs a token. Fill in the token field with the publicToken from its ~/.mini-cloud/secret.json.';
     case 'bad-token':
-      return 'That service rejected the token. Check it against the MINI_CLOUD_PUBLIC_TOKEN the service was started with.';
+      return 'That service rejected the token. Check it against the publicToken in the service\u2019s ~/.mini-cloud/secret.json.';
     case 'unreachable':
-      return `Nothing answered at ${apiUrl}. The service may be stopped, or the browser may have blocked the request before it left: MINI_CLOUD_CORS_ORIGINS on the service has to include ${window.location.origin}; a plain http:// address only works on the machine running this browser, and never in Safari; and Chrome asks permission before reaching one.`;
+      return `Nothing answered at ${apiUrl}. The service may be stopped, or the browser may have blocked the request before it left: the service\u2019s public.corsOrigins has to include ${window.location.origin}; a plain http:// address only works on the machine running this browser, and never in Safari; and Chrome asks permission before reaching one.`;
     default:
       return `Something answered at ${apiUrl} but it did not look like a mini-cloud service. Check the address and the port.`;
   }
@@ -120,7 +120,7 @@ export function ConnectionForm(props: {
           type="password"
           value={token}
           onChange={(event) => setToken(event.target.value)}
-          placeholder="MINI_CLOUD_PUBLIC_TOKEN"
+          placeholder="publicToken from secret.json"
           autoComplete="off"
           spellCheck={false}
         />

@@ -45,7 +45,7 @@ describe('buildPlist', () => {
   it('escapes what would otherwise close a tag early', () => {
     // A token is random hex today, but it is operator-supplied and an `&` in one would produce
     // a plist launchd refuses to parse — which surfaces as a service that simply never starts.
-    const plist = buildPlist(options({ env: { MINI_CLOUD_PUBLIC_TOKEN: 'a&b<c>"d"' } }));
+    const plist = buildPlist(options({ env: { HOME: 'a&b<c>"d"' } }));
 
     expect(plist).toContain('<string>a&amp;b&lt;c&gt;&quot;d&quot;</string>');
   });

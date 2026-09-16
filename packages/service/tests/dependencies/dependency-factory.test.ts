@@ -210,12 +210,12 @@ describe('the default token', () => {
     const warn = buildWith(DEFAULT_PUBLIC_TOKEN);
 
     const said = warn.mock.calls.map((call) => String(call[0])).join('\n');
-    expect(said).toContain('MINI_CLOUD_PUBLIC_TOKEN');
+    expect(said).toContain('secret.json');
     // The value itself, because it is also what the operator has to paste into the
     // console's token field — and a warning that withholds it sends them to the source.
     expect(said).toContain(DEFAULT_PUBLIC_TOKEN);
     // And the fix, not just the problem.
-    expect(said).toContain('openssl rand -hex 32');
+    expect(said).toContain('mini-cloud config init');
   });
 
   it('stays quiet about a token the operator actually chose', () => {

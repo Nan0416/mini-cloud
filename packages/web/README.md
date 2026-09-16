@@ -4,7 +4,7 @@ The mini-cloud web console: tasks, instances, agents, replacement variables and 
 pub/sub hub, in a browser.
 
 ```bash
-npm start      # terminal 1 — the control plane, with MINI_CLOUD_PUBLIC_TOKEN set
+npm start      # terminal 1 — the control plane
 npm run web    # terminal 2 — the console
 ```
 
@@ -39,7 +39,7 @@ CORS. It allows **any** origin by default, which is what makes the two commands 
 work with no setup — and is wider than a loopback bind makes it sound: the browser
 sends the request, so a page you visit can reach the listener, and only the token stops
 it getting an answer. Narrow the origins with
-`MINI_CLOUD_CORS_ORIGINS=http://localhost:5173` to close that a step earlier. Setting
+`public.corsOrigins` to `["http://localhost:5173"]` to close that a step earlier. Setting
 the variable replaces the default rather than adding to it; setting it empty installs
 no CORS middleware at all.
 
@@ -85,13 +85,13 @@ without.
 | Variable | Default | What it does |
 | --- | --- | --- |
 | `VITE_MINI_CLOUD_API_URL` | unset — the console asks | Base URL of the service, when a bundle is built for one |
-| `VITE_MINI_CLOUD_TOKEN` | unset | Sent as `Authorization: Bearer`, for a service running with `MINI_CLOUD_PUBLIC_TOKEN` |
+| `VITE_MINI_CLOUD_TOKEN` | unset | Sent as `Authorization: Bearer`; the service's `publicToken` |
 
 ### What a browser will let it reach
 
 | The service is at | Works from a console served over HTTPS |
 | --- | --- |
-| `https://…` with a real certificate | **Anywhere, on any device including a phone.** Needs `MINI_CLOUD_CORS_ORIGINS` to include the console's origin |
+| `https://…` with a real certificate | **Anywhere, on any device including a phone.** Needs `public.corsOrigins` to include the console's origin |
 | `http://localhost` or `http://127.0.0.1` | Only on the machine running the browser. Chrome asks permission first (Chrome 142+); **Safari refuses entirely**, so no iOS browser can |
 | `http://192.168.x.x` or any LAN address | **Never.** Blocked as mixed content, and no response header changes it |
 
@@ -154,6 +154,6 @@ does, the polling intervals are the thing to replace.
 | `npm run preview -w @mini-cloud/web` | Serve the built bundle |
 
 `dist/` is a folder of static files. Serve it from anything — `npx serve`, nginx, a
-Raspberry Pi, S3 and CloudFront — as long as its origin is in `MINI_CLOUD_CORS_ORIGINS`.
+Raspberry Pi, S3 and CloudFront — as long as its origin is in `public.corsOrigins`.
 Build it without `VITE_MINI_CLOUD_API_URL` and every visitor is asked where their own
 service is, which is what makes one deployment usable by more than one person.

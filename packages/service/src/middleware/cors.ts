@@ -45,7 +45,7 @@ export function corsMiddleware(options: CorsOptions): RequestHandler {
       res.setHeader('Vary', 'Origin');
       res.setHeader('Access-Control-Allow-Credentials', 'true');
     } else if (typeof origin === 'string') {
-      logger.warn(`Rejected cross-origin ${req.method} ${req.path} from "${origin}": not in MINI_CLOUD_CORS_ORIGINS.`);
+      logger.warn(`Rejected cross-origin ${req.method} ${req.path} from "${origin}": not in public.corsOrigins.`);
     }
 
     if (req.method === 'OPTIONS') {

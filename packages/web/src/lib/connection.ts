@@ -4,7 +4,7 @@ import { ServiceUnreachableError, UnauthenticatedError } from '@mini-cloud/share
 export interface Connection {
   /** Base URL, without a trailing slash. */
   readonly apiUrl: string;
-  /** Bearer token: the service's `MINI_CLOUD_PUBLIC_TOKEN`, which it always requires. */
+  /** Bearer token: the service's `publicToken`, which it always requires. */
   readonly token?: string;
 }
 

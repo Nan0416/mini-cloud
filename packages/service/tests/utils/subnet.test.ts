@@ -123,14 +123,14 @@ describe('reading configuration', () => {
 });
 
 describe('explaining a rejection', () => {
-  it('names the address, the list and the variable that holds it', () => {
+  it('names the address, the list and the setting that holds it', () => {
     const message = describeUntrustedAddress('203.0.113.7', HOME);
 
     // A bare "Forbidden" reads as a broken service: nothing about the request says
     // the objection was to where it came from.
     expect(message).toContain('203.0.113.7');
     expect(message).toContain('192.168.0.0/16');
-    expect(message).toContain('MINI_CLOUD_TRUSTED_SUBNETS');
+    expect(message).toContain('internal.trustedSubnets');
   });
 
   it('still says something useful when there was no address at all', () => {

@@ -74,10 +74,8 @@ export function loadAgentConfig(overrides: AgentConfigOverrides = {}): AgentConf
   return {
     agentId,
     name: overrides.name ?? getenv('MINI_CLOUD_AGENT_NAME', agentId),
-    // The internal listener: agents report there and take their commands from the hub
-    // attached to it. Deliberately not `MINI_CLOUD_SERVICE_URL`, which the CLI reads
-    // for the public listener — one variable naming two different ports depending on
-    // which command read it is a shell that works until you run the other command.
+    // The internal listener, where agents report and the hub is attached — not the
+    // public port the CLI uses.
     serviceUrl: overrides.serviceUrl ?? getenv('MINI_CLOUD_INTERNAL_URL', 'http://127.0.0.1:3000'),
     port: overrides.port ?? getenvInteger('MINI_CLOUD_AGENT_PORT', 3100),
     workDir,

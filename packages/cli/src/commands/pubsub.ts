@@ -74,7 +74,7 @@ export function buildPubSubCommand(): Command {
     .command('watch')
     .description('tail a topic until interrupted, and receive messages sent directly to this subscriber')
     .argument('<topic>')
-    .option('--hub <url>', 'internal listener base URL (env MINI_CLOUD_INTERNAL_URL, default http://127.0.0.1:3000)')
+    .option('--hub <url>', 'internal listener base URL (config.json cli.internalUrl, default http://127.0.0.1:3000)')
     .action(async function (this: Command, topic: string, options: { hub?: string }) {
       const global: GlobalOptions = this.optsWithGlobals();
       // The hub is on the internal listener, not the public one `--service` names.
