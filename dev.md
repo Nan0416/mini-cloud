@@ -147,6 +147,42 @@ In another terminal, start a worker agent:
 npm run start:agent
 ```
 
+## Running it as a daemon
+
+`mini-cloud serve` dies with the terminal that started it. To keep the control plane up
+across a logout and a reboot, install it as a service:
+
+```bash
+mini-cloud daemon start          # install and start
+mini-cloud daemon status
+mini-cloud daemon logs -f
+mini-cloud daemon stop           # stays installed, starts again at login
+mini-cloud daemon uninstall
+```
+
+launchd on macOS (`~/Library/LaunchAgents/dev.qinnan.mini-cloud.plist`), systemd
+`--user` on Linux (`~/.config/systemd/user/mini-cloud.service`). Both run the same
+`mini-cloud serve` the terminal does; what they add is restart-on-crash and start-at-login.
+`--no-enable` starts it now without the second of those.
+
+**The environment is captured, not inherited.** A login service reads no profile, so
+`daemon start` copies every `MINI_CLOUD_*` variable set in the shell that ran it — plus
+`PATH` and `HOME` — into the unit. Change one and run `daemon start` again to bake in the
+new value; the command is safe to repeat. Because the token is one of those values, the
+unit file is written `0600`.
+
+**Postgres is not waited for.** Neither a LaunchAgent nor a systemd *user* unit can
+order itself after a system service, so a control plane that starts before its database
+crashes and is restarted — every 5s under systemd, immediately under launchd — until
+Postgres answers. That is recoverable rather than fatal, but it does mean a few failures
+in the log after a reboot.
+
+On Linux, a user service starts at *login*, not at boot. `sudo loginctl enable-linger
+$USER` is what makes it start with the machine.
+
+Windows has no implementation: `daemon start` says so, and `mini-cloud serve` in a
+terminal works everywhere.
+
 To get `mini-cloud` on your PATH and stop typing `npm run cli --`:
 
 ```bash
@@ -214,6 +250,8 @@ from anything. Point it at a different service with `VITE_MINI_CLOUD_API_URL` �
 | `npm run cli -- <args>` | Run any CLI command, e.g. `npm run cli -- task list` |
 | `npm run migrate` | Build, then apply pending migrations and exit |
 | `npm run cli -- serve` / `npm run cli -- agent start` | Same as the `start` pair, but skip the build |
+| `npm run cli -- daemon start` | Run the control plane under launchd or systemd instead of in this terminal |
+| `npm run build:sea -w @mini-cloud/cli` | Build the self-contained `mini-cloud` binary into `packages/cli/build/sea/` |
 | `npm run build` | Build every package, in dependency order |
 | `npm test` | Run unit tests across all packages. Tests live in `packages/*/tests/`, mirroring each package's `src/` |
 | `npm run lint` | ESLint |
@@ -351,6 +389,70 @@ Programs outside this repository install it from npm:
 npm install @mini-cloud/reporter
 ```
 
+## Building the binary
+
+`mini-cloud` also ships as a single executable — a copy of Node with the whole CLI
+injected into it, so the machine it lands on needs no Node, no `npm install` and no
+checkout. Build one locally with:
+
+```bash
+npm run build                                # the bundle reads the packages' compiled dist
+npm run build:sea:mac -w @mini-cloud/cli     # or build:sea:linux
+# -> packages/cli/build/sea/mini-cloud
+```
+
+Three build scripts, because what differs between them is what happens *after* the
+bundle — how the blob is injected, and what signature goes back on. The identical part
+before that lives in `scripts/sea-prelude.sh`, which each of them sources.
+
+| Script | npm script | |
+| --- | --- | --- |
+| `build-linux-sea.sh` | `build:sea:linux` | ELF: no segment name, nothing signed |
+| `build-mac-sea-unsigned.sh` | `build:sea:mac` | Ad-hoc signed — runs locally, but Gatekeeper refuses it once a browser has quarantined it |
+| `build-mac-sea-signed.sh` | `build:sea:mac:signed` | Developer ID + notarization. The build for anything anyone else downloads |
+
+That first line is not optional. The bundle resolves `@mini-cloud/*` from each package's
+`dist/`, so building the binary against a stale or absent one silently ships old code.
+
+The pipeline is `scripts/build-sea.sh`: compile the migrations in, bundle everything to
+one CommonJS file with tsup, turn that into a SEA blob, copy the running `node`, inject
+the blob with postject, and on macOS re-sign (Node's own signature has to come off
+before the Mach-O is modified and an ad-hoc one go back on, because Apple Silicon will
+not run an unsigned binary).
+
+**The migrations travel inside it.** `defaultMigrationsDir()` resolves out of
+`__dirname`, which inside a binary names a path that does not exist — so the build
+generates a module from `packages/service/migrations/*.sql` and the bundler swaps it for
+the empty `embedded-migrations.ts` placeholder. Nothing else changes: `npm start` and the
+tests still read the real directory, and adding a migration is still just dropping a
+`.sql` file in. Compiling them in rather than shipping a directory beside the binary is
+also what pins the schema to the executable that was built with it.
+
+Releases are a `cli-v*` tag, built for macOS and Linux on both architectures and attached
+to a GitHub Release by `.github/workflows/release-cli.yml`:
+
+```bash
+git tag cli-v1.0.1
+git push origin cli-v1.0.1
+```
+
+A separate tag from the `sdk-v*` npm release on purpose — a CLI fix is not a reason to
+republish a library, and a library release is not a reason to rebuild four binaries. The
+workflow also takes a `workflow_dispatch`, which builds and verifies every platform
+without publishing anything, for changing the pipeline without pushing a tag.
+
+CI currently builds the **unsigned** macOS binary, so a tarball downloaded in a browser
+is quarantined and the release notes tell people to clear it with `xattr -d
+com.apple.quarantine`. That is a papercut worth removing — the signed script works
+locally against a Developer ID certificate already in the keychain, and wiring it into CI
+needs four repository secrets (the exported certificate and its password, plus
+`APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD` and `APPLE_TEAM_ID`).
+
+Note what signing alone does *not* fix: a bare Mach-O cannot be stapled, so the
+notarization ticket is checked online and a first run still needs the network. Shipping
+the binary inside a `.pkg` or `.dmg` is what would allow stapling. Both that and
+publishing to S3 behind a CDN are in [md/TODO.md](./md/TODO.md).
+
 ## Releasing to npm
 
 Two packages are published: `@mini-cloud/reporter`, which programs launched by
@@ -366,11 +468,15 @@ npm version 1.0.1 --workspace @mini-cloud/shared --workspace @mini-cloud/reporte
 git commit -am "chore: release 1.0.1"
 
 # 2. Tag it. Pushing the tag is what publishes.
-git tag v1.0.1
+git tag sdk-v1.0.1
 git push origin main --tags
 ```
 
-`.github/workflows/publish.yml` then builds, runs the tests again against that exact
+Both release tags carry what they ship: `sdk-v*` for the npm packages, `cli-v*` for the
+binaries. A bare `v1.0.1` now triggers nothing at all — which is the point, since with
+two release paths on one repository an unprefixed tag could only be ambiguous.
+
+`.github/workflows/release-sdk.yml` then builds, runs the tests again against that exact
 commit, checks the tag agrees with both `package.json` versions, and publishes
 `shared` before `reporter` — in that order, because npm does not verify at publish
 time that a dependency resolves, and the reverse order leaves a window where
@@ -383,8 +489,14 @@ Bump both or neither.
 
 There is no `NPM_TOKEN` in this repository. Publishing uses npm Trusted Publishing
 over GitHub's OIDC: GitHub mints a short-lived token, scoped to this repository and
-to `publish.yml` specifically, and npm exchanges it for publish rights. Nothing
+to `release-sdk.yml` specifically, and npm exchanges it for publish rights. Nothing
 long-lived is stored, and provenance attestations are generated automatically.
+
+Two GitHub-side things it depends on. Actions are pinned to a commit SHA, not a
+floating tag, because a workflow holding `id-token: write` mints a real publish
+credential — `.github/dependabot.yml` is what keeps those pins from rotting. And the
+publish job runs in the `npm-publish` environment, so a required reviewer there holds an
+irreversible publish until someone approves it.
 
 The trusted publisher is configured per package on npmjs.com, under
 **Package → Settings → Trusted publishing**, with:
@@ -393,8 +505,17 @@ The trusted publisher is configured per package on npmjs.com, under
 | --- | --- |
 | Organization or user | `Nan0416` |
 | Repository | `mini-cloud` |
-| Workflow filename | `publish.yml` |
+| Workflow filename | `release-sdk.yml` |
+| Environment | *(optional)* `npm-publish` |
 | Allowed actions | `npm publish` |
 
-**Renaming `publish.yml` breaks publishing** until both packages' trusted publisher
-entries are updated to match the new filename.
+Setting **Environment** is optional and narrows things further: npm then refuses a
+token minted by any job in this repository that is not running in `npm-publish`. Set it
+*after* a release has succeeded with the environment in place — configuring it on npm
+before the workflow has ever produced that claim fails the next publish rather than the
+next-but-one.
+
+**Renaming this workflow breaks publishing** until both packages' trusted publisher
+entries are updated to match the new filename. It was `publish.yml` before it was
+renamed to `release-sdk.yml`, so if a release fails at the publish step with an
+authentication error, that rename is the first thing to check.
