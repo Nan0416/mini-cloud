@@ -1,5 +1,5 @@
 import os from 'node:os';
-import { defaultAgentId, loadAgentConfig } from '../src/agent-config';
+import { defaultAgentId, resolveAgentConfig } from '../src/agent-config';
 
 describe('defaultAgentId', () => {
   it('lowercases, so one machine keeps one id however it was reached', () => {
@@ -28,85 +28,55 @@ describe('defaultAgentId', () => {
   });
 });
 
-describe('loadAgentConfig', () => {
-  const AGENT_ENV = ['MINI_CLOUD_AGENT_ID', 'MINI_CLOUD_AGENT_NAME', 'MINI_CLOUD_INTERNAL_URL', 'MINI_CLOUD_SERVICE_URL'] as const;
-  const saved = new Map<string, string | undefined>();
-
+describe('resolveAgentConfig', () => {
   beforeEach(() => {
-    for (const key of AGENT_ENV) {
-      saved.set(key, process.env[key]);
-      delete process.env[key];
-    }
     // Pinned, so these assertions do not depend on what the test machine is called.
     jest.spyOn(os, 'hostname').mockReturnValue('Nans-MacBook-Pro.local');
   });
 
   afterEach(() => {
     jest.restoreAllMocks();
-    for (const key of AGENT_ENV) {
-      const value = saved.get(key);
-      if (value === undefined) {
-        delete process.env[key];
-      } else {
-        process.env[key] = value;
-      }
-    }
   });
 
   it('points at the internal listener, which is the only one that serves an agent', () => {
-    expect(loadAgentConfig({}).serviceUrl).toBe('http://127.0.0.1:3000');
-
-    process.env['MINI_CLOUD_INTERNAL_URL'] = 'http://192.168.1.50:3000';
-    expect(loadAgentConfig({}).serviceUrl).toBe('http://192.168.1.50:3000');
-  });
-
-  it('ignores MINI_CLOUD_SERVICE_URL, which names the public listener', () => {
-    // The CLI reads that one for tasks and instances. Honouring it here would mean a
-    // single variable naming two different ports depending on which command read it,
-    // and an agent silently pointed at the listener that does not serve it.
-    process.env['MINI_CLOUD_SERVICE_URL'] = 'http://192.168.1.50:3001';
-
-    expect(loadAgentConfig({}).serviceUrl).toBe('http://127.0.0.1:3000');
-  });
-
-  it('prefers the flag over the environment', () => {
-    process.env['MINI_CLOUD_AGENT_ID'] = 'from-env';
-
-    // Flag over environment, so one shell can start a second agent on a machine that
-    // already exports an id for the first.
-    expect(loadAgentConfig({ agentId: 'from-flag' }).agentId).toBe('from-flag');
-  });
-
-  it('falls back to the environment when no flag is given', () => {
-    process.env['MINI_CLOUD_AGENT_ID'] = 'from-env';
-
-    expect(loadAgentConfig().agentId).toBe('from-env');
+    expect(resolveAgentConfig().serviceUrl).toBe('http://127.0.0.1:3000');
+    expect(resolveAgentConfig({ internalUrl: 'http://192.168.1.50:3000' }).serviceUrl).toBe('http://192.168.1.50:3000');
   });
 
   it('names the machine after itself when nothing is configured', () => {
-    expect(loadAgentConfig().agentId).toBe('nans-macbook-pro');
+    expect(resolveAgentConfig().agentId).toBe('nans-macbook-pro');
   });
 
   it('treats an empty configured id as absent rather than as an id', () => {
-    process.env['MINI_CLOUD_AGENT_ID'] = '';
-    expect(loadAgentConfig().agentId).toBe('nans-macbook-pro');
+    expect(resolveAgentConfig({ id: '' }).agentId).toBe('nans-macbook-pro');
   });
 
   it('refuses to start when the hostname cannot identify one machine', () => {
     jest.spyOn(os, 'hostname').mockReturnValue('localhost');
-    expect(() => loadAgentConfig()).toThrow(/--id/);
+
+    expect(() => resolveAgentConfig()).toThrow(/cannot identify one agent/);
   });
 
   it('defaults the name to the resolved id, so agents sharing a host stay distinguishable', () => {
-    // Not to the hostname: `--id laptop-1-b` on the same box as `laptop-1` would
-    // otherwise register a name identical to the first agent's.
-    expect(loadAgentConfig({ agentId: 'laptop-1-b' }).name).toBe('laptop-1-b');
-    expect(loadAgentConfig().name).toBe('nans-macbook-pro');
+    expect(resolveAgentConfig({ id: 'laptop-1' }).name).toBe('laptop-1');
   });
 
-  it('keeps the name override independent of the id', () => {
-    process.env['MINI_CLOUD_AGENT_NAME'] = 'from-env';
-    expect(loadAgentConfig({ agentId: 'laptop-1-b', name: 'mac mini (second)' }).name).toBe('mac mini (second)');
-    expect(loadAgentConfig({ agentId: 'laptop-1-b' }).name).toBe('from-env');
+  it('keeps the name independent of the id', () => {
+    const config = resolveAgentConfig({ id: 'laptop-1', name: 'mac mini' });
+
+    expect(config).toMatchObject({ agentId: 'laptop-1', name: 'mac mini' });
+  });
+
+  it('fits three heartbeats inside the service default offline window', () => {
+    const config = resolveAgentConfig();
+
+    expect(config.heartbeatIntervalMs).toBe(5_000);
+    expect(config.heartbeatIntervalMs * 3).toBeLessThanOrEqual(15_000);
+  });
+
+  it('takes every interval from the settings when they are given', () => {
+    const config = resolveAgentConfig({ port: 4100, heartbeatIntervalMs: 1_000, passiveToleranceMs: 500, pingFailureThreshold: 5, workDir: '/tmp/agent' });
+
+    expect(config).toMatchObject({ port: 4100, heartbeatIntervalMs: 1_000, passiveToleranceMs: 500, pingFailureThreshold: 5, workDir: '/tmp/agent' });
   });
 });

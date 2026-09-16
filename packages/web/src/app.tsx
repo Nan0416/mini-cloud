@@ -44,13 +44,7 @@ function ThemedToaster() {
   return <Toaster theme={resolved} position="bottom-right" richColors closeButton />;
 }
 
-/**
- * Held while the stored connection is checked.
- *
- * Deliberately almost nothing: it is on screen for one round trip against a service
- * that is usually on the same machine, and a layout that resolved into the console
- * would flash harder than a mark that simply disappears.
- */
+/** Deliberately almost nothing: one round trip, usually against the same machine. */
 function ConnectingSplash() {
   return (
     <div className="flex min-h-screen flex-col items-center justify-center gap-3 bg-background text-muted-foreground">
@@ -61,13 +55,8 @@ function ConnectingSplash() {
 }
 
 /**
- * The console proper, the screen that asks where the service is, or the splash between
- * them.
- *
- * A gate rather than a route: every page below depends on there being a client to
- * call, so rendering them without one would mean each panel discovering the same
- * missing answer separately — which is exactly what a console pointed at a service it
- * could not authenticate against used to do.
+ * A gate rather than a route: every page below needs a client to call, so rendering
+ * them without one means each panel discovering the same missing answer separately.
  */
 function ConnectedApp() {
   const { state } = useConnection();

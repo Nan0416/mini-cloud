@@ -45,7 +45,7 @@ export function SetupScreen(props: { readonly initial?: Connection; readonly out
               <p>
                 <span className="font-medium text-foreground">Reachable over HTTPS?</span> Any address with a certificate works, from any device — including a phone. Your service
                 needs
-                <code className="mx-1 rounded bg-muted px-1 py-0.5 font-mono">MINI_CLOUD_CORS_ORIGINS={window.location.origin}</code>
+                <code className="mx-1 rounded bg-muted px-1 py-0.5 font-mono">public.corsOrigins: ["{window.location.origin}"]</code>
                 so its browser checks let this page through.
               </p>
               <p>

@@ -20,14 +20,15 @@ Create the database:
 createdb mini_cloud
 ```
 
-Point the service somewhere else with `MINI_CLOUD_DATABASE_URL` if you use a
-different host, port, user or database name. Running a second copy — an experiment you
-do not want touching your real tasks — is a second database and a second value for that
-variable, rather than anything mini-cloud knows about:
+Point the service somewhere else with `databaseUrl` in `~/.mini-cloud/config.json` if
+you use a different host, port, user or database name. Running a second copy — an
+experiment you do not want touching your real tasks — is a second database and a second
+configuration directory, rather than anything mini-cloud knows about:
 
 ```bash
 createdb mini_cloud_scratch
-MINI_CLOUD_DATABASE_URL=postgres://localhost:5432/mini_cloud_scratch npm start
+mkdir -p ~/mini-cloud-scratch          # config.json + secret.json live here
+npm start -- --config ~/mini-cloud-scratch/config.json
 ```
 
 If you would rather not run a daemon on your machine, a container works the same way:
@@ -36,38 +37,40 @@ If you would rather not run a daemon on your machine, a container works the same
 docker run -d --name mini-cloud-pg \
   -e POSTGRES_USER=minicloud -e POSTGRES_PASSWORD=minicloud -e POSTGRES_DB=mini_cloud \
   -p 5432:5432 postgres:17-alpine
-export MINI_CLOUD_DATABASE_URL=postgres://minicloud:minicloud@127.0.0.1:5432/mini_cloud
+# then set databaseUrl in ~/.mini-cloud/config.json to
+#   postgres://minicloud:minicloud@127.0.0.1:5432/mini_cloud
 ```
 
 ## Build and run
 
 ```bash
 npm install
-export MINI_CLOUD_PUBLIC_TOKEN=$(openssl rand -hex 32)
+npm run cli -- config init
 npm start
 ```
 
-`npm start` works without that line — the public listener falls back to the token
+`npm start` works without that middle line — the public listener falls back to the token
 `1234` — and then says so on every start:
 
 ```
-WARN [DependencyFactory] MINI_CLOUD_PUBLIC_TOKEN is not set, so the public listener is
-running on the default token. It is published in this project, so anyone who knows
-mini-cloud can drive this service and launch programs on your machines. Set the
-variable to a secret of your own before exposing this listener:
-export MINI_CLOUD_PUBLIC_TOKEN=$(openssl rand -hex 32).
+WARN [DependencyFactory] No publicToken in ~/.mini-cloud/secret.json, so the public
+listener is running on the default token "1234" — which is also what to paste into the
+console. It is published in this project, so anyone who knows mini-cloud can drive this
+service and launch programs on your machines. Run `mini-cloud config init` to generate
+one of your own before exposing this listener.
 ```
 
 Take that warning literally. The default is a placeholder, not a secret: it is written
-down in `packages/service/src/stage-config.ts`, so it authenticates nobody who has seen
-this repository. What makes it survivable is the other default beside it — the public
-listener binds to `127.0.0.1`, so nothing off this machine can present the token in the
-first place. Set a real one before you change `MINI_CLOUD_PUBLIC_HOST` or point a port
-forward at it, and treat the two as a single step.
+down in `packages/service/src/config.ts`, so it authenticates nobody who has seen this
+repository. What makes it survivable is the other default beside it — the public listener
+binds to `127.0.0.1`, so nothing off this machine can present the token in the first
+place. Set a real one before you change `public.host` or point a port forward at it, and
+treat the two as a single step.
 
-Put your own token somewhere it survives a new shell — a profile, an `EnvironmentFile=`
-in a systemd unit, a launchd plist — rather than generating a fresh one each time. The
-console stores the token you give it, so rotating the value logs every browser out.
+`config init` writes a generated token to `~/.mini-cloud/secret.json`, which every start
+reads — so unlike an exported variable it survives a new shell, and a daemon started by
+launchd or systemd reads exactly the same file. The console stores the token you give it,
+so rotating it logs every browser out.
 
 `npm start` then builds every package, applies any pending migrations, and runs the
 control plane in the foreground. Ctrl-C shuts it down cleanly.
@@ -89,9 +92,9 @@ One process, two ports, and the split is by who calls:
 | Serves | `/agent-api/*`, `/pubsub/*`, `/ws`, `/ping`, `/health` | `/tasks*`, `/instances*`, `/agents*`, `/variables`, `/pubsub/*`, `/ping`, `/health` |
 | Called by | agents, and programs on your LAN | the console, the CLI, you |
 | Bind it to | the home network | wherever you reach it from |
-| Authentication | none — the source address is the credential | `MINI_CLOUD_PUBLIC_TOKEN`, always demanded; `1234` until you set one |
-| Source check | `MINI_CLOUD_TRUSTED_SUBNETS` | none |
-| CORS | none at all | `MINI_CLOUD_CORS_ORIGINS` |
+| Authentication | none — the source address is the credential | `publicToken`, always demanded; `1234` until you set one |
+| Source check | `internal.trustedSubnets` | none |
+| CORS | none at all | `public.corsOrigins` |
 
 The point is that they get exposed differently. The internal one carries agent reports
 and the WebSocket the fleet takes its commands from, so it stays on the LAN; the public
@@ -100,7 +103,7 @@ database and one object graph — the split decides what is *reachable* from whe
 what exists, so a bug in a public route can still touch everything.
 
 An agent presents no credential at all. What admits it is where it is connecting from,
-so `MINI_CLOUD_TRUSTED_SUBNETS` is not a second line of defence on the internal listener
+so `internal.trustedSubnets` is not a second line of defence on the internal listener
 — it is the only one. Widen it and you have widened who can launch programs on your
 machines; empty it and anything that can reach the port can.
 
@@ -130,15 +133,15 @@ $ curl -s -o /dev/null -w '%{http_code}\n' localhost:3001/ping
 200
 $ curl -s -o /dev/null -w '%{http_code}\n' localhost:3001/tasks
 401
-$ curl -s -o /dev/null -w '%{http_code}\n' -H "Authorization: Bearer $MINI_CLOUD_PUBLIC_TOKEN" localhost:3001/tasks
+$ curl -s -o /dev/null -w '%{http_code}\n' -H "Authorization: Bearer $(jq -r .publicToken ~/.mini-cloud/secret.json)" localhost:3001/tasks
 200
 ```
 
 That console is a static page which talks to whatever address the link names — nothing
 is sent anywhere else, and the link never carries a token. It is printed only when a
-browser on this machine could follow it, so binding `MINI_CLOUD_PUBLIC_HOST` to one LAN
+browser on this machine could follow it, so binding `public.host` to one LAN
 interface prints no link: loopback would not reach the service, and the interface's own
-`http://` address is one an HTTPS page may not call. `MINI_CLOUD_CONSOLE_URL` points it
+`http://` address is one an HTTPS page may not call. `consoleUrl` points it
 at your own console, or set it empty for no link at all.
 
 In another terminal, start a worker agent:
@@ -146,6 +149,41 @@ In another terminal, start a worker agent:
 ```bash
 npm run start:agent
 ```
+
+## Running it as a daemon
+
+`mini-cloud serve` dies with the terminal that started it. To keep the control plane up
+across a logout and a reboot, install it as a service:
+
+```bash
+mini-cloud daemon start          # install and start
+mini-cloud daemon status
+mini-cloud daemon logs -f
+mini-cloud daemon stop           # stays installed, starts again at login
+mini-cloud daemon uninstall
+```
+
+launchd on macOS (`~/Library/LaunchAgents/dev.qinnan.mini-cloud.plist`), systemd
+`--user` on Linux (`~/.config/systemd/user/mini-cloud.service`). Both run the same
+`mini-cloud serve` the terminal does; what they add is restart-on-crash and start-at-login.
+`--no-enable` starts it now without the second of those.
+
+**The unit carries no settings.** A login service reads no profile, but it does not need
+one: `serve` reads `~/.mini-cloud/config.json` at every start, whoever started it. The
+unit holds `HOME` (which is how that file is found) and `PATH`, and nothing else — so
+reconfiguring is editing the file and restarting, not reinstalling the service.
+
+**Postgres is not waited for.** Neither a LaunchAgent nor a systemd *user* unit can
+order itself after a system service, so a control plane that starts before its database
+crashes and is restarted — every 5s under systemd, immediately under launchd — until
+Postgres answers. That is recoverable rather than fatal, but it does mean a few failures
+in the log after a reboot.
+
+On Linux, a user service starts at *login*, not at boot. `sudo loginctl enable-linger
+$USER` is what makes it start with the machine.
+
+Windows has no implementation: `daemon start` says so, and `mini-cloud serve` in a
+terminal works everywhere.
 
 To get `mini-cloud` on your PATH and stop typing `npm run cli --`:
 
@@ -164,7 +202,7 @@ npm run web    # terminal 2 — the console, on http://localhost:5173
 ```
 
 It talks to the public listener — `http://127.0.0.1:3001` — and asks for the address
-and the token together on first load. Paste the value of `MINI_CLOUD_PUBLIC_TOKEN`; the
+and the token together on first load. Paste the `publicToken` from `secret.json`; the
 browser stores it, so this is a first-run step rather than a per-session one. Baking
 both into the bundle instead is `VITE_MINI_CLOUD_API_URL` and `VITE_MINI_CLOUD_TOKEN`,
 below.
@@ -184,7 +222,7 @@ the origins closes it a step earlier, and is worth doing before you leave the se
 running:
 
 ```bash
-MINI_CLOUD_CORS_ORIGINS=http://localhost:5173    # only the console's origin
+"public": { "corsOrigins": ["http://localhost:5173"] }    // only the console's origin
 ```
 
 The internal listener installs no CORS middleware at all, whatever this is set to. A
@@ -192,7 +230,7 @@ page can still send it a request; without the response header the browser will n
 that page read the answer, which is the difference that matters for agent traffic —
 that listener has no token to fall back on.
 
-Setting `MINI_CLOUD_CORS_ORIGINS` replaces the default rather than adding to it, so
+Setting `public.corsOrigins` replaces the default rather than adding to it, so
 naming your own origins genuinely narrows things. Setting it to an empty value
 disables CORS altogether and no browser gets through at all.
 
@@ -214,6 +252,8 @@ from anything. Point it at a different service with `VITE_MINI_CLOUD_API_URL` �
 | `npm run cli -- <args>` | Run any CLI command, e.g. `npm run cli -- task list` |
 | `npm run migrate` | Build, then apply pending migrations and exit |
 | `npm run cli -- serve` / `npm run cli -- agent start` | Same as the `start` pair, but skip the build |
+| `npm run cli -- daemon start` | Run the control plane under launchd or systemd instead of in this terminal |
+| `npm run build:sea:mac -w @mini-cloud/cli` | Build the self-contained binary into `packages/cli/build/sea/` (or `build:sea:linux`) |
 | `npm run build` | Build every package, in dependency order |
 | `npm test` | Run unit tests across all packages. Tests live in `packages/*/tests/`, mirroring each package's `src/` |
 | `npm run lint` | ESLint |
@@ -230,56 +270,95 @@ first — it costs under two seconds and means you never run stale code. `serve`
 Everything after `--` goes to the command, not to npm:
 
 ```bash
-npm start -- --port 4000 --public-port 4001
-npm run start:agent -- --id laptop-1 --name "mac mini"
 npm run cli -- instance list --status running
+npm start -- --config ~/.mini-cloud/scratch.json
 ```
 
-`serve` keeps `--port` and `--host` pointed at the internal listener, under the names
-they had when there was only one: that is where already-deployed agents look. The
-public listener takes `--public-port` and `--public-host`.
+There are no flags for addresses, ports, the database or the token. Every one of those
+is a setting, and a setting lives in exactly one place: `~/.mini-cloud/config.json`, or
+`secret.json` beside it. `--config <path>` points at a different pair — it picks up the
+`secret.json` in the same directory — which is how you run a second instance.
 
-The `--` matters. Without it npm consumes the flags itself, so `npm start --port 4000`
-reaches the service as a bare `4000` and fails.
+The `--` matters. Without it npm consumes the flag itself, so `npm start --config x.json`
+never reaches the service.
 
 ## Configuration
 
-Every value has a default, `MINI_CLOUD_PUBLIC_TOKEN` included — and that one is the
+Every value has a default, the token included — and that one is the
 only default that is a placeholder rather than a sensible choice. The control plane
 warns about it on every start.
 
 ### Service
 
-| Variable | Default | Meaning |
+Settings live in `~/.mini-cloud/config.json`, read at startup. `mini-cloud config init`
+writes a starter file with every value at its default, and `mini-cloud config show`
+prints what is in force. Flags win over the file; the file wins over the defaults.
+
+```json
+{
+  "databaseUrl": "postgres://localhost:5432/mini_cloud",
+  "consoleUrl": "https://mini-cloud.qinnan.dev",
+  "internal": { "host": "127.0.0.1", "port": 3000, "trustedSubnets": ["127.0.0.0/8", "10.0.0.0/8", "..."] },
+  "public": { "host": "127.0.0.1", "port": 3001, "corsOrigins": ["*"] },
+  "scheduler": { "jobTickMs": 1000, "maintenanceTickMs": 5000, "agentOfflineAfterMs": 15000 },
+  "cli": { "serviceUrl": "http://127.0.0.1:3001", "internalUrl": "http://127.0.0.1:3000" }
+}
+```
+
+| Setting | Default | Meaning |
 | --- | --- | --- |
-| `MINI_CLOUD_PUBLIC_TOKEN` | `1234` | Bearer token for the public listener. The default is published in this repository, so it protects nothing — the service warns on every start until you set your own. An empty value counts as unset. Read by `serve` and `migrate`; other CLI commands take it from the environment or `--token` |
-| `MINI_CLOUD_INTERNAL_PORT` | `3000` | Internal listener: agent API, pub/sub, WebSocket. Also reads `MINI_CLOUD_PORT` |
-| `MINI_CLOUD_INTERNAL_HOST` | `127.0.0.1` | Internal bind address, e.g. your LAN address. Also reads `MINI_CLOUD_HOST` |
-| `MINI_CLOUD_TRUSTED_SUBNETS` | loopback + RFC 1918 + ULA + link-local | CIDR blocks the internal listener accepts connections from, on requests and on WebSocket upgrades. The only thing guarding that listener — an empty value accepts any address |
-| `MINI_CLOUD_PUBLIC_PORT` | `3001` | Public listener: tasks, instances, the fleet, variables |
-| `MINI_CLOUD_PUBLIC_HOST` | `127.0.0.1` | Public bind address. Loopback by default — exposing this one should be deliberate |
-| `MINI_CLOUD_DATABASE_URL` | `postgres://localhost:5432/mini_cloud` | Connection string |
-| `MINI_CLOUD_CORS_ORIGINS` | `*` | Comma-separated browser origins allowed to call the **public** listener. `*` allows any; an empty value installs no CORS middleware at all |
-| `MINI_CLOUD_JOB_TICK_MS` | `1000` | How often to check for due jobs. Must be at or below the shortest job interval |
-| `MINI_CLOUD_MAINTENANCE_TICK_MS` | `5000` | Agent probe and stuck-instance sweep interval |
-| `MINI_CLOUD_AGENT_OFFLINE_AFTER_MS` | `15000` | Silence after which an agent is marked offline |
-| `MINI_CLOUD_LAUNCH_TIMEOUT_MS` | `15000` | How long an instance may sit at `initiated` |
-| `MINI_CLOUD_START_TIMEOUT_MS` | `60000` | How long an instance may sit at `launched` without reporting a pid |
-| `MINI_CLOUD_RETENTION_DAYS` | `365` | How long instance and event history is kept |
-| `MINI_CLOUD_LOG_LEVEL` | `info` | `debug`, `info`, `warn` or `error` |
-| `MINI_CLOUD_CONSOLE_URL` | `https://mini-cloud.qinnan.dev` | Console the startup link points at. Set it to your own copy, or to empty to print no link |
+| `databaseUrl` | `postgres://localhost:5432/mini_cloud` | Connection string |
+| `consoleUrl` | `https://mini-cloud.qinnan.dev` | Console the startup link points at. Empty prints no link |
+| `internal.host` | `127.0.0.1` | Internal bind address, e.g. your LAN address |
+| `internal.port` | `3000` | Internal listener: agent API, pub/sub, WebSocket |
+| `internal.trustedSubnets` | loopback + RFC 1918 + ULA + link-local | CIDR blocks the internal listener accepts, on requests and on WebSocket upgrades. The only thing guarding that listener — `[]` accepts any address |
+| `public.host` | `127.0.0.1` | Public bind address. Loopback by default — exposing this one should be deliberate |
+| `public.port` | `3001` | Public listener: tasks, instances, the fleet, variables |
+| `public.corsOrigins` | `["*"]` | Browser origins allowed to call the **public** listener. `["*"]` allows any; `[]` installs no CORS middleware at all |
+| `scheduler.jobTickMs` | `1000` | How often to check for due jobs. Must be at or below the shortest job interval |
+| `scheduler.maintenanceTickMs` | `5000` | Agent probe and stuck-instance sweep interval |
+| `scheduler.agentOfflineAfterMs` | `15000` | Silence after which an agent is marked offline |
+| `scheduler.launchTimeoutMs` | `15000` | How long an instance may sit at `initiated` |
+| `scheduler.startTimeoutMs` | `60000` | How long an instance may sit at `launched` without reporting a pid |
+| `scheduler.retentionDays` | `365` | How long instance and event history is kept |
+| `cli.serviceUrl` | `http://127.0.0.1:3001` | Where `mini-cloud task list` and friends point. `--service` overrides |
+| `cli.internalUrl` | `http://127.0.0.1:3000` | Where `mini-cloud pubsub` opens its socket. `--hub` overrides |
+
+An unknown key is warned about rather than refused, so a typo says so instead of
+silently reading as a default. A file that exists and will not parse is fatal: falling
+back to defaults there would look exactly like the settings being ignored.
+
+### The token
+
+`~/.mini-cloud/secret.json`, `0600`, and never read out of `config.json`:
+
+```json
+{ "publicToken": "…" }
+```
+
+Kept apart so `config.json` stays safe to paste into an issue. Absent means the
+published default — see [Build and run](#build-and-run).
+
+`MINI_CLOUD_LOG_LEVEL` (`debug`, `info`, `warn`, `error`) is the one environment
+variable mini-cloud still reads anywhere. It is resolved in a static initialiser, before
+any file could be loaded, and the test suite depends on it. Everything else — the
+service's, the CLI's and the agent's — is in the two files.
 
 ### Agent
 
-| Variable | Default | Meaning |
+The `agent` section of the same `~/.mini-cloud/config.json`, on the worker machine.
+
+| Setting | Default | Meaning |
 | --- | --- | --- |
-| `MINI_CLOUD_AGENT_ID` | this machine's hostname, lowercased with a trailing `.local` stripped | Unique per agent — two sharing an id would receive each other's commands. Needed only for a second agent on one machine, or when the hostname is `localhost` |
-| `MINI_CLOUD_AGENT_NAME` | the agent id | Display name |
-| `MINI_CLOUD_INTERNAL_URL` | `http://127.0.0.1:3000` | The control plane's internal listener. Not `MINI_CLOUD_SERVICE_URL` — that one names the public listener, for the CLI |
-| `MINI_CLOUD_AGENT_PORT` | `3100` | Loopback port the reporter API listens on |
-| `MINI_CLOUD_AGENT_DIR` | `~/.mini-cloud/agent` | Offline reports and default stdout/stderr files |
-| `MINI_CLOUD_PING_FAILURE_THRESHOLD` | `3` | Consecutive failed probes before an instance is unhealthy |
-| `MINI_CLOUD_PASSIVE_TOLERANCE_MS` | `2000` | Grace added to a passive check's period before a heartbeat counts as missed |
+| `agent.id` | this machine's hostname, lowercased with a trailing `.local` stripped | Unique per agent — two sharing an id would receive each other's commands. Needed only for a second agent on one machine, or when the hostname is `localhost` |
+| `agent.name` | the agent id | Display name |
+| `agent.internalUrl` | `http://127.0.0.1:3000` | The control plane's **internal** listener, which is the only one that serves an agent |
+| `agent.port` | `3100` | Loopback port the reporter API listens on |
+| `agent.workDir` | `~/.mini-cloud/agent` | Offline reports and default stdout/stderr files |
+| `agent.heartbeatIntervalMs` | `5000` | Three of these fit inside the service's offline window |
+| `agent.healthCheckTickMs` | `5000` | How often instance health is checked |
+| `agent.passiveToleranceMs` | `2000` | Grace added to a passive check's period before a heartbeat counts as missed |
+| `agent.pingFailureThreshold` | `3` | Consecutive failed probes before an instance is unhealthy |
 
 ### Web console
 
@@ -290,7 +369,7 @@ Set them in `packages/web/.env` (copy `.env.example`). Both are optional, and bo
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `VITE_MINI_CLOUD_API_URL` | *(unset — the console asks on first load)* | Base URL of the service the console calls |
-| `VITE_MINI_CLOUD_TOKEN` | *(unset)* | Bearer token; the value of the service's `MINI_CLOUD_PUBLIC_TOKEN` |
+| `VITE_MINI_CLOUD_TOKEN` | *(unset)* | Bearer token; the `publicToken` from the service's `secret.json` |
 
 With neither set, the console shows a setup screen that asks for the service address
 and the token, then verifies both before it opens. The token field is always there
@@ -351,6 +430,70 @@ Programs outside this repository install it from npm:
 npm install @mini-cloud/reporter
 ```
 
+## Building the binary
+
+`mini-cloud` also ships as a single executable — a copy of Node with the whole CLI
+injected into it, so the machine it lands on needs no Node, no `npm install` and no
+checkout. Build one locally with:
+
+```bash
+npm run build                                # the bundle reads the packages' compiled dist
+npm run build:sea:mac -w @mini-cloud/cli     # or build:sea:linux
+# -> packages/cli/build/sea/mini-cloud
+```
+
+Three build scripts, because what differs between them is what happens *after* the
+bundle — how the blob is injected, and what signature goes back on. The identical part
+before that lives in `scripts/sea-prelude.sh`, which each of them sources.
+
+| Script | npm script | |
+| --- | --- | --- |
+| `build-linux-sea.sh` | `build:sea:linux` | ELF: no segment name, nothing signed |
+| `build-mac-sea-unsigned.sh` | `build:sea:mac` | Ad-hoc signed — runs locally, but Gatekeeper refuses it once a browser has quarantined it |
+| `build-mac-sea-signed.sh` | `build:sea:mac:signed` | Developer ID + notarization. The build for anything anyone else downloads |
+
+That first line is not optional. The bundle resolves `@mini-cloud/*` from each package's
+`dist/`, so building the binary against a stale or absent one silently ships old code.
+
+The pipeline is `scripts/build-sea.sh`: compile the migrations in, bundle everything to
+one CommonJS file with tsup, turn that into a SEA blob, copy the running `node`, inject
+the blob with postject, and on macOS re-sign (Node's own signature has to come off
+before the Mach-O is modified and an ad-hoc one go back on, because Apple Silicon will
+not run an unsigned binary).
+
+**The migrations travel inside it.** `defaultMigrationsDir()` resolves out of
+`__dirname`, which inside a binary names a path that does not exist — so the build
+generates a module from `packages/service/migrations/*.sql` and the bundler swaps it for
+the empty `embedded-migrations.ts` placeholder. Nothing else changes: `npm start` and the
+tests still read the real directory, and adding a migration is still just dropping a
+`.sql` file in. Compiling them in rather than shipping a directory beside the binary is
+also what pins the schema to the executable that was built with it.
+
+Releases are a `cli-v*` tag, built for macOS and Linux on both architectures and attached
+to a GitHub Release by `.github/workflows/release-cli.yml`:
+
+```bash
+git tag cli-v1.0.1
+git push origin cli-v1.0.1
+```
+
+A separate tag from the `sdk-v*` npm release on purpose — a CLI fix is not a reason to
+republish a library, and a library release is not a reason to rebuild four binaries. The
+workflow also takes a `workflow_dispatch`, which builds and verifies every platform
+without publishing anything, for changing the pipeline without pushing a tag.
+
+CI currently builds the **unsigned** macOS binary, so a tarball downloaded in a browser
+is quarantined and the release notes tell people to clear it with `xattr -d
+com.apple.quarantine`. That is a papercut worth removing — the signed script works
+locally against a Developer ID certificate already in the keychain, and wiring it into CI
+needs four repository secrets (the exported certificate and its password, plus
+`APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD` and `APPLE_TEAM_ID`).
+
+Note what signing alone does *not* fix: a bare Mach-O cannot be stapled, so the
+notarization ticket is checked online and a first run still needs the network. Shipping
+the binary inside a `.pkg` or `.dmg` is what would allow stapling. Both that and
+publishing to S3 behind a CDN are in [md/TODO.md](./md/TODO.md).
+
 ## Releasing to npm
 
 Two packages are published: `@mini-cloud/reporter`, which programs launched by
@@ -366,11 +509,15 @@ npm version 1.0.1 --workspace @mini-cloud/shared --workspace @mini-cloud/reporte
 git commit -am "chore: release 1.0.1"
 
 # 2. Tag it. Pushing the tag is what publishes.
-git tag v1.0.1
+git tag sdk-v1.0.1
 git push origin main --tags
 ```
 
-`.github/workflows/publish.yml` then builds, runs the tests again against that exact
+Both release tags carry what they ship: `sdk-v*` for the npm packages, `cli-v*` for the
+binaries. A bare `v1.0.1` now triggers nothing at all — which is the point, since with
+two release paths on one repository an unprefixed tag could only be ambiguous.
+
+`.github/workflows/release-sdk.yml` then builds, runs the tests again against that exact
 commit, checks the tag agrees with both `package.json` versions, and publishes
 `shared` before `reporter` — in that order, because npm does not verify at publish
 time that a dependency resolves, and the reverse order leaves a window where
@@ -383,8 +530,14 @@ Bump both or neither.
 
 There is no `NPM_TOKEN` in this repository. Publishing uses npm Trusted Publishing
 over GitHub's OIDC: GitHub mints a short-lived token, scoped to this repository and
-to `publish.yml` specifically, and npm exchanges it for publish rights. Nothing
+to `release-sdk.yml` specifically, and npm exchanges it for publish rights. Nothing
 long-lived is stored, and provenance attestations are generated automatically.
+
+Two GitHub-side things it depends on. Actions are pinned to a commit SHA, not a
+floating tag, because a workflow holding `id-token: write` mints a real publish
+credential — `.github/dependabot.yml` is what keeps those pins from rotting. And the
+publish job runs in the `npm-publish` environment, so a required reviewer there holds an
+irreversible publish until someone approves it.
 
 The trusted publisher is configured per package on npmjs.com, under
 **Package → Settings → Trusted publishing**, with:
@@ -393,8 +546,17 @@ The trusted publisher is configured per package on npmjs.com, under
 | --- | --- |
 | Organization or user | `Nan0416` |
 | Repository | `mini-cloud` |
-| Workflow filename | `publish.yml` |
+| Workflow filename | `release-sdk.yml` |
+| Environment | *(optional)* `npm-publish` |
 | Allowed actions | `npm publish` |
 
-**Renaming `publish.yml` breaks publishing** until both packages' trusted publisher
-entries are updated to match the new filename.
+Setting **Environment** is optional and narrows things further: npm then refuses a
+token minted by any job in this repository that is not running in `npm-publish`. Set it
+*after* a release has succeeded with the environment in place — configuring it on npm
+before the workflow has ever produced that claim fails the next publish rather than the
+next-but-one.
+
+**Renaming this workflow breaks publishing** until both packages' trusted publisher
+entries are updated to match the new filename. It was `publish.yml` before it was
+renamed to `release-sdk.yml`, so if a release fails at the publish step with an
+authentication error, that rename is the first thing to check.

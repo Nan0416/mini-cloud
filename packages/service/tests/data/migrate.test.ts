@@ -1,7 +1,7 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { listMigrationFiles } from '../../src/data/migrate';
+import { defaultMigrationsDir, defaultMigrationSource, embeddedMigrations, listMigrationFiles } from '../../src/data/migrate';
 
 /**
  * Ordering is the whole contract of a migration runner: a migration that alters a
@@ -65,5 +65,35 @@ describe('listMigrationFiles', () => {
 
   it('returns nothing for an empty directory', () => {
     expect(listMigrationFiles(dir)).toEqual([]);
+  });
+});
+
+describe('embeddedMigrations', () => {
+  it('orders compiled-in SQL by exactly the rules the directory uses', () => {
+    // Object key order is insertion order, which is whatever the generator happened to emit.
+    const source = embeddedMigrations({ '010_j.sql': 'j', '002_b.sql': 'b', '001_a.sql': 'a' });
+
+    expect(source.list()).toEqual(['001_a.sql', '002_b.sql', '010_j.sql']);
+  });
+
+  it('hands back the SQL it was compiled with', () => {
+    expect(embeddedMigrations({ '001_a.sql': 'CREATE TABLE a ();' }).read('001_a.sql')).toBe('CREATE TABLE a ();');
+  });
+
+  it('refuses a name it does not have, rather than applying nothing and recording it', () => {
+    // Only reachable if the compiled set and the applied set disagree.
+    expect(() => embeddedMigrations({}).read('001_a.sql')).toThrow(/not compiled into this build/);
+  });
+
+  it('rejects a duplicate sequence the same way a directory does', () => {
+    expect(() => embeddedMigrations({ '002_a.sql': 'a', '002_b.sql': 'b' }).list()).toThrow(/share sequence number 2/);
+  });
+});
+
+describe('defaultMigrationSource', () => {
+  it('reads the directory when nothing was compiled in, which is every build but the binary', () => {
+    // `EMBEDDED_MIGRATIONS` is empty in the repository and replaced only by the SEA
+    // bundler's alias, so this is the path `npm start` and the tests take.
+    expect(defaultMigrationSource().describe()).toBe(defaultMigrationsDir());
   });
 });

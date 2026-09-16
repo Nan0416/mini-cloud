@@ -25,7 +25,7 @@ import { PubSubEndpoints } from '../routes/pubsub-endpoints';
 import { TaskEndpoints } from '../routes/task-endpoints';
 import { AgentService } from '../services/agent-service';
 import { TaskService } from '../services/task-service';
-import { isDefaultPublicToken, ServiceConfig } from '../stage-config';
+import { isDefaultPublicToken, ServiceConfig } from '../config';
 
 const logger = LoggerFactory.getLogger('DependencyFactory');
 
@@ -147,7 +147,7 @@ export class DependencyFactory {
       logger.info(`The internal listener accepts connections from [${internal.trustedSubnets.join(', ')}].`);
       middleware.push(subnetFilter({ subnets: internal.trustedSubnets }));
     } else {
-      logger.warn('MINI_CLOUD_TRUSTED_SUBNETS is empty: the internal listener accepts a connection from any address that can reach it.');
+      logger.warn('internal.trustedSubnets is empty: the internal listener accepts a connection from any address that can reach it.');
     }
 
     return middleware;
@@ -164,24 +164,18 @@ export class DependencyFactory {
       // service any page can drive should say so on every start, not only in a
       // document someone has to go and read.
       if (publicConfig.corsOrigins.includes('*')) {
-        logger.warn('MINI_CLOUD_CORS_ORIGINS allows any origin: any web page the operator visits can call the public listener. Set it to your console origin to narrow that.');
+        logger.warn('public.corsOrigins allows any origin: any web page the operator visits can call the public listener. Set it to your console origin to narrow that.');
       } else {
         logger.info(`Cross-origin requests are allowed from [${publicConfig.corsOrigins.join(', ')}].`);
       }
       middleware.push(corsMiddleware({ origins: publicConfig.corsOrigins }));
     }
 
-    // No check for a missing token: `authToken` is a plain string, and `loadConfig`
-    // falls back to the published default rather than leaving it unset. What is worth
-    // saying is whether that default is what is in force.
     if (isDefaultPublicToken(publicConfig.authToken)) {
-      // Warned on every start, for the same reason the `*` CORS default is: this is
-      // published in `stage-config.ts`, so it is a placeholder rather than a secret,
-      // and anyone who has read the repository can present it. A line in a document
-      // someone has to go and find is not good enough for the one credential standing
-      // between a port forward and arbitrary code on the operator's machines.
+      // On every start: a published token is the one credential standing between a port
+      // forward and arbitrary code, and a line in a document is not good enough.
       logger.warn(
-        `MINI_CLOUD_PUBLIC_TOKEN is not set, so the public listener is running on the default token "${publicConfig.authToken}" — which is also what to paste into the console. It is published in this project, so anyone who knows mini-cloud can drive this service and launch programs on your machines. Set the variable to a secret of your own before exposing this listener: export MINI_CLOUD_PUBLIC_TOKEN=$(openssl rand -hex 32).`,
+        `No publicToken in ~/.mini-cloud/secret.json, so the public listener is running on the default token "${publicConfig.authToken}" — which is also what to paste into the console. It is published in this project, so anyone who knows mini-cloud can drive this service and launch programs on your machines. Run \`mini-cloud config init\` to generate one of your own before exposing this listener.`,
       );
     } else {
       logger.info('The public listener requires a bearer token.');

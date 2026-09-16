@@ -1,7 +1,7 @@
 import { WsSubscriber } from '@mini-cloud/client';
 import { EventEnvelope } from '@mini-cloud/shared';
 import { Command } from 'commander';
-import { GlobalOptions, createClient, resolveHubUrl, resolveToken } from '../client-factory';
+import { GlobalOptions, createClient, resolveConfig, resolveHubUrl } from '../client-factory';
 import { printJson, printTable } from '../output';
 
 /** Accepts JSON when it parses, and treats anything else as a plain string. */
@@ -74,15 +74,13 @@ export function buildPubSubCommand(): Command {
     .command('watch')
     .description('tail a topic until interrupted, and receive messages sent directly to this subscriber')
     .argument('<topic>')
-    .option('--hub <url>', 'internal listener base URL (env MINI_CLOUD_INTERNAL_URL, default http://127.0.0.1:3000)')
-    .action(async function (this: Command, topic: string, options: { hub?: string }) {
+    .action(async function (this: Command, topic: string) {
       const global: GlobalOptions = this.optsWithGlobals();
-      // The hub is on the internal listener, not the public one `--service` names.
-      const url = `${resolveHubUrl(options.hub).replace(/^http/, 'ws').replace(/\/+$/, '')}/ws`;
+      const url = `${resolveHubUrl(global).replace(/^http/, 'ws').replace(/\/+$/, '')}/ws`;
 
       const subscriber = new WsSubscriber({
         url,
-        token: resolveToken(global),
+        token: resolveConfig(global).public.authToken,
         // Printed on every connect, not just the first: reconnecting gets a new id,
         // and someone about to `pubsub send` needs the current one.
         onWelcome: (subscriberId) => console.log(`Connected as ${subscriberId}. Send directly to it with: mini-cloud pubsub send ${subscriberId} '<payload>'`),

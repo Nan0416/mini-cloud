@@ -81,7 +81,7 @@ conventions the code follows.
 ```bash
 npm install
 createdb mini_cloud                                # one-time; see dev.md for installing PostgreSQL
-export MINI_CLOUD_PUBLIC_TOKEN=$(openssl rand -hex 32)   # else it runs on a published default, and says so
+npm run cli -- config init                         # else it runs on a published default, and says so
 npm start                                          # builds, applies the schema, starts the control plane
 ```
 
@@ -138,7 +138,7 @@ npm run web    # terminal 2, then open http://localhost:5173
 The console is a static bundle that calls the public listener's HTTP API directly — no
 proxy tier, no server of its own. It asks for the service address and the token on first
 load, then remembers both. That listener allows any browser origin by default, so those
-two commands work together; narrow it with `MINI_CLOUD_CORS_ORIGINS` before leaving it
+two commands work together; narrow it with `public.corsOrigins` before leaving it
 running unattended. See [packages/web/README.md](./packages/web/README.md).
 
 ## Status

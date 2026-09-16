@@ -211,6 +211,6 @@ export function describeUntrustedAddress(address: string | undefined, subnets: R
   const allowed = subnets.map((subnet) => subnet.cidr).join(', ');
   return (
     `${source} is not inside the internal listener's trusted subnets [${allowed}]. ` +
-    'Add its network to MINI_CLOUD_TRUSTED_SUBNETS, or set that variable to an empty value to accept any address.'
+    'Add its network to internal.trustedSubnets in ~/.mini-cloud/config.json, or set that list to [] to accept any address.'
   );
 }

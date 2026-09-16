@@ -22,7 +22,9 @@ Dependencies point one way: `cli` → `service`/`agent`/`client` → `shared`, a
 
 `shared` and `reporter` are published to npmjs.org under the `@mini-cloud` scope, so a
 program launched by mini-cloud can import the reporter without vendoring it. The rest
-stay private. A release is a `v*` tag, never a merge — see [dev.md](./dev.md#releasing-to-npm).
+stay private. A release is an `sdk-v*` tag, never a merge — see
+[dev.md](./dev.md#releasing-to-npm). The `mini-cloud` binary releases separately, on
+`cli-v*`.
 
 Inside `service`: `routes` parse and delegate → `services` answer requests →
 `facades` do work no request waits on → `data` talks to Postgres. `DependencyFactory`
@@ -46,10 +48,17 @@ and `/variables`, and is what the console and the CLI talk to — the only one m
 face a port forward. A route belongs to exactly one of them; the 404 on the other names
 the right listener.
 
+`mini-cloud daemon start` runs the control plane under launchd or systemd instead of in
+the terminal, and `npm run build:sea:mac -w @mini-cloud/cli` (or `build:sea:linux`)
+builds the single-file binary
+(the migrations are compiled into it; see [dev.md](./dev.md#building-the-binary)).
+
 `start` and `start:agent` rebuild first; skip that with `npm run cli -- serve` or
 `npm run cli -- agent start`. `start:web` needs no build — vite aliases `shared` and
 `client` to their *source*, so HMR picks up edits there live. Flags need a `--`
-separator: `npm start -- --port 4000`.
+separator: `npm start -- --config ~/other/config.json`. Settings themselves have no
+flags — they live in `~/.mini-cloud/config.json`, with the token in `secret.json`
+beside it.
 
 ## Tests
 

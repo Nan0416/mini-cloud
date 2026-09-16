@@ -68,10 +68,7 @@ describe('gateFor', () => {
   });
 
   it('asks without probing when the candidate carries no token', () => {
-    // The `?backend=` link's ordinary case. The public listener has no unauthenticated
-    // mode, so a round trip could only confirm what is already visible — and the
-    // console used to render in full here, leaving every panel to meet its own 401
-    // while the offline banner stayed quiet, because /ping needs no token.
+    // The `?backend=` link's ordinary case.
     const candidate = { apiUrl: 'http://link:3001' };
 
     expect(gateFor(candidate)).toEqual({ status: 'setup', candidate });
@@ -86,7 +83,7 @@ describe('gateFor', () => {
 
   it('probes a candidate that has a token, rather than trusting it', () => {
     // Having a token is not the same as having one the service still accepts: rotating
-    // MINI_CLOUD_PUBLIC_TOKEN leaves every browser holding a stale one.
+    // the service's publicToken leaves every browser holding a stale one.
     const candidate = { apiUrl: 'http://stored:3001', token: 'stored-token' };
 
     expect(gateFor(candidate)).toEqual({ status: 'probe', candidate });

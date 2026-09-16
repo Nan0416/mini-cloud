@@ -4,33 +4,42 @@
 # with a name, and a tag is the record of exactly what shipped. `main` moving does
 # not publish anything.
 #
-# Authentication is npm Trusted Publishing over GitHub's OIDC, so there is no
-# NPM_TOKEN in this repository. GitHub mints a short-lived token that npm exchanges
-# for publish rights, scoped to this repo and this workflow file. Renaming this file
-# breaks publishing until the trusted publisher on npmjs.com is updated to match.
+# Authentication is npm Trusted Publishing over GitHub's OIDC, so there is no NPM_TOKEN
+# here. The binding is to this repository and to THIS FILENAME: renaming this file breaks
+# publishing until both packages' trusted publisher entries on npmjs.com name the new
+# one, and the failure lands at the publish step on a tag that has already been pushed.
 #
-# One consequence worth knowing: npm generates provenance attestations automatically
-# under trusted publishing, so `--provenance` is deliberately absent below. Passing it
-# is not needed and only adds a way to be wrong.
-name: Publish
+# npm generates provenance attestations automatically under trusted publishing, so
+# `--provenance` is deliberately absent below.
+name: Release SDK
 on:
   push:
     tags:
-      - 'v*'
+      - 'sdk-v*'
 permissions:
   # The whole of the authentication story. Without it npm has no OIDC token to trade.
   id-token: write
   contents: read
+concurrency:
+  # One release at a time. Two tags pushed together would otherwise race to publish the
+  # same package, and `cancel-in-progress` is deliberately absent: cancelling a job
+  # halfway through a publish is how one package ships and the other does not.
+  group: release-sdk
+  cancel-in-progress: false
 jobs:
   publish:
-    name: Publish to npmjs.org
+    name: Build, Test, Publish
     runs-on: ubuntu-latest
+    # Two things: a required reviewer holds the run here, and the OIDC token carries an
+    # `environment` claim npm's trusted publisher insists on. This line alone gates
+    # nothing — the reviewer is configured under Settings → Environments.
+    environment: npm-publish
     steps:
       - name: Checkout the repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           # Trusted publishing needs Node 22.14.0 or newer; `22` resolves to the
           # latest 22.x, which is well past that.
@@ -54,7 +63,7 @@ jobs:
         # for, under a tag that then points at the wrong thing. Fail before the
         # irreversible step rather than after it.
         run: |
-          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          TAG_VERSION="${GITHUB_REF_NAME#sdk-v}"
           STATUS=0
           for package in shared reporter; do
             PACKAGE_VERSION="$(node -p "require('./packages/${package}/package.json').version")"

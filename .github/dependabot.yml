@@ -1,0 +1,24 @@
+# Actions are pinned to a commit SHA rather than a floating major tag, because `@v7`
+# re-resolves on every run — and these workflows hold `id-token: write` (which mints an
+# npm publish credential) and `contents: write` (which creates releases). A moved tag
+# would run new code with those rights and nothing in the repository would change.
+#
+# A SHA that nothing updates is its own problem, though: pinning without this file just
+# converts "silently changes" into "silently rots". Dependabot opens a pull request when
+# an action releases, rewriting the SHA and the trailing version comment together, and
+# that PR goes through the same review as any other change.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      # One PR for the lot. These move together often enough that separate pull
+      # requests are mostly noise, and reviewing them as a set makes it obvious when
+      # only one of a pair — upload-artifact and download-artifact, say — has moved.
+      actions:
+        patterns:
+          - '*'
+    commit-message:
+      prefix: ci

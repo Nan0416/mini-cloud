@@ -31,7 +31,7 @@ describe('subnetFilter', () => {
     const next = run({ remoteAddress: '203.0.113.7' });
 
     expect((next.error as Error).message).toContain('203.0.113.7');
-    expect((next.error as Error).message).toContain('MINI_CLOUD_TRUSTED_SUBNETS');
+    expect((next.error as Error).message).toContain('internal.trustedSubnets');
   });
 
   it('reads the peer from the socket, not from a header a caller can write', () => {

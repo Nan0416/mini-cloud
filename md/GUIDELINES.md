@@ -51,27 +51,36 @@ specific bug, the bug is named — a rule you can't justify is a rule that gets 
 
 ## Configuration
 
-4. **One file reads `process.env`.** `stage-config.ts` in the service,
-   `agent-config.ts` in the agent, `lib/config.ts` in the web console (which reads
-   `import.meta.env` instead, but the rule is the same). Everything else receives
-   configuration through its constructor, which is what makes components testable
-   without setting environment variables.
+4. **Settings live in `~/.mini-cloud/config.json`, secrets in `secret.json` beside
+   it.** `config.ts` in the service is the only file that reads them, and the CLI hands
+   the `agent` section to `resolveAgentConfig`. Everything else receives configuration
+   through its constructor, which is what makes components testable without touching a
+   filesystem. `MINI_CLOUD_LOG_LEVEL` is the one environment variable anything still
+   reads: it resolves in a static initialiser, before any file could be loaded.
+4a. **A secret never loads from `config.json`.** The split is only worth having if it
+   is enforced — `config.json` is the file people paste into issues, and it stops being
+   safe to the moment a token in it silently works.
 4b. **`shared` never reads the environment unguarded.** Its `getenv` helpers check
    `typeof process` first, because `shared` is bundled into the browser by `web` and
    the log-level lookup in `logger.ts` runs in a static initialiser — unguarded, the
    console throws `process is not defined` at import time, a long way from the cause.
 5. **Every setting has a default.** Importing a package must never throw for missing
-   configuration. `MINI_CLOUD_AGENT_ID` defaults to this machine's hostname,
-   normalized — lowercased, with a trailing `.local` stripped, because macOS reports
+   configuration, and a machine with no config file at all runs. `agent.id` defaults to
+   this machine's hostname, normalized — lowercased, with a trailing `.local` stripped, because macOS reports
    `Nans-MacBook-Pro.local` locally and `nans-macbook-pro` over SSH, and one machine
-   registering under two ids depending on how it was started is worse than the flag
+   registering under two ids depending on how it was started is worse than the setting
    the default removes. `localhost` is the one hostname refused: every machine answers
    to it, so defaulting to it would hand the whole fleet one id — and two agents
    sharing an id receive each other's commands.
-5b. **Command-line overrides are resolved inside the config loader**, not applied by
-   the caller afterwards. `loadAgentConfig({ agentId })` decides flag-over-environment
-   precedence in one place — applying overrides after loading meant the loader
-   validated a value the flag was about to replace, and `--id` never worked.
+5b. **A setting has no flag.** Addresses, ports, the database and the token are read
+   from the file and nowhere else, so there is one place to look and no way for two
+   sources to disagree. What stays on the command line is what cannot be a setting:
+   `--config`, which names the file; and flags that shape a single invocation, like
+   `--json` and `--skip-migrations`.
+5c. **A file that will not parse is fatal; an unknown key is not.** Falling back to
+   defaults on a broken file starts the service on the wrong port and looks identical to
+   the settings being ignored. A stray key is far more often a typo than a reason to
+   refuse to start, so it warns.
 
 ## Types
 
@@ -260,3 +269,19 @@ specific bug, the bug is named — a rule you can't justify is a rule that gets 
 33. **`import type` at the top of the file.** Never inline `import('pkg').Type`.
 34. **Comments explain why.** The code already says what it does; a comment earns its
     place by recording the reasoning that is not recoverable from reading it.
+
+35. **When in doubt, leave it out.** If you are weighing whether a comment is worth
+    keeping, it is not. A file of necessary comments gets read; a file where most of
+    them restate the code trains people to skip all of them, including the one that
+    mattered.
+
+36. **No history.** What the code used to be, which change replaced it, what was tried
+    first: git has all of it. A comment that argues with a previous version ages into a
+    comment about code nobody can see.
+
+37. **A question is not a reason to comment.** Answer it in the review, the commit
+    message or the pull request. Explaining something once, to one person, does not make
+    it a note every future reader needs.
+
+38. **Keep them short.** One or two lines carries a reason. A comment longer than the
+    code it sits above is usually telling you the code needs the work, not the prose.

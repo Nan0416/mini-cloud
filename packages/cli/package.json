@@ -10,7 +10,10 @@
   },
   "scripts": {
     "build": "tsc --project tsconfig.json",
-    "clean": "rm -rf dist tsconfig.tsbuildinfo"
+    "clean": "rm -rf dist build tsconfig.tsbuildinfo",
+    "build:sea:linux": "bash scripts/build-linux-sea.sh",
+    "build:sea:mac": "bash scripts/build-mac-sea-unsigned.sh",
+    "build:sea:mac:signed": "bash scripts/build-mac-sea-signed.sh"
   },
   "dependencies": {
     "@mini-cloud/agent": "1.0.0",
@@ -20,7 +23,9 @@
     "commander": "^15.0.0"
   },
   "devDependencies": {
-    "@types/node": "^22.10.5"
+    "@types/node": "^22.10.5",
+    "postject": "^1.0.0-alpha.6",
+    "tsup": "^8.5.1"
   },
   "license": "MIT"
 }

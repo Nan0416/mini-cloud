@@ -2,7 +2,7 @@ import { HubStatus, LoggerFactory, Target } from '@mini-cloud/shared';
 import { DependencyFactory } from '../../src/dependencies/dependency-factory';
 import { MessageHub, OutboundMessage } from '../../src/facades/message-hub';
 import { Service } from '../../src/service';
-import { DEFAULT_PUBLIC_TOKEN, ServiceConfig } from '../../src/stage-config';
+import { DEFAULT_PUBLIC_TOKEN, ServiceConfig } from '../../src/config';
 import { FakePool } from '../data/test-helpers';
 import { TestServer } from '../routes/test-helpers';
 
@@ -29,12 +29,16 @@ class FakeHub implements MessageHub {
 const aConfig = (overrides: Partial<ServiceConfig> = {}): ServiceConfig => ({
   databaseUrl: 'postgres://localhost:5432/mini_cloud_test',
   internal: { host: '127.0.0.1', port: 3000, trustedSubnets: ['127.0.0.0/8'] },
-  // A token of its own, rather than the default one `loadConfig` falls back to: these
-  // cases are about what each listener serves, and running them on the default would
-  // put a warning nobody is asserting on in the middle of it. The internal listener has
-  // no equivalent field — the source address is what guards it.
+  // A token of its own, rather than the default one `loadConfig` falls back to: these cases are
+  // about what each listener serves, and running them on the default would put a warning nobody
+  // is asserting on in the middle of it.
   public: { host: '127.0.0.1', port: 3001, corsOrigins: ['*'], authToken: 'operator' },
   consoleUrl: '',
+  // Where the CLI would point. Nothing in this file drives the CLI, but the shape is
+  // one object and a partial one would not typecheck.
+  cli: { serviceUrl: 'http://127.0.0.1:3001', internalUrl: 'http://127.0.0.1:3000' },
+  // Read on a worker machine; nothing in this file drives an agent.
+  agent: {},
   scheduler: {
     jobTickMs: 1_000,
     maintenanceTickMs: 5_000,
@@ -152,9 +156,9 @@ describe('what runs before the routes', () => {
   it('answers no CORS header on the internal listener, whatever origin asks', async () => {
     listeners = await start();
 
-    // A page the operator visits can send a request here; this is what stops it
-    // reading the answer — and the reason the internal listener installs no CORS at
-    // all, rather than a narrowed allow-list.
+    // A page the operator visits can send a request here; this is what stops it reading the
+    // answer — and the reason the internal listener installs no CORS at all, rather than a
+    // narrowed allow-list.
     const response = await fetch(`${listeners.internal.origin}/ping`, { headers: { origin: 'https://evil.example.com' } });
 
     expect(response.headers.get('access-control-allow-origin')).toBeNull();
@@ -178,10 +182,8 @@ describe('what runs before the routes', () => {
   });
 
   it('demands a token on the public listener and none on the internal one', async () => {
-    // The arrangement this is built for: agents on the LAN present no secret and are
-    // admitted by address, while the listener that faces the internet refuses anything
-    // without a token. The 400 is the agent route being reached and rejecting an empty
-    // body — which is the point, since a 401 would mean it had asked for a credential.
+    // The arrangement this is built for: agents on the LAN present no secret and are admitted
+    // by address, while the listener that faces the internet refuses anything without a token.
     listeners = await start();
 
     expect((await listeners.public.get('/tasks')).status).toBe(401);
@@ -189,9 +191,6 @@ describe('what runs before the routes', () => {
   });
 
   // There is deliberately no case here for a public listener built without a token.
-  // `PublicListenerConfig.authToken` is a plain string, so such a config cannot be
-  // constructed to test with — `loadConfig` falls back to the published default, and
-  // that fallback is covered in `tests/stage-config.test.ts`.
 });
 
 describe('the default token', () => {
@@ -209,24 +208,20 @@ describe('the default token', () => {
   };
 
   it('says so on every start, because it is published and guards nothing', () => {
-    // The whole of what makes shipping a known token defensible. Someone who never set
-    // the variable has a service that anyone who has read this project can drive, and
-    // a line in a document they would have to go and find does not tell them that.
+    // The whole of what makes shipping a known token defensible.
     const warn = buildWith(DEFAULT_PUBLIC_TOKEN);
 
     const said = warn.mock.calls.map((call) => String(call[0])).join('\n');
-    expect(said).toContain('MINI_CLOUD_PUBLIC_TOKEN');
+    expect(said).toContain('secret.json');
     // The value itself, because it is also what the operator has to paste into the
     // console's token field — and a warning that withholds it sends them to the source.
     expect(said).toContain(DEFAULT_PUBLIC_TOKEN);
     // And the fix, not just the problem.
-    expect(said).toContain('openssl rand -hex 32');
+    expect(said).toContain('mini-cloud config init');
   });
 
   it('stays quiet about a token the operator actually chose', () => {
-    // A warning on every start is only heard if it is not also printed when nothing is
-    // wrong. `aConfig` allows any CORS origin, which has a warning of its own — so this
-    // asserts on the token line specifically rather than on silence.
+    // A warning on every start is only heard if it is not also printed when nothing is wrong.
     const warn = buildWith('a-real-secret');
 
     expect(warn.mock.calls.map((call) => String(call[0])).join('\n')).not.toContain('default token');

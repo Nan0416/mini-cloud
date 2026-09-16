@@ -24,7 +24,7 @@ export interface ConsoleLinkParams {
  * than silence: a link in a startup banner that fails costs someone ten minutes
  * assuming the service is at fault.
  *
- * Bound to one specific interface — `MINI_CLOUD_HOST=192.168.1.50` — there is no
+ * Bound to one specific interface — `internal.host` set to a LAN address — there is no
  * address that works. `127.0.0.1` does not reach a service listening only on that
  * interface, and the interface's own address is plain HTTP, which a console served
  * over HTTPS is not allowed to call: mixed content blocks a LAN address outright and

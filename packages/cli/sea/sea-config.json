@@ -1,0 +1,7 @@
+{
+  "main": "build/sea/mini-cloud-sea.js",
+  "output": "build/sea/mini-cloud.blob",
+  "disableExperimentalSEAWarning": true,
+  "useSnapshot": false,
+  "useCodeCache": false
+}
