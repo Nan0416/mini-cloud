@@ -40,21 +40,13 @@ export function listMigrationFiles(migrationsDir: string): ReadonlyArray<string>
   return orderMigrations(readdirSync(migrationsDir, { withFileTypes: true }).flatMap((entry) => (entry.isFile() ? [entry.name] : [])));
 }
 
-/**
- * The same rules, applied to names that came from somewhere other than a directory.
- *
- * Split out because a single-file build has no directory to read: the SQL is compiled
- * into the binary, and it has to be ordered and validated by exactly the code that
- * orders the files on disk, or the two would drift and only one of them would be
- * tested.
- */
+/** Split out so compiled-in migrations are ordered by the same code as files on disk. */
 export function orderMigrations(filenames: ReadonlyArray<string>): ReadonlyArray<string> {
   const migrations: MigrationFile[] = [];
   const bySequence = new Map<number, string>();
 
   for (const file of filenames) {
-    // Anything that is not SQL is somebody else's file — a README, a .keep — and
-    // holding it to the naming rule would fail a build over a note.
+    // A README or a .keep is not a migration, and should not fail the naming rule.
     if (!file.endsWith('.sql')) {
       continue;
     }
@@ -77,13 +69,7 @@ export function orderMigrations(filenames: ReadonlyArray<string>): ReadonlyArray
   return migrations.sort((left, right) => left.sequence - right.sequence).map((migration) => migration.file);
 }
 
-/**
- * Where the SQL comes from: a directory on disk, or the binary itself.
- *
- * An interface rather than a path, because a single-file build has no directory to
- * point at. Both implementations go through the same ordering and validation, so
- * "which migrations, in what order" cannot differ between the two.
- */
+/** A directory on disk, or the binary itself — a single executable has no directory. */
 export interface MigrationSource {
   /** Filenames, already in the order they must be applied. */
   list(): ReadonlyArray<string>;
@@ -114,22 +100,14 @@ export function embeddedMigrations(files: Readonly<Record<string, string>> = EMB
   };
 }
 
-/**
- * Compiled-in migrations when there are any, the directory otherwise.
- *
- * The check is "did the build put anything here", not "am I a binary": it needs no
- * knowledge of SEA, and a test can exercise either path by passing a source directly.
- */
+/** "Did the build put anything here", not "am I a binary". */
 export function defaultMigrationSource(): MigrationSource {
   return Object.keys(EMBEDDED_MIGRATIONS).length > 0 ? embeddedMigrations() : directoryMigrations();
 }
 
 /**
- * Applies every migration that has not been applied yet, in order, each in its own
- * transaction. Safe to run on every service start.
- *
- * Takes a directory for backwards compatibility with callers that pass one; anything
- * else is a {@link MigrationSource}.
+ * Applies every migration not yet applied, in order, each in its own transaction. Safe
+ * to run on every service start.
  */
 export async function migrate(pool: Pool, source: MigrationSource | string = defaultMigrationSource()): Promise<ReadonlyArray<string>> {
   const migrations = typeof source === 'string' ? directoryMigrations(source) : source;

@@ -12,9 +12,8 @@ describe('unitEnvironment', () => {
   });
 
   it('carries no settings at all, so the unit cannot go stale against the file', () => {
-    // The unit used to bake every MINI_CLOUD_* variable in, which made it a second copy
-    // of the configuration that only a reinstall could correct. Settings live in
-    // ~/.mini-cloud/config.json now and are read at every start.
+    // The unit used to bake every MINI_CLOUD_* variable in, which made it a second copy of the
+    // configuration that only a reinstall could correct.
     expect(unitEnvironment({ MINI_CLOUD_PUBLIC_TOKEN: 'secret', MINI_CLOUD_DATABASE_URL: 'postgres://db/mc' })).toEqual({});
   });
 

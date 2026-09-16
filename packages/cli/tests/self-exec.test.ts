@@ -19,9 +19,7 @@ describe('serviceArgv', () => {
 
 describe('resolveSelfExec', () => {
   it('follows a symlink, so `npm link` does not bake an indirection into the unit', async () => {
-    // What `npm link` leaves on the PATH is a symlink into the checkout. Baking it
-    // would point the unit at whatever that name means later; the real path pins the
-    // unit to the code it was installed from.
+    // What `npm link` leaves on the PATH is a symlink into the checkout.
     const { resolveSelfExec } = await import('../src/self-exec');
     const self = resolveSelfExec([process.execPath, __filename]);
 

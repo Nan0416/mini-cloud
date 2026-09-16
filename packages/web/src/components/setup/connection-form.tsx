@@ -111,10 +111,8 @@ export function ConnectionForm(props: {
         </div>
       )}
 
-      {/* Always shown, never revealed by a failed probe. The public listener has no
-          unauthenticated mode, so a token is not a thing some services want — it is
-          the second half of the address, and a form that hid it made the ordinary
-          first run take two submits to get to the field it always needed. */}
+      {/* Always shown: the listener has no unauthenticated mode, so a token is the
+          second half of the address rather than something only some services want. */}
       <div className="space-y-1.5">
         <Label htmlFor="connection-token">Token</Label>
         <Input

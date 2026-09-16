@@ -7,13 +7,6 @@ export { buildUnit, SYSTEMD_UNIT } from './systemd';
 export { unitEnvironment } from './environment';
 export * from './types';
 
-/**
- * The supervisor for this platform.
- *
- * Throws where there is none rather than pretending: Windows has its own service
- * model and nobody has written that yet, and `mini-cloud serve` in a terminal still
- * works everywhere.
- */
 export function createServiceManager(platform: NodeJS.Platform = process.platform): ServiceManager {
   switch (platform) {
     case 'darwin':

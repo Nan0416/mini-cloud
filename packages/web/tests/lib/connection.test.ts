@@ -68,10 +68,7 @@ describe('gateFor', () => {
   });
 
   it('asks without probing when the candidate carries no token', () => {
-    // The `?backend=` link's ordinary case. The public listener has no unauthenticated
-    // mode, so a round trip could only confirm what is already visible — and the
-    // console used to render in full here, leaving every panel to meet its own 401
-    // while the offline banner stayed quiet, because /ping needs no token.
+    // The `?backend=` link's ordinary case.
     const candidate = { apiUrl: 'http://link:3001' };
 
     expect(gateFor(candidate)).toEqual({ status: 'setup', candidate });

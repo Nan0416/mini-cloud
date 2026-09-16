@@ -5,13 +5,10 @@ import { createApi, probeConnection } from '@/lib/api';
 import { config } from '@/lib/config';
 import { clearStoredConnection, gateFor, parseBackendParam, readStoredConnection, resolveConnection, storeConnection, type Connection, type ProbeOutcome } from '@/lib/connection';
 
-/** Where the console is before it knows it can talk to anything. */
 type ConnectionState =
-  /** Checking a stored or linked candidate. The splash, and nothing else, renders. */
   | { readonly status: 'probing'; readonly candidate: Connection }
-  /** Ask the visitor. `candidate` seeds the form; `outcome` says why, when there is a why. */
+  /** `candidate` seeds the form; `outcome` says why, when there is a why. */
   | { readonly status: 'setup'; readonly candidate?: Connection; readonly outcome?: ProbeOutcome }
-  /** Verified against the service. The console proper renders. */
   | { readonly status: 'connected'; readonly connection: Connection };
 
 interface ConnectionContextValue {
@@ -28,16 +25,9 @@ const ApiContext = createContext<MiniCloudClient | undefined>(undefined);
 /**
  * Owns which service the console is talking to, and the client built from it.
  *
- * The candidate resolves synchronously on mount — a link, then this browser's storage,
- * then anything baked into the bundle — but having a candidate is not the same as
- * having a working connection, so the console does not open on one. It is checked
- * first, and anything short of success sends the visitor to the setup screen with the
- * address already filled in.
- *
- * That check costs a splash on every load, which buys the thing it replaces: a console
- * that used to render in full against a token it did not have, leaving every panel to
- * discover the same 401 separately while the offline banner stayed quiet because
- * `/ping` needs no token.
+ * A candidate resolves synchronously on mount, but having one is not the same as having
+ * a working connection: it is checked first, and anything short of success goes to the
+ * setup screen with the address filled in.
  */
 export function ConnectionProvider(props: { readonly children: ReactNode }) {
   const queryClient = useQueryClient();
@@ -56,20 +46,15 @@ export function ConnectionProvider(props: { readonly children: ReactNode }) {
       return;
     }
     const candidate = state.candidate;
-    // Guarded rather than aborted: a probe that lands after the visitor has already
-    // moved on must not overwrite what they did. `probeConnection` resolves either
-    // way, so there is nothing to cancel. This is also what makes StrictMode's double
-    // mount in development harmless — the first pass is discarded, and both passes are
-    // idempotent GETs.
+    // A probe landing after the visitor moved on must not overwrite what they did.
+    // Also what makes StrictMode's double mount harmless.
     let live = true;
     void probeConnection(candidate).then((outcome) => {
       if (!live) {
         return;
       }
-      // One rule, no exceptions: only a service that answered an authenticated call
-      // opens the console. A service that is merely unreachable could be asleep, but
-      // it could equally be the wrong address, and the setup screen is where both of
-      // those are fixed.
+      // Only an authenticated answer opens the console. Unreachable could be a sleeping
+      // server or the wrong address, and the setup screen fixes both.
       setState(outcome === 'ok' ? { status: 'connected', connection: candidate } : { status: 'setup', candidate, outcome });
     });
     return () => {
@@ -84,8 +69,7 @@ export function ConnectionProvider(props: { readonly children: ReactNode }) {
       // being left, and react-query would otherwise serve one machine's tasks under
       // another machine's name until each query refetched.
       queryClient.clear();
-      // Straight to connected, with no second probe: the form only calls this once
-      // its own verification has come back `ok`.
+      // No second probe: the form only calls this once its own check came back `ok`.
       setState({ status: 'connected', connection: next });
     },
     [queryClient],

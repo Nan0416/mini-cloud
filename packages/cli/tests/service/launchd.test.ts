@@ -3,7 +3,7 @@ import { InstallOptions } from '../../src/service/types';
 
 const options = (overrides: Partial<InstallOptions> = {}): InstallOptions => ({
   programArguments: ['/usr/local/bin/mini-cloud', 'serve'],
-  env: { MINI_CLOUD_PUBLIC_TOKEN: 'secret', PATH: '/usr/bin' },
+  env: { HOME: '/Users/someone', PATH: '/usr/bin' },
   logPath: '/Users/someone/.mini-cloud/service/service.log',
   enable: true,
   ...overrides,
@@ -22,8 +22,8 @@ describe('buildPlist', () => {
   it('bakes the environment, because a login service reads no profile', () => {
     const plist = buildPlist(options());
 
-    expect(plist).toContain('<key>MINI_CLOUD_PUBLIC_TOKEN</key>');
-    expect(plist).toContain('<string>secret</string>');
+    expect(plist).toContain('<key>HOME</key>');
+    expect(plist).toContain('<string>/Users/someone</string>');
   });
 
   it('restarts a crash but not a clean exit, so `daemon stop` sticks', () => {
@@ -43,9 +43,8 @@ describe('buildPlist', () => {
   });
 
   it('escapes what would otherwise close a tag early', () => {
-    // A token is random hex today, but it is operator-supplied and an `&` in one
-    // would produce a plist launchd refuses to parse — which surfaces as a service
-    // that simply never starts.
+    // A token is random hex today, but it is operator-supplied and an `&` in one would produce
+    // a plist launchd refuses to parse — which surfaces as a service that simply never starts.
     const plist = buildPlist(options({ env: { MINI_CLOUD_PUBLIC_TOKEN: 'a&b<c>"d"' } }));
 
     expect(plist).toContain('<string>a&amp;b&lt;c&gt;&quot;d&quot;</string>');

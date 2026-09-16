@@ -20,18 +20,8 @@ function xmlEscape(value: string): string {
 }
 
 /**
- * Renders the LaunchAgent. Pure, and exported so a test can read what was written
- * without a Mac to load it on.
- *
- * `KeepAlive` is `SuccessfulExit=false` rather than `true`, which is the launchd
- * spelling of systemd's `Restart=on-failure`: a crash comes back, a clean exit stays
- * down. With plain `true`, `daemon stop` would be undone by launchd within the second.
- *
- * Note what that means for a control plane whose database is not up yet: Postgres
- * refusing a connection is a crash, so the service restarts in a loop until Postgres
- * answers. That is the behaviour we want — launchd has no way to order a user agent
- * after a system service — but it does mean a machine booting with Postgres slow to
- * start writes a few failures to the log before settling.
+ * `KeepAlive: SuccessfulExit=false`, not `true`: a crash comes back, a clean exit stays
+ * down. With `true`, launchd undoes `daemon stop` within the second.
  */
 export function buildPlist(options: InstallOptions): string {
   const argumentsXml = options.programArguments.map((argument) => `    <string>${xmlEscape(argument)}</string>`).join('\n');
@@ -71,7 +61,7 @@ ${environmentXml}
 `;
 }
 
-/** Blocks the calling thread; install is synchronous and has nothing else to do. */
+/** Blocks the calling thread; install is synchronous. */
 function sleepSync(ms: number): void {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 }
@@ -87,12 +77,7 @@ export class LaunchdServiceManager implements ServiceManager {
     return `${this.domainTarget}/${LAUNCHD_LABEL}`;
   }
 
-  /**
-   * stderr is captured rather than inherited: a `bootout` of a label that was never
-   * loaded fails, and leaking "Boot-out failed: 3: No such process" to the console on
-   * a first install reads like something went wrong. The text still reaches the thrown
-   * error for anything that needs it.
-   */
+  /** stderr captured, not inherited: a `bootout` of an unloaded label fails noisily. */
   private launchctl(args: ReadonlyArray<string>): string {
     logger.debug(`launchctl ${args.join(' ')}`);
     return execFileSync('launchctl', [...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
@@ -109,15 +94,12 @@ export class LaunchdServiceManager implements ServiceManager {
   install(options: InstallOptions): void {
     mkdirSync(dirname(this.plist), { recursive: true });
     mkdirSync(dirname(options.logPath), { recursive: true });
-    // 0600, not 0644: this file has MINI_CLOUD_PUBLIC_TOKEN in it.
     writeFileSync(this.plist, buildPlist(options), { encoding: 'utf8', mode: 0o600 });
     logger.info(`Wrote ${this.plist}`);
 
     this.tryBootout();
     this.launchctl(['bootstrap', this.domainTarget, this.plist]);
-    // `bootstrap` returns before launchd has spun the job up, so a status() read now
-    // would race it and report `stopped`. `kickstart` starts it synchronously and is a
-    // no-op when RunAtLoad already did, so it is always safe to follow with.
+    // `bootstrap` returns before the job is up, so a status() read would race it.
     this.start();
   }
 
@@ -125,7 +107,7 @@ export class LaunchdServiceManager implements ServiceManager {
     try {
       this.launchctl(['bootout', this.serviceTarget]);
     } catch {
-      return; // Not loaded: nothing to tear down, and nothing to wait for.
+      return; // Not loaded.
     }
     this.waitUntilUnloaded();
   }
@@ -140,11 +122,8 @@ export class LaunchdServiceManager implements ServiceManager {
   }
 
   /**
-   * `bootout` signals the job and returns; launchd finishes the teardown afterwards.
-   * The control plane shuts down gracefully, so the label lingers for a moment — and
-   * re-`bootstrap`ing inside that window fails with "5: Input/output error". Bounded
-   * by the plist's own ExitTimeOut plus headroom, then we proceed and let the next
-   * command report the real problem rather than hanging here forever.
+   * `bootout` returns before launchd has finished tearing down, and re-`bootstrap`ing
+   * inside that window fails with "5: Input/output error".
    */
   private waitUntilUnloaded(): void {
     const deadline = Date.now() + 35_000;
@@ -170,11 +149,8 @@ export class LaunchdServiceManager implements ServiceManager {
   }
 
   /**
-   * SIGTERM and let it exit cleanly. Because KeepAlive only relaunches an unsuccessful
-   * exit, a graceful stop sticks without unloading the plist — so the service is still
-   * installed and still starts at the next login. A SIGKILL would read as a crash and
-   * be relaunched immediately, which is why the escape hatch for a wedged daemon is
-   * `uninstall` rather than a harder signal.
+   * SIGTERM, so the exit is clean and KeepAlive leaves it down. SIGKILL would read as a
+   * crash and be relaunched; the escape hatch for a wedged daemon is `uninstall`.
    */
   stop(): void {
     try {
@@ -192,17 +168,14 @@ export class LaunchdServiceManager implements ServiceManager {
     if (!this.isInstalled()) {
       return { state: 'not-installed' };
     }
-    // `enabled` means start-at-login, which for launchd is RunAtLoad — read from the
-    // plist rather than inferred from "is loaded", because a service installed with
-    // --no-enable is loaded and may be running while RunAtLoad is false.
+    // Read from the plist, not from "is loaded": a --no-enable service is both.
     const enabled = this.runAtLoad();
     try {
       const listed = this.launchctl(['list', LAUNCHD_LABEL]);
       const pid = /"PID"\s*=\s*(\d+)/.exec(listed);
       return pid === null ? { state: 'stopped', enabled } : { state: 'running', pid: Number(pid[1]), enabled };
     } catch {
-      // On disk but not loaded. Still start-at-login: a LaunchAgent in that directory
-      // loads at the next login, so `enabled` follows the plist, not the live domain.
+      // On disk but not loaded; a LaunchAgent still loads at the next login.
       return { state: 'stopped', enabled };
     }
   }
@@ -215,12 +188,7 @@ export class LaunchdServiceManager implements ServiceManager {
     }
   }
 
-  /**
-   * `-F`, not `-f`: follow by name and reopen if the file is replaced. Nothing rotates
-   * this log today, but the moment something does — `newsyslog`, or a rotating writer
-   * in `shared` — a plain `-f` would sit on the old inode and silently stop showing
-   * anything.
-   */
+  /** `-F`, not `-f`: reopen by name, so rotation does not leave us on a dead inode. */
   logs(options: LogsOptions): void {
     const { logPath } = getDaemonPaths();
     if (!existsSync(logPath)) {

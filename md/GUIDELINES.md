@@ -260,3 +260,19 @@ specific bug, the bug is named — a rule you can't justify is a rule that gets 
 33. **`import type` at the top of the file.** Never inline `import('pkg').Type`.
 34. **Comments explain why.** The code already says what it does; a comment earns its
     place by recording the reasoning that is not recoverable from reading it.
+
+35. **When in doubt, leave it out.** If you are weighing whether a comment is worth
+    keeping, it is not. A file of necessary comments gets read; a file where most of
+    them restate the code trains people to skip all of them, including the one that
+    mattered.
+
+36. **No history.** What the code used to be, which change replaced it, what was tried
+    first: git has all of it. A comment that argues with a previous version ages into a
+    comment about code nobody can see.
+
+37. **A question is not a reason to comment.** Answer it in the review, the commit
+    message or the pull request. Explaining something once, to one person, does not make
+    it a note every future reader needs.
+
+38. **Keep them short.** One or two lines carries a reason. A comment longer than the
+    code it sits above is usually telling you the code needs the work, not the prose.

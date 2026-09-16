@@ -70,10 +70,7 @@ describe('listMigrationFiles', () => {
 
 describe('embeddedMigrations', () => {
   it('orders compiled-in SQL by exactly the rules the directory uses', () => {
-    // Object key order is insertion order, which is whatever the generator happened to
-    // emit. The sequence number has to decide, or a binary would apply its schema in a
-    // different order than a checkout does — the one difference that cannot be
-    // recovered from once it has run.
+    // Object key order is insertion order, which is whatever the generator happened to emit.
     const source = embeddedMigrations({ '010_j.sql': 'j', '002_b.sql': 'b', '001_a.sql': 'a' });
 
     expect(source.list()).toEqual(['001_a.sql', '002_b.sql', '010_j.sql']);
@@ -84,9 +81,7 @@ describe('embeddedMigrations', () => {
   });
 
   it('refuses a name it does not have, rather than applying nothing and recording it', () => {
-    // Only reachable if the compiled set and the applied set disagree. Returning empty
-    // SQL here would mark a migration applied without running it, which is the failure
-    // that is invisible until something reads the missing column.
+    // Only reachable if the compiled set and the applied set disagree.
     expect(() => embeddedMigrations({}).read('001_a.sql')).toThrow(/not compiled into this build/);
   });
 

@@ -3,7 +3,7 @@ import { InstallOptions } from '../../src/service/types';
 
 const options = (overrides: Partial<InstallOptions> = {}): InstallOptions => ({
   programArguments: ['/usr/local/bin/mini-cloud', 'serve'],
-  env: { MINI_CLOUD_PUBLIC_TOKEN: 'secret' },
+  env: { HOME: '/home/someone' },
   logPath: '/home/someone/.mini-cloud/service/service.log',
   enable: true,
   ...overrides,
@@ -19,19 +19,18 @@ describe('buildUnit', () => {
   });
 
   it('doubles a percent, which systemd would otherwise read as a specifier', () => {
-    const unit = buildUnit(options({ env: { MINI_CLOUD_PUBLIC_TOKEN: '50%off' } }));
+    const unit = buildUnit(options({ env: { PATH: '/opt/50%off/bin' } }));
 
-    expect(unit).toContain('Environment="MINI_CLOUD_PUBLIC_TOKEN=50%%off"');
+    expect(unit).toContain('Environment="PATH=/opt/50%%off/bin"');
   });
 
   it('bakes the environment, because a user unit reads no profile', () => {
-    expect(buildUnit(options())).toContain('Environment="MINI_CLOUD_PUBLIC_TOKEN=secret"');
+    expect(buildUnit(options())).toContain('Environment="HOME=/home/someone"');
   });
 
   it('retries a crash on a fixed delay, which is also how it waits for Postgres', () => {
-    // A user unit cannot order itself after a system service, so a database that is
-    // not up yet reads as a crash. The restart loop is what makes that recoverable
-    // rather than fatal.
+    // A user unit cannot order itself after a system service, so a database that is not up yet
+    // reads as a crash.
     const unit = buildUnit(options());
 
     expect(unit).toContain('Restart=on-failure');
