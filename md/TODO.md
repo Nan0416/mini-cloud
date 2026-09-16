@@ -47,13 +47,28 @@ instead. Delete a line once it has shipped.
 
 ## Operations
 
+- [ ] **Run the agent as a daemon too.** `mini-cloud daemon` supervises the control
+      plane only, but a worker machine is the one you are *least* likely to have a shell
+      open on — an agent that dies with its terminal, or does not come back after a
+      reboot, takes that machine out of the fleet silently. The machinery is ready:
+      `ServiceManager` takes the argv already resolved, so this is a second label, a
+      second unit name and a command group, not a second implementation. Decide the
+      surface first — `mini-cloud agent daemon start`, or a `--target` on the existing
+      group — since one control plane and one agent can share a machine and the units
+      must not collide.
+- [ ] **Refuse to start a second control plane on the same ports.** There is no check
+      today. `assertDistinctListeners` only catches `internal` and `public` colliding
+      *within one config*; nothing looks for another process. Running `mini-cloud serve`
+      while the daemon is up gets you this, and it is bad in three separate ways:
+      migrations run **first**, so the second process touches the database before it
+      finds out it cannot start; the failure is an unhandled `error` event, so the
+      operator gets a raw Node stack trace rather than a sentence; and nothing mentions
+      the daemon, which is the actual answer. A preflight `connect()` to each configured
+      port, before the pool is opened, would turn it into "a mini-cloud is already
+      listening on 127.0.0.1:3000 — `mini-cloud daemon status`".
+
 - [ ] **Rotate the daemon's log file on macOS.** The launchd plist captures stdout to
-      `~/.mini-cloud/logs/service.log` and nothing truncates it, so a long-running
+      `~/.mini-cloud/service/service.log` and nothing truncates it, so a long-running
       control plane grows one file forever. systemd has journald and needs nothing.
       Either a size-rotating writer in `shared`'s logger, or hand the file to
       `newsyslog`.
-
-## Docs
-
-- [ ] `dev.md:153` and `dev.md:195` say `npm run web`; the script is `start:web`
-      (`package.json:15`), so the command as written fails.

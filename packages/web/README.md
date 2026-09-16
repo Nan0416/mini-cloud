@@ -5,7 +5,7 @@ pub/sub hub, in a browser.
 
 ```bash
 npm start      # terminal 1 — the control plane
-npm run web    # terminal 2 — the console
+npm run start:web    # terminal 2 — the console
 ```
 
 Then open http://localhost:5173. It asks for the service address and the token once,
@@ -148,7 +148,7 @@ does, the polling intervals are the thing to replace.
 
 | Command | What it does |
 | --- | --- |
-| `npm run dev -w @mini-cloud/web` | Dev server on :5173 (or `npm run web` from the repo root) |
+| `npm run dev -w @mini-cloud/web` | Dev server on :5173 (or `npm run start:web` from the repo root) |
 | `npm run build -w @mini-cloud/web` | Typecheck, then build to `dist/` |
 | `npm run typecheck -w @mini-cloud/web` | Types only |
 | `npm run preview -w @mini-cloud/web` | Serve the built bundle |

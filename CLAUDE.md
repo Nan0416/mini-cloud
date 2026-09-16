@@ -23,7 +23,7 @@ Dependencies point one way: `cli` → `service`/`agent`/`client` → `shared`, a
 `shared` and `reporter` are published to npmjs.org under the `@mini-cloud` scope, so a
 program launched by mini-cloud can import the reporter without vendoring it. The rest
 stay private. A release is an `sdk-v*` tag, never a merge — see
-[dev.md](./dev.md#releasing-to-npm). The `mini-cloud` binary releases separately, on
+[dev.md](./dev.md#releasing). The `mini-cloud` binary releases separately, on
 `cli-v*`.
 
 Inside `service`: `routes` parse and delegate → `services` answer requests →
@@ -79,4 +79,4 @@ logging, failure handling, testing and style — each rule with the reasoning be
 ## More
 
 - [README.md](./README.md) — what the product does and how the pieces fit
-- [dev.md](./dev.md) — setup, every environment variable, everyday commands
+- [dev.md](./dev.md) — setup, everyday commands, configuration reference, a PostgreSQL cheatsheet

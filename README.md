@@ -132,7 +132,7 @@ the pub/sub hub's topics.
 
 ```bash
 npm start      # terminal 1
-npm run web    # terminal 2, then open http://localhost:5173
+npm run start:web    # terminal 2, then open http://localhost:5173
 ```
 
 The console is a static bundle that calls the public listener's HTTP API directly — no
