@@ -37,6 +37,8 @@ const aConfig = (overrides: Partial<ServiceConfig> = {}): ServiceConfig => ({
   // Where the CLI would point. Nothing in this file drives the CLI, but the shape is
   // one object and a partial one would not typecheck.
   cli: { serviceUrl: 'http://127.0.0.1:3001', internalUrl: 'http://127.0.0.1:3000' },
+  // Read on a worker machine; nothing in this file drives an agent.
+  agent: {},
   scheduler: {
     jobTickMs: 1_000,
     maintenanceTickMs: 5_000,

@@ -1,8 +1,7 @@
-import { MiniCloudAgent, loadAgentConfig } from '@mini-cloud/agent';
+import { MiniCloudAgent, resolveAgentConfig } from '@mini-cloud/agent';
 import { LoggerFactory, TaskAgent } from '@mini-cloud/shared';
 import { Command } from 'commander';
-import { parsePositiveInteger } from '../args';
-import { GlobalOptions, createClient, serviceUrlOverride } from '../client-factory';
+import { GlobalOptions, createClient, resolveConfig } from '../client-factory';
 import { Column, formatAge, printJson, printTable } from '../output';
 
 const logger = LoggerFactory.getLogger('agent');
@@ -20,17 +19,9 @@ export function buildAgentCommand(): Command {
   agent
     .command('start')
     .description('run a worker agent on this machine, in the foreground')
-    .option('--id <agentId>', 'unique agent id (env MINI_CLOUD_AGENT_ID; default: this machine’s hostname)')
-    .option('--name <name>', 'display name (env MINI_CLOUD_AGENT_NAME; default: the agent id)')
-    .option('--port <port>', 'loopback port for the reporter API', (value) => parsePositiveInteger(value, 'port'))
-    .action(async function (this: Command, options: { id?: string; name?: string; port?: number }) {
+    .action(async function (this: Command) {
       const global: GlobalOptions = this.optsWithGlobals();
-      const config = loadAgentConfig({
-        agentId: options.id,
-        name: options.name,
-        port: options.port,
-        serviceUrl: serviceUrlOverride(global),
-      });
+      const config = resolveAgentConfig(resolveConfig(global).agent);
 
       const running = await MiniCloudAgent.start(config);
 

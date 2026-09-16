@@ -114,6 +114,25 @@ export class Section {
     return isStringArray(value) ? value : this.fail(key, 'an array of strings', value);
   }
 
+  /** `undefined` when absent, for a section whose defaults are applied elsewhere. */
+  optionalString(key: string): string | undefined {
+    this.known.add(key);
+    const value = this.values[key];
+    if (value === undefined) {
+      return undefined;
+    }
+    return typeof value === 'string' ? value : this.fail(key, 'a string', value);
+  }
+
+  optionalInteger(key: string): number | undefined {
+    this.known.add(key);
+    const value = this.values[key];
+    if (value === undefined) {
+      return undefined;
+    }
+    return typeof value === 'number' && Number.isInteger(value) ? value : this.fail(key, 'a whole number', value);
+  }
+
   /** Absent reads as empty, so defaults apply. */
   section(key: string): Section {
     this.known.add(key);

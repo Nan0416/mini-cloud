@@ -1,4 +1,6 @@
 import { configPath, DEFAULT_PUBLIC_TOKEN, isDefaultPublicToken, loadConfig, PublicListenerConfig, secretPath, ServiceConfig } from '@mini-cloud/service';
+import { resolveAgentConfig } from '@mini-cloud/agent';
+import { AgentSettings } from '@mini-cloud/shared';
 import { Command } from 'commander';
 import { randomBytes } from 'node:crypto';
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
@@ -6,8 +8,19 @@ import { dirname } from 'node:path';
 
 /** Every default written out, so the file shows what can be set, not what has been. */
 function starterConfig(): string {
-  const defaults = loadConfig({ configPath: '/nonexistent', secretPath: '/nonexistent' });
-  return `${JSON.stringify(withoutToken(defaults), null, 2)}\n`;
+  const defaults = loadConfig({ configPath: '/nonexistent/config.json', secretPath: '/nonexistent/secret.json' });
+  return `${JSON.stringify({ ...withoutToken(defaults), agent: starterAgent() }, null, 2)}\n`;
+}
+
+/**
+ * The agent's own defaults, from the package that owns them.
+ *
+ * `id` and `name` are left out: both default to this machine's hostname, and writing
+ * that in would turn a value the agent resolves into one the file pins.
+ */
+function starterAgent(): AgentSettings {
+  const { serviceUrl, port, workDir, heartbeatIntervalMs, healthCheckTickMs, passiveToleranceMs, pingFailureThreshold } = resolveAgentConfig({ id: 'placeholder' });
+  return { internalUrl: serviceUrl, port, workDir, heartbeatIntervalMs, healthCheckTickMs, passiveToleranceMs, pingFailureThreshold };
 }
 
 /** The token came from `secret.json` and must not be written or printed beside settings. */

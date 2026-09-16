@@ -1,4 +1,5 @@
-import { LoggerFactory } from '@mini-cloud/shared';
+import { AgentSettings, LoggerFactory } from '@mini-cloud/shared';
+import { dirname, join } from 'node:path';
 import { configPath, readConfigObject, secretPath, Section } from './config-file';
 import { SchedulerConfig } from './facades/scheduler';
 
@@ -56,6 +57,8 @@ export interface ServiceConfig {
   readonly consoleUrl: string;
   readonly scheduler: SchedulerConfig;
   readonly cli: CliConfig;
+  /** Read on a worker machine; the control plane ignores it. */
+  readonly agent: AgentSettings;
 }
 
 /** By value, not provenance: a hand-typed `1234` is exactly as guessable. */
@@ -80,13 +83,15 @@ export interface LoadConfigOptions {
  */
 export function loadConfig(options: LoadConfigOptions = {}): ServiceConfig {
   const file = options.configPath ?? configPath();
-  const secretFile = options.secretPath ?? secretPath();
+  // A whole configuration is a directory, so `--config` picks up the secret beside it.
+  const secretFile = options.secretPath ?? (options.configPath === undefined ? secretPath() : join(dirname(options.configPath), 'secret.json'));
 
   const root = new Section(readConfigObject(file) ?? {}, file);
   const internal = root.section('internal');
   const publicSection = root.section('public');
   const scheduler = root.section('scheduler');
   const cli = root.section('cli');
+  const agent = root.section('agent');
 
   const config: ServiceConfig = {
     databaseUrl: root.string('databaseUrl', 'postgres://localhost:5432/mini_cloud'),
@@ -120,9 +125,22 @@ export function loadConfig(options: LoadConfigOptions = {}): ServiceConfig {
       serviceUrl: cli.string('serviceUrl', 'http://127.0.0.1:3001'),
       internalUrl: cli.string('internalUrl', 'http://127.0.0.1:3000'),
     },
+    // Passed through with no defaults applied: `resolveAgentConfig` owns those, and
+    // duplicating them here would be a second set to keep in step.
+    agent: {
+      id: agent.optionalString('id'),
+      name: agent.optionalString('name'),
+      internalUrl: agent.optionalString('internalUrl'),
+      port: agent.optionalInteger('port'),
+      workDir: agent.optionalString('workDir'),
+      heartbeatIntervalMs: agent.optionalInteger('heartbeatIntervalMs'),
+      healthCheckTickMs: agent.optionalInteger('healthCheckTickMs'),
+      passiveToleranceMs: agent.optionalInteger('passiveToleranceMs'),
+      pingFailureThreshold: agent.optionalInteger('pingFailureThreshold'),
+    },
   };
 
-  for (const section of [internal, publicSection, scheduler, cli, root]) {
+  for (const section of [internal, publicSection, scheduler, cli, agent, root]) {
     section.reportUnknownKeys();
   }
   return config;

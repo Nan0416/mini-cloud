@@ -25,7 +25,7 @@ Examples:
   mini-cloud config init
   mini-cloud serve
   mini-cloud daemon start
-  mini-cloud agent start --id laptop-1
+  mini-cloud agent start
   mini-cloud task create --name backup --cmd ./backup.sh --cwd ~/scripts --every 1d --at 2026-01-01T03:00:00Z
   mini-cloud task agents 1234567890 --agent laptop-1
   mini-cloud task enable 1234567890
@@ -46,10 +46,8 @@ export function buildProgram(): Command {
     .name('mini-cloud')
     .description('a private cloud for your own machines')
     .version('1.0.0')
-    .option('--service <url>', 'service base URL (config.json cli.serviceUrl, default http://127.0.0.1:3001 — the public listener)')
-    .option('--token <token>', 'bearer token for the public listener (default: publicToken from ~/.mini-cloud/secret.json)')
     .option('--json', 'print raw JSON instead of a table')
-    .option('--config <path>', 'read settings from this file instead of ~/.mini-cloud/config.json')
+    .option('--config <path>', 'read settings from this file, and the secret.json beside it, instead of ~/.mini-cloud/')
     .option('--log-level <level>', 'debug, info, warn or error', (value) => {
       const match = LOG_LEVELS.find((level) => level === value);
       if (match === undefined) {

@@ -22,14 +22,13 @@ createdb mini_cloud
 
 Point the service somewhere else with `databaseUrl` in `~/.mini-cloud/config.json` if
 you use a different host, port, user or database name. Running a second copy — an
-experiment you do not want touching your real tasks — is a second database and a flag,
-rather than anything mini-cloud knows about:
+experiment you do not want touching your real tasks — is a second database and a second
+configuration directory, rather than anything mini-cloud knows about:
 
 ```bash
 createdb mini_cloud_scratch
-npm start -- --database-url postgres://localhost:5432/mini_cloud_scratch
-# or a whole second configuration:
-npm start -- --config ~/.mini-cloud/scratch.json
+mkdir -p ~/mini-cloud-scratch          # config.json + secret.json live here
+npm start -- --config ~/mini-cloud-scratch/config.json
 ```
 
 If you would rather not run a daemon on your machine, a container works the same way:
@@ -271,14 +270,14 @@ first — it costs under two seconds and means you never run stale code. `serve`
 Everything after `--` goes to the command, not to npm:
 
 ```bash
-npm start -- --port 4000 --public-port 4001
-npm run start:agent -- --id laptop-1 --name "mac mini"
 npm run cli -- instance list --status running
+npm start -- --config ~/.mini-cloud/scratch.json
 ```
 
-`serve` keeps `--port` and `--host` pointed at the internal listener, under the names
-they had when there was only one: that is where already-deployed agents look. The
-public listener takes `--public-port` and `--public-host`.
+There are no flags for addresses, ports, the database or the token. Every one of those
+is a setting, and a setting lives in exactly one place: `~/.mini-cloud/config.json`, or
+`secret.json` beside it. `--config <path>` points at a different pair — it picks up the
+`secret.json` in the same directory — which is how you run a second instance.
 
 The `--` matters. Without it npm consumes the flags itself, so `npm start --port 4000`
 reaches the service as a bare `4000` and fails.
@@ -341,20 +340,25 @@ Kept apart so `config.json` stays safe to paste into an issue. Absent means the
 published default — see [Build and run](#build-and-run).
 
 `MINI_CLOUD_LOG_LEVEL` (`debug`, `info`, `warn`, `error`) is the one environment
-variable the service still reads. It is resolved in a static initialiser, before any
-file could be loaded, and the test suite depends on it.
+variable mini-cloud still reads anywhere. It is resolved in a static initialiser, before
+any file could be loaded, and the test suite depends on it. Everything else — the
+service's, the CLI's and the agent's — is in the two files.
 
 ### Agent
 
-| Variable | Default | Meaning |
+The `agent` section of the same `~/.mini-cloud/config.json`, on the worker machine.
+
+| Setting | Default | Meaning |
 | --- | --- | --- |
-| `MINI_CLOUD_AGENT_ID` | this machine's hostname, lowercased with a trailing `.local` stripped | Unique per agent — two sharing an id would receive each other's commands. Needed only for a second agent on one machine, or when the hostname is `localhost` |
-| `MINI_CLOUD_AGENT_NAME` | the agent id | Display name |
-| `MINI_CLOUD_INTERNAL_URL` | `http://127.0.0.1:3000` | The control plane's internal listener. The agent still reads its configuration from the environment; `config.json` is the service's and the CLI's |
-| `MINI_CLOUD_AGENT_PORT` | `3100` | Loopback port the reporter API listens on |
-| `MINI_CLOUD_AGENT_DIR` | `~/.mini-cloud/agent` | Offline reports and default stdout/stderr files |
-| `MINI_CLOUD_PING_FAILURE_THRESHOLD` | `3` | Consecutive failed probes before an instance is unhealthy |
-| `MINI_CLOUD_PASSIVE_TOLERANCE_MS` | `2000` | Grace added to a passive check's period before a heartbeat counts as missed |
+| `agent.id` | this machine's hostname, lowercased with a trailing `.local` stripped | Unique per agent — two sharing an id would receive each other's commands. Needed only for a second agent on one machine, or when the hostname is `localhost` |
+| `agent.name` | the agent id | Display name |
+| `agent.internalUrl` | `http://127.0.0.1:3000` | The control plane's **internal** listener, which is the only one that serves an agent |
+| `agent.port` | `3100` | Loopback port the reporter API listens on |
+| `agent.workDir` | `~/.mini-cloud/agent` | Offline reports and default stdout/stderr files |
+| `agent.heartbeatIntervalMs` | `5000` | Three of these fit inside the service's offline window |
+| `agent.healthCheckTickMs` | `5000` | How often instance health is checked |
+| `agent.passiveToleranceMs` | `2000` | Grace added to a passive check's period before a heartbeat counts as missed |
+| `agent.pingFailureThreshold` | `3` | Consecutive failed probes before an instance is unhealthy |
 
 ### Web console
 
