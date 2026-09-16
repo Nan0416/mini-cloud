@@ -33,7 +33,9 @@ NOTARIZE=1
 # than after a full bundle.
 SIGN_IDENTITY="${MINI_CLOUD_SIGN_IDENTITY:-}"
 if [ -z "$SIGN_IDENTITY" ]; then
-  SIGN_IDENTITY="$(security find-identity -v -p codesigning | grep 'Developer ID Application' | head -1 | sed -E 's/.*"(.*)"/\1/')"
+  # `|| true`: with no matching identity `grep` exits 1, and under `set -euo pipefail`
+  # that kills the script here — silently, before the message below can explain it.
+  SIGN_IDENTITY="$(security find-identity -v -p codesigning | grep 'Developer ID Application' | head -1 | sed -E 's/.*"(.*)"/\1/' || true)"
 fi
 [ -n "$SIGN_IDENTITY" ] || {
   echo "error: no Developer ID Application identity found in the keychain." >&2

@@ -253,7 +253,7 @@ from anything. Point it at a different service with `VITE_MINI_CLOUD_API_URL` �
 | `npm run migrate` | Build, then apply pending migrations and exit |
 | `npm run cli -- serve` / `npm run cli -- agent start` | Same as the `start` pair, but skip the build |
 | `npm run cli -- daemon start` | Run the control plane under launchd or systemd instead of in this terminal |
-| `npm run build:sea -w @mini-cloud/cli` | Build the self-contained `mini-cloud` binary into `packages/cli/build/sea/` |
+| `npm run build:sea:mac -w @mini-cloud/cli` | Build the self-contained binary into `packages/cli/build/sea/` (or `build:sea:linux`) |
 | `npm run build` | Build every package, in dependency order |
 | `npm test` | Run unit tests across all packages. Tests live in `packages/*/tests/`, mirroring each package's `src/` |
 | `npm run lint` | ESLint |
@@ -279,8 +279,8 @@ is a setting, and a setting lives in exactly one place: `~/.mini-cloud/config.js
 `secret.json` beside it. `--config <path>` points at a different pair — it picks up the
 `secret.json` in the same directory — which is how you run a second instance.
 
-The `--` matters. Without it npm consumes the flags itself, so `npm start --port 4000`
-reaches the service as a bare `4000` and fails.
+The `--` matters. Without it npm consumes the flag itself, so `npm start --config x.json`
+never reaches the service.
 
 ## Configuration
 

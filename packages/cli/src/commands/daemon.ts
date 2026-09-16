@@ -1,4 +1,5 @@
 import { Command } from 'commander';
+import { resolve } from 'node:path';
 import { getDaemonPaths } from '../paths';
 import { serviceArgv } from '../self-exec';
 import { createServiceManager, InstallOptions, ServiceStatus, unitEnvironment } from '../service';
@@ -20,15 +21,21 @@ function describe(status: ServiceStatus): string {
 }
 
 /**
- * The unit carries the command and nothing else.
- *
- * Settings live in `~/.mini-cloud/config.json`, which `serve` reads at every start, so
- * there is no configuration to capture here and nothing that can drift between the
- * unit and the file.
+ * The unit carries the command and the config file it was installed with, and nothing
+ * else. Settings live in the file, so nothing here can drift against it — but *which*
+ * file has to travel with the unit, or a daemon installed with `--config` would
+ * supervise the default instance instead.
  */
-function installOptions(enable: boolean): InstallOptions {
+function installOptions(enable: boolean, configFile: string | undefined): InstallOptions {
   const { logPath } = getDaemonPaths();
-  return { programArguments: serviceArgv(['serve']), env: unitEnvironment(), logPath, enable };
+  const serve = configFile === undefined ? ['serve'] : ['--config', configFile, 'serve'];
+  return { programArguments: serviceArgv(serve), env: unitEnvironment(), logPath, enable };
+}
+
+/** `--config` off the root program, resolved so the unit does not depend on a cwd. */
+function configFileOption(command: Command): string | undefined {
+  const path: unknown = command.parent?.parent?.opts()['config'];
+  return typeof path === 'string' ? resolve(path) : undefined;
 }
 
 export function buildDaemonCommand(): Command {
@@ -38,10 +45,14 @@ export function buildDaemonCommand(): Command {
     .command('start')
     .description('install the service and start it')
     .option('--no-enable', 'start it now, but do not start it again at login')
-    .action((options: { enable: boolean }) => {
+    .action((options: { enable: boolean }, command: Command) => {
       const service = createServiceManager();
-      service.install(installOptions(options.enable));
+      const configFile = configFileOption(command);
+      service.install(installOptions(options.enable, configFile));
       console.log(`Wrote ${service.unitPath()}`);
+      if (configFile !== undefined) {
+        console.log(`Reading ${configFile}, and the secret.json beside it.`);
+      }
       console.log(describe(service.status()));
       console.log('Logs: mini-cloud daemon logs -f');
     });

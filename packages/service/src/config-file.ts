@@ -114,6 +114,23 @@ export class Section {
     return isStringArray(value) ? value : this.fail(key, 'an array of strings', value);
   }
 
+  /**
+   * A whole number above zero — ports, intervals, thresholds, retention.
+   *
+   * The check the deleted `--port` flags used to apply. Without it `{"port": -1}` loads
+   * cleanly and fails inside `server.listen()` naming no setting, and `{"jobTickMs": 0}`
+   * gives a timer that spins.
+   */
+  positiveInteger(key: string, fallback: number): number {
+    const value = this.integer(key, fallback);
+    return value > 0 ? value : this.fail(key, 'greater than zero', value);
+  }
+
+  optionalPositiveInteger(key: string): number | undefined {
+    const value = this.optionalInteger(key);
+    return value === undefined || value > 0 ? value : this.fail(key, 'greater than zero', value);
+  }
+
   /** `undefined` when absent, for a section whose defaults are applied elsewhere. */
   optionalString(key: string): string | undefined {
     this.known.add(key);

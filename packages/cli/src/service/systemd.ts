@@ -86,11 +86,12 @@ export class SystemdServiceManager implements ServiceManager {
     logger.info(`Wrote ${this.unitFile}`);
 
     this.systemctl(['daemon-reload']);
-    if (options.enable) {
-      this.systemctl(['enable', '--now', SYSTEMD_UNIT]);
-    } else {
-      this.systemctl(['restart', SYSTEMD_UNIT]);
-    }
+    // `enable`/`disable` decide persistence; `restart` is what actually picks up the
+    // unit just written. `enable --now` would only *start*, which is a no-op on a
+    // running service — so a reinstall after an upgrade would leave the old argv
+    // running while reporting success.
+    this.systemctl([options.enable ? 'enable' : 'disable', SYSTEMD_UNIT]);
+    this.systemctl(['restart', SYSTEMD_UNIT]);
   }
 
   uninstall(): void {

@@ -35,11 +35,15 @@ describe('buildPlist', () => {
     expect(plist).not.toMatch(/<key>KeepAlive<\/key>\s*<true\s*\/>/);
   });
 
-  it('does not persist or auto-restart when installed with --no-enable', () => {
+  it('does not start at login with --no-enable, but still recovers from a crash', () => {
+    // --no-enable is about persistence. Switching off crash recovery too would make the
+    // same flag mean something different here than it does on systemd, whose unit keeps
+    // Restart=on-failure either way.
     const plist = buildPlist(options({ enable: false }));
 
     expect(plist).toMatch(/<key>RunAtLoad<\/key>\s*<false\s*\/>/);
-    expect(plist).toMatch(/<key>KeepAlive<\/key>\s*<false\s*\/>/);
+    expect(plist).toContain('<key>SuccessfulExit</key>');
+    expect(plist).not.toMatch(/<key>KeepAlive<\/key>\s*<false\s*\/>/);
   });
 
   it('escapes what would otherwise close a tag early', () => {

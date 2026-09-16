@@ -99,6 +99,15 @@ describe('settings', () => {
     expect(loadWith({ internal: { trustedSubnets: [] } }).internal.trustedSubnets).toEqual([]);
   });
 
+  it('refuses a port or interval that is zero or negative, naming the setting', () => {
+    // The check the deleted --port flags used to apply. Without it these load cleanly
+    // and fail deep inside listen() or as a timer that spins.
+    expect(() => loadWith({ internal: { port: -1 } })).toThrow(/internal\.port must be greater than zero/);
+    expect(() => loadWith({ public: { port: 0 } })).toThrow(/public\.port must be greater than zero/);
+    expect(() => loadWith({ scheduler: { jobTickMs: 0 } })).toThrow(/scheduler\.jobTickMs must be greater than zero/);
+    expect(() => loadWith({ agent: { port: -3 } })).toThrow(/agent\.port must be greater than zero/);
+  });
+
   it('refuses a value of the wrong type, naming the setting', () => {
     // Otherwise `"port": "3000"` becomes NaN somewhere inside `listen()`.
     expect(() => loadWith({ internal: { port: '3000' } })).toThrow(/internal\.port must be a whole number/);

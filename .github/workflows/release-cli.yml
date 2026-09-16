@@ -85,10 +85,27 @@ jobs:
       - name: Check it runs
         run: |
           cd packages/cli/build/sea
-          ./mini-cloud --version
           ./mini-cloud --help > /dev/null
-          # Loads the whole command tree; a binary missing its SQL still passes --help.
           ./mini-cloud daemon status
+
+          # The version has to be the one stamped above, not whatever was compiled in
+          # last: a binary reporting the wrong version cannot be traced to a release.
+          got="$(./mini-cloud --version)"
+          [ "$got" = "${{ needs.version.outputs.version }}" ] || {
+            echo "::error::binary reports $got, expected ${{ needs.version.outputs.version }}"
+            exit 1
+          }
+
+          # The migrations have to be inside it. If the bundler's onResolve filter stops
+          # matching, EMBEDDED_MIGRATIONS stays empty and the binary silently falls back
+          # to reading a directory that does not exist next to it — which every command
+          # here survives, and the first `serve` against a real database does not.
+          # `-a`: BSD grep treats the binary as unmatched without it and GNU grep does
+          # not, so this check would pass on the Linux runners and fail on the macOS ones.
+          grep -q -a '001_initial.sql' mini-cloud || {
+            echo '::error::no migrations compiled into the binary — check the embed-migrations plugin'
+            exit 1
+          }
 
       - name: Package the tarball
         run: |

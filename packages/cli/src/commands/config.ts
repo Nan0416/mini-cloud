@@ -1,9 +1,9 @@
-import { configPath, DEFAULT_PUBLIC_TOKEN, isDefaultPublicToken, loadConfig, PublicListenerConfig, secretPath, ServiceConfig } from '@mini-cloud/service';
+import { DEFAULT_PUBLIC_TOKEN, isDefaultPublicToken, LoadConfigOptions, loadConfig, PublicListenerConfig, resolvePaths, ServiceConfig } from '@mini-cloud/service';
 import { resolveAgentConfig } from '@mini-cloud/agent';
 import { AgentSettings } from '@mini-cloud/shared';
 import { Command } from 'commander';
 import { randomBytes } from 'node:crypto';
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 
 /** Every default written out, so the file shows what can be set, not what has been. */
@@ -35,9 +35,20 @@ function generateToken(): string {
   return randomBytes(32).toString('hex');
 }
 
+/**
+ * `mode` is honoured by `writeFileSync` only when it creates the file, so an existing
+ * `secret.json` at 0644 would silently keep it while we report otherwise.
+ */
 function write(path: string, contents: string, mode: number): void {
   mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, contents, { encoding: 'utf-8', mode });
+  writeFileSync(path, contents, { encoding: 'utf-8' });
+  chmodSync(path, mode);
+}
+
+/** `--config` off the root program, which is two levels up from a `config` subcommand. */
+function configOption(command: Command): LoadConfigOptions {
+  const path: unknown = command.parent?.parent?.opts()['config'];
+  return typeof path === 'string' ? { configPath: path } : {};
 }
 
 export function buildConfigCommand(): Command {
@@ -45,37 +56,56 @@ export function buildConfigCommand(): Command {
 
   config
     .command('init')
-    .description('write a starter config.json and a secret.json with a generated token')
-    .option('--force', 'overwrite files that already exist', false)
-    .action((options: { force: boolean }) => {
-      const settings = configPath();
-      const secrets = secretPath();
+    .description('write a starter config.json, and a secret.json with a generated token')
+    .option('--force', 'overwrite a file that already exists', false)
+    .action((options: { force: boolean }, command: Command) => {
+      const { configFile, secretFile } = resolvePaths(configOption(command));
 
-      for (const path of [settings, secrets]) {
-        if (existsSync(path) && !options.force) {
-          throw new Error(`${path} already exists. Pass --force to overwrite it — but read it first: --force on secret.json rotates your token and logs every browser out.`);
-        }
+      // Each file is considered on its own. Refusing both because one exists left the
+      // common case — settings written, token still missing — reachable only through
+      // `--force`, which would then overwrite the settings with defaults.
+      const written: string[] = [];
+      const kept: string[] = [];
+
+      if (!existsSync(configFile) || options.force) {
+        write(configFile, starterConfig(), 0o644);
+        written.push(`${configFile} (settings, every value at its default)`);
+      } else {
+        kept.push(configFile);
       }
 
-      write(settings, starterConfig(), 0o644);
-      write(secrets, `${JSON.stringify({ publicToken: generateToken() }, null, 2)}\n`, 0o600);
+      if (!existsSync(secretFile) || options.force) {
+        write(secretFile, `${JSON.stringify({ publicToken: generateToken() }, null, 2)}\n`, 0o600);
+        written.push(`${secretFile} (a generated token, readable only by you)`);
+      } else {
+        kept.push(secretFile);
+      }
 
-      console.log(`Wrote ${settings} (settings, every value at its default)`);
-      console.log(`Wrote ${secrets} (a generated token, readable only by you)`);
-      console.log('Restart the control plane to pick them up: mini-cloud daemon restart');
+      for (const line of written) {
+        console.log(`Wrote ${line}`);
+      }
+      for (const path of kept) {
+        console.log(`Kept ${path} (already exists)`);
+      }
+      if (kept.length > 0 && !options.force) {
+        console.log('Pass --force to replace one — it writes defaults over your settings, and a new token logs every browser out.');
+      }
+      if (written.length > 0) {
+        console.log('Restart the control plane to pick them up: mini-cloud daemon restart');
+      }
     });
 
   config
     .command('show')
     .description('print the settings in force, and where they came from')
     .action((_options: unknown, command: Command) => {
-      const override: unknown = command.parent?.parent?.opts()['config'];
-      const settings = typeof override === 'string' ? override : configPath();
-      const resolved = loadConfig(typeof override === 'string' ? { configPath: override } : {});
+      const options = configOption(command);
+      const { configFile, secretFile } = resolvePaths(options);
+      const resolved = loadConfig(options);
       const { authToken } = resolved.public;
 
-      console.log(`# settings: ${settings}${existsSync(settings) ? '' : ' (absent — every value below is a default)'}`);
-      console.log(`# secret:   ${secretPath()}${existsSync(secretPath()) ? '' : ' (absent)'}`);
+      console.log(`# settings: ${configFile}${existsSync(configFile) ? '' : ' (absent — every value below is a default)'}`);
+      console.log(`# secret:   ${secretFile}${existsSync(secretFile) ? '' : ' (absent)'}`);
       // Redacted, so this output is as safe to paste as the file it reads.
       console.log(
         `# token:    ${isDefaultPublicToken(authToken) ? `the published default ("${DEFAULT_PUBLIC_TOKEN}") — run \`mini-cloud config init\` to generate your own` : 'set (hidden)'}`,

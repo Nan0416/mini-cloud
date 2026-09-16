@@ -22,6 +22,8 @@ const embedMigrations: EsbuildPlugin = {
   name: 'embed-migrations',
   setup(build) {
     build.onResolve({ filter: /(^|\/)embedded-migrations$/ }, () => ({ path: GENERATED_MIGRATIONS }));
+    // Same substitution, same reason: a binary has no package.json to read a version from.
+    build.onResolve({ filter: /(^|\/)version$/ }, () => ({ path: resolve(__dirname, 'build/generated/version.ts') }));
   },
 };
 

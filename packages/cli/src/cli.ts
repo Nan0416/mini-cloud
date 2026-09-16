@@ -8,6 +8,7 @@ import { buildPubSubCommand } from './commands/pubsub';
 import { buildMigrateCommand, buildServeCommand } from './commands/serve';
 import { buildTaskCommand } from './commands/task';
 import { buildVarCommand } from './commands/var';
+import { cliVersion } from './version';
 
 const LOG_LEVELS: ReadonlyArray<LogLevel> = ['debug', 'info', 'warn', 'error'];
 
@@ -45,7 +46,7 @@ export function buildProgram(): Command {
   program
     .name('mini-cloud')
     .description('a private cloud for your own machines')
-    .version('1.0.0')
+    .version(cliVersion())
     .option('--json', 'print raw JSON instead of a table')
     .option('--config <path>', 'read settings from this file, and the secret.json beside it, instead of ~/.mini-cloud/')
     .option('--log-level <level>', 'debug, info, warn or error', (value) => {

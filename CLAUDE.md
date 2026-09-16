@@ -49,13 +49,16 @@ face a port forward. A route belongs to exactly one of them; the 404 on the othe
 the right listener.
 
 `mini-cloud daemon start` runs the control plane under launchd or systemd instead of in
-the terminal, and `npm run build:sea -w @mini-cloud/cli` builds the single-file binary
+the terminal, and `npm run build:sea:mac -w @mini-cloud/cli` (or `build:sea:linux`)
+builds the single-file binary
 (the migrations are compiled into it; see [dev.md](./dev.md#building-the-binary)).
 
 `start` and `start:agent` rebuild first; skip that with `npm run cli -- serve` or
 `npm run cli -- agent start`. `start:web` needs no build — vite aliases `shared` and
 `client` to their *source*, so HMR picks up edits there live. Flags need a `--`
-separator: `npm start -- --port 4000`.
+separator: `npm start -- --config ~/other/config.json`. Settings themselves have no
+flags — they live in `~/.mini-cloud/config.json`, with the token in `secret.json`
+beside it.
 
 ## Tests
 

@@ -22,13 +22,17 @@ function xmlEscape(value: string): string {
 /**
  * `KeepAlive: SuccessfulExit=false`, not `true`: a crash comes back, a clean exit stays
  * down. With `true`, launchd undoes `daemon stop` within the second.
+ *
+ * Independent of `enable`, which is start-at-login and is `RunAtLoad` alone. Tying
+ * crash recovery to it made `--no-enable` mean something different on each platform,
+ * since the systemd unit keeps `Restart=on-failure` either way.
  */
 export function buildPlist(options: InstallOptions): string {
   const argumentsXml = options.programArguments.map((argument) => `    <string>${xmlEscape(argument)}</string>`).join('\n');
   const environmentXml = Object.entries(options.env)
     .map(([key, value]) => `    <key>${xmlEscape(key)}</key>\n    <string>${xmlEscape(value)}</string>`)
     .join('\n');
-  const keepAlive = options.enable ? '<dict>\n    <key>SuccessfulExit</key>\n    <false/>\n  </dict>' : '<false/>';
+  const keepAlive = '<dict>\n    <key>SuccessfulExit</key>\n    <false/>\n  </dict>';
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

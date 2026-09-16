@@ -66,6 +66,18 @@ export function isDefaultPublicToken(token: string): boolean {
   return token === DEFAULT_PUBLIC_TOKEN;
 }
 
+/**
+ * The pair of files a given `--config` names. Exported because anything that reports or
+ * writes them has to agree with what `loadConfig` reads — `config show` printing one
+ * path while the token came from another is how a 401 becomes unexplainable.
+ */
+export function resolvePaths(options: LoadConfigOptions = {}): { configFile: string; secretFile: string } {
+  const configFile = options.configPath ?? configPath();
+  // A whole configuration is a directory, so `--config` picks up the secret beside it.
+  const secretFile = options.secretPath ?? (options.configPath === undefined ? secretPath() : join(dirname(options.configPath), 'secret.json'));
+  return { configFile, secretFile };
+}
+
 export interface LoadConfigOptions {
   /** Defaults to `~/.mini-cloud/config.json`. */
   readonly configPath?: string;
@@ -82,9 +94,7 @@ export interface LoadConfigOptions {
  * `mini-cloud --help` should not depend on a well-formed config file.
  */
 export function loadConfig(options: LoadConfigOptions = {}): ServiceConfig {
-  const file = options.configPath ?? configPath();
-  // A whole configuration is a directory, so `--config` picks up the secret beside it.
-  const secretFile = options.secretPath ?? (options.configPath === undefined ? secretPath() : join(dirname(options.configPath), 'secret.json'));
+  const { configFile: file, secretFile } = resolvePaths(options);
 
   const root = new Section(readConfigObject(file) ?? {}, file);
   const internal = root.section('internal');
@@ -98,28 +108,28 @@ export function loadConfig(options: LoadConfigOptions = {}): ServiceConfig {
     internal: {
       // Loopback by default; set it to the LAN address agents reach this host on.
       host: internal.string('host', '127.0.0.1'),
-      port: internal.integer('port', 3000),
+      port: internal.positiveInteger('port', 3000),
       trustedSubnets: internal.stringList('trustedSubnets', DEFAULT_TRUSTED_SUBNETS),
     },
     public: {
       // Loopback here too: this is the listener a port forward would point at.
       host: publicSection.string('host', '127.0.0.1'),
-      port: publicSection.integer('port', 3001),
+      port: publicSection.positiveInteger('port', 3001),
       corsOrigins: publicSection.stringList('corsOrigins', DEFAULT_CORS_ORIGINS),
       authToken: readPublicToken(secretFile),
     },
     consoleUrl: root.string('consoleUrl', DEFAULT_CONSOLE_URL),
     scheduler: {
       // At or below the minimum job interval, or occurrences fall between ticks.
-      jobTickMs: scheduler.integer('jobTickMs', 1_000),
-      maintenanceTickMs: scheduler.integer('maintenanceTickMs', 5_000),
+      jobTickMs: scheduler.positiveInteger('jobTickMs', 1_000),
+      maintenanceTickMs: scheduler.positiveInteger('maintenanceTickMs', 5_000),
       // Three missed ticks, so one slow tick does not flap an agent offline.
-      agentOfflineAfterMs: scheduler.integer('agentOfflineAfterMs', 15_000),
-      launchTimeoutMs: scheduler.integer('launchTimeoutMs', 15_000),
+      agentOfflineAfterMs: scheduler.positiveInteger('agentOfflineAfterMs', 15_000),
+      launchTimeoutMs: scheduler.positiveInteger('launchTimeoutMs', 15_000),
       // Generous: a task that loads a large model takes a while to report a pid.
-      startTimeoutMs: scheduler.integer('startTimeoutMs', 60_000),
-      retentionDays: scheduler.integer('retentionDays', 365),
-      retentionTickMs: scheduler.integer('retentionTickMs', 3600_000),
+      startTimeoutMs: scheduler.positiveInteger('startTimeoutMs', 60_000),
+      retentionDays: scheduler.positiveInteger('retentionDays', 365),
+      retentionTickMs: scheduler.positiveInteger('retentionTickMs', 3600_000),
     },
     cli: {
       serviceUrl: cli.string('serviceUrl', 'http://127.0.0.1:3001'),
@@ -131,12 +141,12 @@ export function loadConfig(options: LoadConfigOptions = {}): ServiceConfig {
       id: agent.optionalString('id'),
       name: agent.optionalString('name'),
       internalUrl: agent.optionalString('internalUrl'),
-      port: agent.optionalInteger('port'),
+      port: agent.optionalPositiveInteger('port'),
       workDir: agent.optionalString('workDir'),
-      heartbeatIntervalMs: agent.optionalInteger('heartbeatIntervalMs'),
-      healthCheckTickMs: agent.optionalInteger('healthCheckTickMs'),
-      passiveToleranceMs: agent.optionalInteger('passiveToleranceMs'),
-      pingFailureThreshold: agent.optionalInteger('pingFailureThreshold'),
+      heartbeatIntervalMs: agent.optionalPositiveInteger('heartbeatIntervalMs'),
+      healthCheckTickMs: agent.optionalPositiveInteger('healthCheckTickMs'),
+      passiveToleranceMs: agent.optionalPositiveInteger('passiveToleranceMs'),
+      pingFailureThreshold: agent.optionalPositiveInteger('pingFailureThreshold'),
     },
   };
 
