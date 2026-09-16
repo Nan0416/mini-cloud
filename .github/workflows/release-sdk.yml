@@ -6,31 +6,53 @@
 #
 # Authentication is npm Trusted Publishing over GitHub's OIDC, so there is no
 # NPM_TOKEN in this repository. GitHub mints a short-lived token that npm exchanges
-# for publish rights, scoped to this repo and this workflow file. Renaming this file
-# breaks publishing until the trusted publisher on npmjs.com is updated to match.
+# for publish rights, scoped to this repo and to THIS FILENAME. Renaming this file
+# breaks publishing until both packages' trusted publisher entries on npmjs.com name
+# the new one — the failure is at the publish step, after the build and tests have
+# passed, on a tag that has already been pushed.
+#
+# This file was `publish.yml` until it was renamed to sit beside release-cli.yml, so
+# the entries for @mini-cloud/shared and @mini-cloud/reporter each need
+# `release-sdk.yml` under Package → Settings → Trusted publishing.
 #
 # One consequence worth knowing: npm generates provenance attestations automatically
 # under trusted publishing, so `--provenance` is deliberately absent below. Passing it
 # is not needed and only adds a way to be wrong.
-name: Publish
+name: Release SDK
 on:
   push:
     tags:
-      - 'v*'
+      - 'sdk-v*'
 permissions:
   # The whole of the authentication story. Without it npm has no OIDC token to trade.
   id-token: write
   contents: read
+concurrency:
+  # One release at a time. Two tags pushed together would otherwise race to publish the
+  # same package, and `cancel-in-progress` is deliberately absent: cancelling a job
+  # halfway through a publish is how one package ships and the other does not.
+  group: release-sdk
+  cancel-in-progress: false
 jobs:
   publish:
-    name: Publish to npmjs.org
+    name: Build, Test, Publish
     runs-on: ubuntu-latest
+    # A GitHub Environment, for the one step in this repository that cannot be undone.
+    # It does two things: with a required reviewer it holds the run at the publish job
+    # until someone approves, and it puts an `environment` claim in the OIDC token that
+    # npm's trusted publisher can be configured to insist on — so a token minted by any
+    # other job in this repository is refused.
+    #
+    # Referencing an environment that does not exist creates it, with no rules, so this
+    # line alone gates nothing: the approval comes from adding a required reviewer under
+    # Settings → Environments → npm-publish.
+    environment: npm-publish
     steps:
       - name: Checkout the repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Install Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           # Trusted publishing needs Node 22.14.0 or newer; `22` resolves to the
           # latest 22.x, which is well past that.
@@ -54,7 +76,7 @@ jobs:
         # for, under a tag that then points at the wrong thing. Fail before the
         # irreversible step rather than after it.
         run: |
-          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          TAG_VERSION="${GITHUB_REF_NAME#sdk-v}"
           STATUS=0
           for package in shared reporter; do
             PACKAGE_VERSION="$(node -p "require('./packages/${package}/package.json').version")"

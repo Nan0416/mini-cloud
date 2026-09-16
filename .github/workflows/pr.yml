@@ -15,15 +15,20 @@ on:
 permissions:
   id-token: write
   contents: read
+concurrency:
+  # Per branch, so a second push supersedes the first rather than running both. Safe to
+  # cancel here in a way a release is not: nothing this workflow does leaves a trace.
+  group: build-and-test-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   build_and_test:
     name: Node.js 22 Build & Test
     runs-on: ubuntu-latest
     steps:
       - name: Checkout the repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
           cache: npm
