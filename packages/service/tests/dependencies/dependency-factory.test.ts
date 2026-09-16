@@ -2,7 +2,7 @@ import { HubStatus, LoggerFactory, Target } from '@mini-cloud/shared';
 import { DependencyFactory } from '../../src/dependencies/dependency-factory';
 import { MessageHub, OutboundMessage } from '../../src/facades/message-hub';
 import { Service } from '../../src/service';
-import { DEFAULT_PUBLIC_TOKEN, ServiceConfig } from '../../src/stage-config';
+import { DEFAULT_PUBLIC_TOKEN, ServiceConfig } from '../../src/config';
 import { FakePool } from '../data/test-helpers';
 import { TestServer } from '../routes/test-helpers';
 
@@ -35,6 +35,9 @@ const aConfig = (overrides: Partial<ServiceConfig> = {}): ServiceConfig => ({
   // no equivalent field — the source address is what guards it.
   public: { host: '127.0.0.1', port: 3001, corsOrigins: ['*'], authToken: 'operator' },
   consoleUrl: '',
+  // Where the CLI would point. Nothing in this file drives the CLI, but the shape is
+  // one object and a partial one would not typecheck.
+  cli: { serviceUrl: 'http://127.0.0.1:3001', internalUrl: 'http://127.0.0.1:3000' },
   scheduler: {
     jobTickMs: 1_000,
     maintenanceTickMs: 5_000,

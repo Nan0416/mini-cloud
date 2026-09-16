@@ -1,6 +1,8 @@
 import { AppError, LoggerFactory, LogLevel } from '@mini-cloud/shared';
 import { Command, InvalidArgumentError } from 'commander';
 import { buildAgentCommand } from './commands/agent';
+import { buildConfigCommand } from './commands/config';
+import { buildDaemonCommand } from './commands/daemon';
 import { buildInstanceCommand } from './commands/instance';
 import { buildPubSubCommand } from './commands/pubsub';
 import { buildMigrateCommand, buildServeCommand } from './commands/serve';
@@ -9,12 +11,20 @@ import { buildVarCommand } from './commands/var';
 
 const LOG_LEVELS: ReadonlyArray<LogLevel> = ['debug', 'info', 'warn', 'error'];
 
-/** Commands that print a table, where service log lines would only be noise. */
-const QUIET_COMMANDS = new Set(['task', 'instance', 'var', 'pubsub', 'migrate']);
+/**
+ * Commands that print a report, where service log lines would only be noise.
+ *
+ * `daemon` belongs here for the same reason a table does: it says what it did through
+ * `console.log`, and the launchd/systemd chatter underneath is for `--log-level debug`.
+ * A warning still gets through, which is what carries the missing-token notice.
+ */
+const QUIET_COMMANDS = new Set(['task', 'instance', 'var', 'pubsub', 'migrate', 'daemon', 'config']);
 
 const EXAMPLES = `
 Examples:
+  mini-cloud config init
   mini-cloud serve
+  mini-cloud daemon start
   mini-cloud agent start --id laptop-1
   mini-cloud task create --name backup --cmd ./backup.sh --cwd ~/scripts --every 1d --at 2026-01-01T03:00:00Z
   mini-cloud task agents 1234567890 --agent laptop-1
@@ -39,6 +49,7 @@ export function buildProgram(): Command {
     .option('--service <url>', 'service base URL (env MINI_CLOUD_SERVICE_URL, default http://127.0.0.1:3001 — the public listener)')
     .option('--token <token>', 'bearer token for the public listener (env MINI_CLOUD_PUBLIC_TOKEN)')
     .option('--json', 'print raw JSON instead of a table')
+    .option('--config <path>', 'read settings from this file instead of ~/.mini-cloud/config.json')
     .option('--log-level <level>', 'debug, info, warn or error', (value) => {
       const match = LOG_LEVELS.find((level) => level === value);
       if (match === undefined) {
@@ -65,6 +76,8 @@ export function buildProgram(): Command {
   });
 
   program.addCommand(buildServeCommand());
+  program.addCommand(buildDaemonCommand());
+  program.addCommand(buildConfigCommand());
   program.addCommand(buildMigrateCommand());
   program.addCommand(buildAgentCommand());
   program.addCommand(buildTaskCommand());

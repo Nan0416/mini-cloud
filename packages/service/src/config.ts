@@ -1,5 +1,8 @@
-import { getenv, getenvInteger } from '@mini-cloud/shared';
+import { LoggerFactory } from '@mini-cloud/shared';
+import { configPath, readConfigObject, secretPath, Section } from './config-file';
 import { SchedulerConfig } from './facades/scheduler';
+
+const logger = LoggerFactory.getLogger('Config');
 
 const DEFAULT_CORS_ORIGINS: ReadonlyArray<string> = ['*'];
 
@@ -14,6 +17,8 @@ const DEFAULT_CONSOLE_URL = 'https://mini-cloud.qinnan.dev';
  * makes it a placeholder, not a secret. It buys a first five minutes that need no
  * setup; what keeps it from being a hole is that the public listener says so on every
  * start, loudly, and that it binds to loopback unless told otherwise.
+ *
+ * `mini-cloud config init` writes a generated one, which is the way out of it.
  */
 export const DEFAULT_PUBLIC_TOKEN = '1234';
 
@@ -30,7 +35,8 @@ export interface ListenerConfig {
 export interface InternalListenerConfig extends ListenerConfig {
   /**
    * CIDR blocks a connection may come from, checked on requests and on WebSocket
-   * upgrades. Empty accepts any address, which is the way to switch the check off.
+   * upgrades. An empty list accepts any address, which is the way to switch the check
+   * off.
    */
   readonly trustedSubnets: ReadonlyArray<string>;
 }
@@ -38,7 +44,7 @@ export interface InternalListenerConfig extends ListenerConfig {
 /** The listener the console and the CLI talk to — the one that may face the internet. */
 export interface PublicListenerConfig extends ListenerConfig {
   /**
-   * Origins the web console may call this listener from. `*` allows any; empty
+   * Origins the web console may call this listener from. `*` allows any; an empty list
    * disables CORS entirely, so only non-browser callers get through.
    */
   readonly corsOrigins: ReadonlyArray<string>;
@@ -47,12 +53,20 @@ export interface PublicListenerConfig extends ListenerConfig {
    * thing as a public listener without one: it is the listener a port forward points
    * at, and anything that reaches it can launch programs on your machines.
    *
-   * Unset means {@link DEFAULT_PUBLIC_TOKEN}, which is a published value and therefore
-   * no protection at all against anyone who has read this repository. Check it with
-   * {@link isDefaultPublicToken} before doing anything that assumes the caller was
+   * Read from `secret.json`, never from `config.json` — see {@link secretPath}. Unset
+   * means {@link DEFAULT_PUBLIC_TOKEN}, which is published and therefore no protection
+   * at all; check it with {@link isDefaultPublicToken} before assuming a caller was
    * authenticated by it.
    */
   readonly authToken: string;
+}
+
+/** What the CLI needs to find the service it is driving. */
+export interface CliConfig {
+  /** The public listener, which serves tasks, instances, the fleet and variables. */
+  readonly serviceUrl: string;
+  /** The internal listener, where the agent API and the WebSocket hub are. */
+  readonly internalUrl: string;
 }
 
 export interface ServiceConfig {
@@ -60,42 +74,12 @@ export interface ServiceConfig {
   readonly internal: InternalListenerConfig;
   readonly public: PublicListenerConfig;
   /**
-   * Where the console is served, for the link printed at startup. Empty suppresses
-   * that line.
+   * Where the console is served, for the link printed at startup. An empty string
+   * suppresses that line.
    */
   readonly consoleUrl: string;
   readonly scheduler: SchedulerConfig;
-}
-
-/**
- * A comma-separated list that an empty value *empties* rather than resets.
- *
- * `getenvList` treats an empty value as unset and hands back the default, which turns
- * the documented way to switch a check off — `MINI_CLOUD_CORS_ORIGINS=` — into the way
- * to keep it on. Same asymmetry `consoleUrl` reads around, and the same fix.
- */
-function getenvClearableList(name: string, fallback: ReadonlyArray<string>): ReadonlyArray<string> {
-  const raw = process.env[name];
-  if (raw === undefined) {
-    return fallback;
-  }
-  return raw
-    .split(',')
-    .map((entry) => entry.trim())
-    .filter((entry) => entry.length > 0);
-}
-
-/**
- * The operator's token, or the published placeholder when they have not set one.
- *
- * An empty value is as unset as a missing one: `MINI_CLOUD_PUBLIC_TOKEN=` is what a
- * shell leaves behind when the variable it was meant to expand was itself unset, and
- * honouring it would start a listener whose token is the empty string — which is worse
- * than the default, because nothing warns about it.
- */
-function resolvePublicToken(): string {
-  const token = process.env['MINI_CLOUD_PUBLIC_TOKEN']?.trim();
-  return token === undefined || token.length === 0 ? DEFAULT_PUBLIC_TOKEN : token;
+  readonly cli: CliConfig;
 }
 
 /**
@@ -103,59 +87,110 @@ function resolvePublicToken(): string {
  *
  * Compares the value rather than tracking where it came from, deliberately: a token
  * typed out in full is exactly as guessable as one that was defaulted into, so an
- * operator who set `MINI_CLOUD_PUBLIC_TOKEN=1234` by hand deserves the same warning.
+ * operator who wrote `"publicToken": "1234"` by hand deserves the same warning.
  */
 export function isDefaultPublicToken(token: string): boolean {
   return token === DEFAULT_PUBLIC_TOKEN;
 }
 
+export interface LoadConfigOptions {
+  /** Defaults to `~/.mini-cloud/config.json`. */
+  readonly configPath?: string;
+  /** Defaults to `~/.mini-cloud/secret.json`. */
+  readonly secretPath?: string;
+}
+
 /**
- * Reads the environment. The single place this package does.
+ * Reads `~/.mini-cloud/config.json` and `~/.mini-cloud/secret.json`.
  *
- * A function, deliberately, rather than a constant resolved at import. The CLI imports
- * this package for every command, so an import-time read would mean `mini-cloud task
- * list` — and `--help` — depended on the service's environment to get as far as parsing
- * an argument. Reading it in the command that actually serves requests keeps that
- * dependency where it belongs, and lets a test load a configuration without reaching
- * through the module registry to do it.
+ * Files, not environment variables, and deliberately not both. A daemon inherits no
+ * shell — launchd and systemd read no profile — so environment configuration had to be
+ * captured into the unit at install time, which made the unit a second copy of the
+ * settings that went stale the moment anything changed and could only be corrected by
+ * reinstalling it. A file the service reads at startup is the same file whether it was
+ * started by a terminal, by launchd or by systemd, and editing it plus a restart is the
+ * whole of reconfiguring.
+ *
+ * What is left is one layer over the defaults, plus whatever flags the command applies
+ * on top: `flag > file > default`, with nothing invisible in between.
+ *
+ * A function rather than a constant resolved at import, because the CLI imports this
+ * package for every command: reading files at import time would make `mini-cloud
+ * --help` depend on a config file being well-formed.
  */
-export function loadConfig(): ServiceConfig {
-  return {
-    databaseUrl: getenv('MINI_CLOUD_DATABASE_URL', `postgres://localhost:5432/mini_cloud`),
+export function loadConfig(options: LoadConfigOptions = {}): ServiceConfig {
+  const file = options.configPath ?? configPath();
+  const secretFile = options.secretPath ?? secretPath();
+
+  const root = new Section(readConfigObject(file) ?? {}, file);
+  const internal = root.section('internal');
+  const publicSection = root.section('public');
+  const scheduler = root.section('scheduler');
+  const cli = root.section('cli');
+
+  const config: ServiceConfig = {
+    databaseUrl: root.string('databaseUrl', 'postgres://localhost:5432/mini_cloud'),
     internal: {
       // Loopback by default: the service commands processes on your machines, so
       // exposing it needs to be a deliberate act. Set it to the LAN address agents
       // reach this host on.
-      host: getenv('MINI_CLOUD_INTERNAL_HOST', getenv('MINI_CLOUD_HOST', '127.0.0.1')),
-      port: getenvInteger('MINI_CLOUD_INTERNAL_PORT', getenvInteger('MINI_CLOUD_PORT', 3000)),
-      trustedSubnets: getenvClearableList('MINI_CLOUD_TRUSTED_SUBNETS', DEFAULT_TRUSTED_SUBNETS),
+      host: internal.string('host', '127.0.0.1'),
+      port: internal.integer('port', 3000),
+      trustedSubnets: internal.stringList('trustedSubnets', DEFAULT_TRUSTED_SUBNETS),
     },
     public: {
       // Loopback here too. This is the listener a port forward would point at, and a
-      // default that silently accepted one would make opening the router the only
-      // step needed to publish a remote-execution API.
-      host: getenv('MINI_CLOUD_PUBLIC_HOST', '127.0.0.1'),
-      port: getenvInteger('MINI_CLOUD_PUBLIC_PORT', 3001),
-      authToken: resolvePublicToken(),
-      // Setting the variable replaces the default rather than adding to it, so naming
-      // your own origins genuinely narrows the service instead of widening it.
-      corsOrigins: getenvClearableList('MINI_CLOUD_CORS_ORIGINS', DEFAULT_CORS_ORIGINS),
+      // default that silently accepted one would make opening the router the only step
+      // needed to publish a remote-execution API.
+      host: publicSection.string('host', '127.0.0.1'),
+      port: publicSection.integer('port', 3001),
+      corsOrigins: publicSection.stringList('corsOrigins', DEFAULT_CORS_ORIGINS),
+      authToken: readPublicToken(secretFile),
     },
-    // Read straight from `process.env` rather than through `getenv`, which collapses
-    // an explicitly empty value to "unset" and would hand back the default — turning
-    // the one way to switch the startup link off into the way to keep it on.
-    consoleUrl: process.env['MINI_CLOUD_CONSOLE_URL'] ?? DEFAULT_CONSOLE_URL,
+    consoleUrl: root.string('consoleUrl', DEFAULT_CONSOLE_URL),
     scheduler: {
       // Must stay at or below the minimum job interval, or occurrences fall between ticks.
-      jobTickMs: getenvInteger('MINI_CLOUD_JOB_TICK_MS', 1_000),
-      maintenanceTickMs: getenvInteger('MINI_CLOUD_MAINTENANCE_TICK_MS', 5_000),
+      jobTickMs: scheduler.integer('jobTickMs', 1_000),
+      maintenanceTickMs: scheduler.integer('maintenanceTickMs', 5_000),
       // Three missed maintenance ticks, so one slow tick does not flap an agent offline.
-      agentOfflineAfterMs: getenvInteger('MINI_CLOUD_AGENT_OFFLINE_AFTER_MS', 15_000),
-      launchTimeoutMs: getenvInteger('MINI_CLOUD_LAUNCH_TIMEOUT_MS', 15_000),
+      agentOfflineAfterMs: scheduler.integer('agentOfflineAfterMs', 15_000),
+      launchTimeoutMs: scheduler.integer('launchTimeoutMs', 15_000),
       // Generous: a task that loads a large model can take a while to report a pid.
-      startTimeoutMs: getenvInteger('MINI_CLOUD_START_TIMEOUT_MS', 60_000),
-      retentionDays: getenvInteger('MINI_CLOUD_RETENTION_DAYS', 365),
-      retentionTickMs: getenvInteger('MINI_CLOUD_RETENTION_TICK_MS', 3600_000),
+      startTimeoutMs: scheduler.integer('startTimeoutMs', 60_000),
+      retentionDays: scheduler.integer('retentionDays', 365),
+      retentionTickMs: scheduler.integer('retentionTickMs', 3600_000),
+    },
+    cli: {
+      serviceUrl: cli.string('serviceUrl', 'http://127.0.0.1:3001'),
+      internalUrl: cli.string('internalUrl', 'http://127.0.0.1:3000'),
     },
   };
+
+  for (const section of [internal, publicSection, scheduler, cli, root]) {
+    section.reportUnknownKeys();
+  }
+  return config;
+}
+
+/**
+ * The token, from `secret.json` alone.
+ *
+ * Deliberately refuses to read one out of `config.json`. Accepting it there would make
+ * the split advisory, and the whole value of the split is that `config.json` can be
+ * handed to someone without thinking about it — which stops being true the first time
+ * it silently works.
+ */
+function readPublicToken(file: string): string {
+  const secrets = readConfigObject(file);
+  if (secrets === undefined) {
+    return DEFAULT_PUBLIC_TOKEN;
+  }
+  const section = new Section(secrets, file);
+  const token = section.string('publicToken', '').trim();
+  section.reportUnknownKeys();
+  if (token.length === 0) {
+    logger.warn(`${file} has no "publicToken", so the default is in force.`);
+    return DEFAULT_PUBLIC_TOKEN;
+  }
+  return token;
 }

@@ -9,7 +9,7 @@ import { Dependencies, DependencyFactory, PlaneDependencies } from './dependenci
 import { WsMessageHub } from './facades/message-hub';
 import { Scheduler } from './facades/scheduler';
 import { Service } from './service';
-import { ListenerConfig, ServiceConfig } from './stage-config';
+import { ListenerConfig, ServiceConfig } from './config';
 import { consoleLink } from './utils/console-link';
 
 const logger = LoggerFactory.getLogger('MiniCloudServer');

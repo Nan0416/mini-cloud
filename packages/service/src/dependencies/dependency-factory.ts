@@ -25,7 +25,7 @@ import { PubSubEndpoints } from '../routes/pubsub-endpoints';
 import { TaskEndpoints } from '../routes/task-endpoints';
 import { AgentService } from '../services/agent-service';
 import { TaskService } from '../services/task-service';
-import { isDefaultPublicToken, ServiceConfig } from '../stage-config';
+import { isDefaultPublicToken, ServiceConfig } from '../config';
 
 const logger = LoggerFactory.getLogger('DependencyFactory');
 
