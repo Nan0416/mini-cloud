@@ -45,7 +45,14 @@ export class ReleaseChannel {
    * code. Its output goes straight to the terminal; its failure is already explained there.
    */
   async install(version: string): Promise<void> {
-    const script = await this.get(`${this.baseUrl}/v${version}/install.sh`);
+    const url = `${this.baseUrl}/v${version}/install.sh`;
+    const script = await this.get(url);
+    // A 200 is not proof of a script. A captive portal answers with its login page, and
+    // the distribution serving these turns a 403 from the bucket into the console's HTML
+    // — either would reach `sh` as a wall of syntax errors rather than as one sentence.
+    if (!script.startsWith('#!')) {
+      throw new InternalServiceError(`${url} answered with something that is not a script. Nothing was installed.`);
+    }
     const result = spawnSync('sh', ['-s'], {
       input: script,
       stdio: ['pipe', 'inherit', 'inherit'],

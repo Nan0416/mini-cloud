@@ -47,6 +47,14 @@ jobs:
             # refs/tags/cli-v1.2.3 -> 1.2.3
             version="${GITHUB_REF#refs/tags/cli-v}"
           fi
+          # Refused here rather than discovered later: this string is stamped into the
+          # binary and published as the manifest every installed CLI polls, and one the
+          # updater cannot parse — `cli-v1.2`, `cli-vtest` — breaks `mini-cloud update`
+          # on every machine until a well-formed tag replaces it.
+          echo "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$' || {
+            echo "::error::\"$version\" is not a MAJOR.MINOR.PATCH version; tag it as cli-v1.2.3 or cli-v1.2.3-rc.1"
+            exit 1
+          }
           echo "version=$version" >> "$GITHUB_OUTPUT"
           # `1.3.0-rc.1` is published, but does not become the version everyone installs.
           case "$version" in
@@ -186,6 +194,15 @@ jobs:
           # text/plain, so a browser shows the script to anyone reading it before piping it to sh.
           script='text/plain; charset=utf-8'
 
+          # What makes `immutable` true. Re-running a tag over a directory that already
+          # has objects would leave edges and installs holding a year-old copy of files
+          # this run replaced — a new SHA256SUMS against an old tarball reads as
+          # tampering. A retag after a partly-failed publish needs a new version.
+          if [ -n "$(aws s3 ls "$prefix/v$VERSION/")" ]; then
+            echo "::error::v$VERSION is already published; releases are immutable, so tag the fix as a new version"
+            exit 1
+          fi
+
           aws s3 cp release/ "$prefix/v$VERSION/" --recursive --exclude install.sh --cache-control "$immutable"
           aws s3 cp release/install.sh "$prefix/v$VERSION/install.sh" --cache-control "$immutable" --content-type "$script"
 
@@ -199,7 +216,16 @@ jobs:
           # version whose files are not up yet.
           aws s3 cp release/install.sh "$prefix/install.sh" --cache-control no-cache --content-type "$script"
           aws s3 cp version.json "$prefix/version.json" --cache-control no-cache --content-type application/json
-          curl -fsS "$DOWNLOADS_URL/version.json"
+
+          # Proves the manifest this workflow just wrote is what $DOWNLOADS_URL serves:
+          # that the bucket is behind that domain, that the behavior routes to it, and
+          # that no cache is holding the previous release. A bare fetch would pass
+          # against any manifest, including one on somebody else's domain.
+          served="$(curl -fsS "$DOWNLOADS_URL/version.json" | sed -n 's/.*"version" *: *"\([^"]*\)".*/\1/p')"
+          [ "$served" = "$VERSION" ] || {
+            echo "::error::$DOWNLOADS_URL/version.json serves \"$served\", not $VERSION"
+            exit 1
+          }
 
       - name: Publish
         uses: softprops/action-gh-release@efb35369e0ad2afab669f228072c1b0d510eae64 # v3.0.3

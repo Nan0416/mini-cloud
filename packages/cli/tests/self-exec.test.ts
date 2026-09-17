@@ -83,6 +83,15 @@ describe('stableBinaryPath', () => {
     expect(stableBinaryPath(installed, installed, '', home)).toBe(launcher);
   });
 
+  it('looks past an unrelated mini-cloud earlier on the PATH', () => {
+    const decoy = join(home, 'decoy');
+    mkdirSync(decoy);
+    writeFileSync(join(decoy, 'mini-cloud'), '');
+    const launcher = link(installed, join(home, 'bin', 'mini-cloud'));
+
+    expect(stableBinaryPath(installed, 'mini-cloud', `${decoy}:${join(home, 'bin')}`, home)).toBe(launcher);
+  });
+
   it('ignores a symlink to some other version', () => {
     link(install('1.1.0'));
 

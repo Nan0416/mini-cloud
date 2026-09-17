@@ -120,6 +120,30 @@ describe('install.sh', () => {
     expect(readlinkSync(launcher())).toBe(join(versionsDir(), '1.3.0', 'mini-cloud'));
   });
 
+  it('remembers a custom symlink directory, so an update relinks it rather than a second one', async () => {
+    const binDir = join(work, 'custom-bin');
+    publish('1.2.0');
+    publish('1.3.0');
+    markLatest('1.3.0');
+
+    await install({ MINI_CLOUD_VERSION: '1.2.0', MINI_CLOUD_BIN_DIR: binDir });
+    // The second run is `mini-cloud update`: the same script, without that environment.
+    expect(await install()).toMatchObject({ code: 0 });
+
+    expect(readlinkSync(join(binDir, 'mini-cloud'))).toBe(join(versionsDir(), '1.3.0', 'mini-cloud'));
+    expect(existsSync(launcher())).toBe(false);
+  });
+
+  it('keeps the command working when the version it is on is installed again', async () => {
+    publish('1.2.0');
+
+    await install({ MINI_CLOUD_VERSION: '1.2.0' });
+    expect(await install({ MINI_CLOUD_VERSION: '1.2.0' })).toMatchObject({ code: 0 });
+
+    expect(execFileSync(launcher(), ['--version'], { encoding: 'utf-8' })).toBe('1.2.0\n');
+    expect(readdirSync(versionsDir())).toEqual(['1.2.0']);
+  });
+
   it('refuses an archive that does not match its checksum, leaving the installed version alone', async () => {
     publish('1.2.0');
     await install({ MINI_CLOUD_VERSION: '1.2.0' });

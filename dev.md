@@ -373,6 +373,14 @@ release, and is written last. A prerelease tag (`cli-v1.1.0-rc.1`) gets its dire
 and a GitHub prerelease, and leaves `version.json` alone — install it with
 `MINI_CLOUD_VERSION=1.1.0-rc.1`.
 
+Two things the job refuses, both before anything is published. A tag that is not
+`cli-v<major>.<minor>.<patch>[-prerelease]`, because that string becomes the manifest
+every installed CLI polls and one the updater cannot parse breaks `update` everywhere
+until a good tag replaces it. And a version whose directory already holds objects: it is
+served as `immutable`, so rewriting it leaves caches and machines holding a year-old copy
+of files this run replaced. **Retagging a partly-published release does not work — give
+the fix a new version.**
+
 It reaches AWS over OIDC too, through a role only this repository's `cli-v*` tags can
 assume. It needs two repository secrets, both outputs of the `MiniCloudConsole` stack:
 

@@ -67,7 +67,7 @@ describe('ReleaseChannel.install', () => {
   it("runs that release's own installer, pinned to it", async () => {
     const recorded = join(dir, 'recorded');
     const requested: string[] = [];
-    const installer = `printf '%s %s' "$MINI_CLOUD_VERSION" "$MINI_CLOUD_INSTALL_URL" > '${recorded}'\n`;
+    const installer = `#!/bin/sh\nprintf '%s %s' "$MINI_CLOUD_VERSION" "$MINI_CLOUD_INSTALL_URL" > '${recorded}'\n`;
     const channel = new ReleaseChannel(BASE_URL, fakeFetch({ [`${BASE_URL}/v1.4.0/install.sh`]: installer }, requested));
 
     await channel.install('1.4.0');
@@ -76,8 +76,14 @@ describe('ReleaseChannel.install', () => {
     expect(readFileSync(recorded, 'utf-8')).toBe(`1.4.0 ${BASE_URL}`);
   });
 
+  it('runs nothing when the answer is not a script, which a 200 does not rule out', async () => {
+    const channel = new ReleaseChannel(BASE_URL, fakeFetch({ [`${BASE_URL}/v1.4.0/install.sh`]: '<html>the console</html>' }));
+
+    await expect(channel.install('1.4.0')).rejects.toThrow('is not a script');
+  });
+
   it('fails when the installer does', async () => {
-    const channel = new ReleaseChannel(BASE_URL, fakeFetch({ [`${BASE_URL}/v1.4.0/install.sh`]: 'exit 3\n' }));
+    const channel = new ReleaseChannel(BASE_URL, fakeFetch({ [`${BASE_URL}/v1.4.0/install.sh`]: '#!/bin/sh\nexit 3\n' }));
 
     await expect(channel.install('1.4.0')).rejects.toThrow('The installer failed');
   });

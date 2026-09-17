@@ -10,20 +10,34 @@
 #   ~/.local/bin/mini-cloud -> the file above
 #
 # A daemon's unit names the symlink, so a restart after an update runs the new binary.
-# `mini-cloud update` is this script again, pinned to the version it found. The newest
-# three versions are kept.
+# `mini-cloud update` is this script again, pinned to the version it found. The three
+# most recently installed versions are kept, so a version pinned by hand stays for as
+# long as it is the one being used.
 #
 # POSIX sh: `| sh` is dash on Debian and Ubuntu.
 #
 #   MINI_CLOUD_VERSION      a published version to install instead of the latest
-#   MINI_CLOUD_BIN_DIR      where the symlink goes (default ~/.local/bin)
+#   MINI_CLOUD_BIN_DIR      where the symlink goes (default: wherever the last install
+#                           put it, else ~/.local/bin)
 #   MINI_CLOUD_INSTALL_URL  where to download from (default the address above)
 set -eu
 
 BASE_URL="${MINI_CLOUD_INSTALL_URL:-https://mini-cloud.qinnan.dev/downloads/cli}"
-BIN_DIR="${MINI_CLOUD_BIN_DIR:-$HOME/.local/bin}"
 DATA_DIR="$HOME/.local/share/mini-cloud"
 KEEP_VERSIONS=3
+
+# Where the last install put the symlink. `mini-cloud update` re-runs this script without
+# the environment the first install had, so without this a custom MINI_CLOUD_BIN_DIR
+# would be forgotten: the update would link a second launcher into ~/.local/bin and leave
+# the one on the PATH pointing at the old version.
+BIN_DIR_RECORD="$DATA_DIR/bin-dir"
+if [ -n "${MINI_CLOUD_BIN_DIR:-}" ]; then
+  BIN_DIR="$MINI_CLOUD_BIN_DIR"
+elif [ -r "$BIN_DIR_RECORD" ]; then
+  BIN_DIR="$(cat "$BIN_DIR_RECORD")"
+else
+  BIN_DIR="$HOME/.local/bin"
+fi
 
 say() { printf '%s\n' "$1"; }
 fail() {
@@ -81,16 +95,26 @@ chmod 755 "$tmp/mini-cloud"
 reported="$("$tmp/mini-cloud" --version)" || fail "the downloaded binary does not run on this machine"
 [ "$reported" = "$version" ] || fail "the binary published as $version reports itself as $reported"
 
+# Staged beside the destination and renamed over it, so reinstalling the version the
+# symlink already points at cannot leave it dangling: the only gap is one rename, and
+# neither it nor the `mv` before it can fail for want of space on another filesystem.
 dest="$DATA_DIR/versions/$version"
+staging="$DATA_DIR/versions/.$version.incoming"
+rm -rf "$staging"
+mkdir -p "$staging" "$BIN_DIR"
+mv "$tmp/mini-cloud" "$staging/mini-cloud"
 rm -rf "$dest"
-mkdir -p "$dest" "$BIN_DIR"
-mv "$tmp/mini-cloud" "$dest/mini-cloud"
+mv "$staging" "$dest"
 
 # A rename, so the command is never missing from the PATH mid-update.
 ln -sf "$dest/mini-cloud" "$BIN_DIR/.mini-cloud.new"
 mv -f "$BIN_DIR/.mini-cloud.new" "$BIN_DIR/mini-cloud"
 
-# A running daemon keeps the file it started from open, so pruning it is harmless.
+printf '%s\n' "$BIN_DIR" > "$BIN_DIR_RECORD"
+
+# By install time rather than by version order, so a version installed on purpose is one
+# of the three kept. A running daemon holds the file it started from open, so pruning it
+# is harmless.
 ls -1t "$DATA_DIR/versions" | grep -vxF "$version" | tail -n +"$KEEP_VERSIONS" | while IFS= read -r old; do
   rm -rf "${DATA_DIR:?}/versions/$old" || true
 done

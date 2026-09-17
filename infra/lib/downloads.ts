@@ -38,6 +38,10 @@ export class Downloads extends Construct {
       // Kept, unlike the console's bucket: a release rebuilt from its tag is not the
       // same bytes as the one whose checksums people already have.
       removalPolicy: RemovalPolicy.RETAIN,
+      // A tarball is uploaded in parts, and an abandoned upload — a cancelled job, a
+      // failed part — leaves parts that no object listing shows and that are billed
+      // until something removes them. Nothing else here ever writes a multipart upload.
+      lifecycleRules: [{ abortIncompleteMultipartUploadAfter: Duration.days(7) }],
     });
 
     this.behavior = {
@@ -69,7 +73,15 @@ export class Downloads extends Construct {
         StringLike: { 'token.actions.githubusercontent.com:sub': `repo:${props.githubRepository}:ref:refs/tags/cli-v*` },
       }),
     });
-    role.addToPolicy(new iam.PolicyStatement({ actions: ['s3:PutObject'], resources: [this.bucket.arnForObjects(`${CLI_PREFIX}/*`)] }));
+    // Every tarball is over the CLI's multipart threshold, so uploading one is
+    // CreateMultipartUpload/UploadPart/CompleteMultipartUpload — all authorized as
+    // PutObject — plus AbortMultipartUpload when a part fails or the job is cancelled.
+    // Without that last one the abort fails with AccessDenied, which buries the error
+    // that caused it and strands the parts.
+    role.addToPolicy(new iam.PolicyStatement({ actions: ['s3:PutObject', 's3:AbortMultipartUpload'], resources: [this.bucket.arnForObjects(`${CLI_PREFIX}/*`)] }));
+    // Listing is what lets the workflow refuse to publish a version's directory twice,
+    // which is the only thing keeping `immutable` honest.
+    role.addToPolicy(new iam.PolicyStatement({ actions: ['s3:ListBucket'], resources: [this.bucket.bucketArn] }));
 
     new CfnOutput(stack, 'DownloadsBucketName', { value: this.bucket.bucketName, description: 'The DOWNLOADS_BUCKET secret of the release workflow.' });
     new CfnOutput(stack, 'ReleaseRoleArn', { value: role.roleArn, description: 'The AWS_RELEASE_ROLE_ARN secret of the release workflow.' });
