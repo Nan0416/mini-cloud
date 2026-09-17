@@ -73,9 +73,24 @@ itself, which is why a task that wants accurate lifecycle tracking imports
 | `@mini-cloud/cli` | The `mini-cloud` command |
 | `@mini-cloud/web` | The web console — [readme](./packages/web/README.md) |
 
+## Install
+
+```bash
+curl -fsSL https://mini-cloud.qinnan.dev/downloads/cli/install.sh | sh
+mini-cloud update                                  # later, to move to the newest release
+```
+
+One self-contained binary — the CLI, the control plane, the agent and the schema, with
+no Node to install — for macOS on Apple silicon and Linux on x64 or arm64. Each version
+lands in `~/.local/share/mini-cloud/versions/`, and `~/.local/bin/mini-cloud` points at
+the current one, so a daemon started from it runs the new version after its next
+restart. `curl … | MINI_CLOUD_VERSION=1.2.3 sh` installs a particular release, and
+[GitHub Releases](https://github.com/Nan0416/mini-cloud/releases) carry the same
+binaries.
+
 ## Getting started
 
-See [dev.md](./dev.md) for setup, and [md/GUIDELINES.md](./md/GUIDELINES.md) for the
+To run from a checkout instead. See [dev.md](./dev.md) for setup, and [md/GUIDELINES.md](./md/GUIDELINES.md) for the
 conventions the code follows.
 
 ```bash

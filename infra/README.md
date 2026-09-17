@@ -1,9 +1,11 @@
-# infra — the hosted console
+# infra — the hosted console and the downloads
 
 One CDK stack, `MiniCloudConsole`, that serves the browser console as a static site at
-a domain you own. Nothing else in mini-cloud needs AWS: the control plane, the agents
-and the CLI run on machines you already have, and this exists only so that someone who
-wants to *look* at the console does not have to clone the repo and run Vite first.
+a domain you own, and the `mini-cloud` binaries under `/downloads/` on the same domain.
+Nothing else in mini-cloud needs AWS: the control plane, the agents and the CLI run on
+machines you already have. This exists so that someone who wants to *look* at the
+console does not have to clone the repo and run Vite first, and so that `install.sh` and
+`mini-cloud update` have somewhere cheap to download from.
 
 The hosted copy is a static client. It stores nothing, and it knows nothing until the
 visitor tells it where their own mini-cloud is.
@@ -22,8 +24,10 @@ That also means the root `npm run lint` and `npm run format:lint` do not reach i
 
 | Resource | Notes |
 | --- | --- |
-| S3 bucket | Private. All public access blocked, no website endpoint. Reached only through the distribution |
+| S3 bucket | The console. Private. All public access blocked, no website endpoint. Reached only through the distribution |
 | CloudFront distribution | `index.html` as the root object, HTTP redirected to HTTPS, compression on, HTTP/2 and /3 |
+| Downloads bucket | The binaries, under `downloads/cli/`. Private, retained when the stack is destroyed, served at `/downloads/*` |
+| IAM role `mini-cloud-cli-release` | What `release-cli.yml` assumes over GitHub's OIDC to write to the downloads bucket |
 | Origin Access Control | How CloudFront reaches the bucket, so the bucket is never a public origin |
 | Response headers policy | HSTS, `nosniff`, `no-referrer`, `frame-ancestors 'none'` — and deliberately nothing about mixed content |
 | ACM certificate | DNS-validated against the hosted zone |
@@ -36,7 +40,7 @@ somewhere else — buys a cross-region reference and nothing this project needs.
 
 ## Before the first deploy
 
-1. **Configure it.** Copy `.env.example` to `.env` and fill in the four values. That
+1. **Configure it.** Copy `.env.example` to `.env` and fill in the five values. That
    file is gitignored: an account id and a hosted zone id identify one person's AWS
    estate, so neither belongs in the source.
 
@@ -65,13 +69,22 @@ somewhere else — buys a cross-region reference and nothing this project needs.
    dig +short NS mini-cloud.qinnan.dev @8.8.8.8    # must list this zone's nameservers
    ```
 
-3. **Bootstrap the account**, once per account and region:
+3. **Have GitHub's OIDC provider in the account.** The stack imports
+   `token.actions.githubusercontent.com` rather than creating it, because an account
+   holds one per issuer and this one already had it. In an account without one, create
+   it once:
+
+   ```bash
+   aws iam create-open-id-connect-provider --url https://token.actions.githubusercontent.com --client-id-list sts.amazonaws.com
+   ```
+
+4. **Bootstrap the account**, once per account and region:
 
    ```bash
    npx cdk bootstrap aws://$(grep MINI_CLOUD_AWS_ACCOUNT .env | cut -d= -f2)/us-east-1
    ```
 
-4. **Build the console.** The stack uploads `packages/web/dist`, and synth fails with a
+5. **Build the console.** The stack uploads `packages/web/dist`, and synth fails with a
    message saying so if it is not there:
 
    ```bash
@@ -93,6 +106,47 @@ propagates. That is normal and only happens once.
 
 Rebuild the console and `npm run deploy` again to publish a new version. The
 distribution id and the site URL are stack outputs.
+
+After the first deploy, give the release workflow the two secrets it reads, from the
+`ReleaseRoleArn` and `DownloadsBucketName` outputs — [dev.md](../dev.md#releasing) has
+the commands. Binaries are never deployed from here; a `cli-v*` tag publishes them.
+
+## Downloads
+
+`/downloads/*` is a second behavior on the console's distribution, pointed at its own
+bucket. It lives in this stack rather than a second one because the behavior has to be
+on this distribution, and a separate stack would reference the distribution while this
+one referenced its bucket — a cycle.
+
+**403 and 404 mean different things here, and that is what keeps both halves working.**
+CloudFront's custom error responses apply to the whole distribution — there is nowhere
+to put one on a single behavior — so the rule that sends the console's deep links to
+`index.html` covers `/downloads/*` too. It maps **403 only**, and the two buckets
+answer differently on purpose:
+
+- **The console bucket grants no LIST**, so S3 will not confirm a key's absence and
+  answers 403 for `/tasks`. That is what the mapping catches, and react-router takes it
+  from there.
+- **The downloads bucket grants LIST**, so a file that is not there answers 404 — a code
+  nothing maps, so it reaches the viewer as a 404 and `curl -f` fails on it rather than
+  writing this page to disk with a 200.
+
+Granting the console bucket LIST, or taking it from the downloads bucket, breaks one of
+those two. CDK warns about LIST because on a *default* behavior it lets a request for
+`/` list the bucket; no request reaches the downloads bucket at its root, and the
+warning is acknowledged in the stack.
+
+**The release workflow sets the caching.** A version's directory is uploaded with
+`immutable`, and `install.sh` and `version.json` at the top with `no-cache`, which the
+`CachingOptimized` policy honours by revalidating — so a release needs no invalidation.
+
+**The bucket is retained.** Unlike the console's bucket, whose contents are `vite build`
+output, a release rebuilt from its tag is not the same bytes as the one whose checksums
+people already have. `cdk destroy` leaves it; delete it by hand if you mean to.
+
+**The role can do one thing**: `s3:PutObject` under `downloads/cli/`, for a session
+started by a `cli-v*` tag of `MINI_CLOUD_GITHUB_REPOSITORY`. A branch, a pull request or
+another repository cannot assume it.
 
 ## Do not add these headers
 
@@ -147,7 +201,8 @@ service instead; the bundle is static and `packages/web/README.md` says how.
 
 ## Cost
 
-Inside CloudFront's free tier at this traffic. ACM certificates are free. A Route 53
+Inside CloudFront's free tier at this traffic. Each release adds about 110 MB to the
+downloads bucket, a few cents a month once there are a dozen. ACM certificates are free. A Route 53
 hosted zone is about $0.50/month, which you are paying already if the zone exists.
 
 ## Status
