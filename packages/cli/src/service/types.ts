@@ -18,8 +18,6 @@ export interface DaemonUnit {
   readonly displayName: string;
   /** The command group that manages it, for hints. */
   readonly command: string;
-  /** How to run it without a supervisor. */
-  readonly foregroundCommand: string;
   /** What the unit runs, after any `--config`. */
   readonly subcommand: ReadonlyArray<string>;
   readonly launchdLabel: string;

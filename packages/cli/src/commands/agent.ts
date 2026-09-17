@@ -35,7 +35,8 @@ export function buildAgentCommand(): Command {
       let stopping = false;
       const shutdown = async (reason: string): Promise<void> => {
         if (stopping) {
-          process.exit(1);
+          // 0 all the same: this stop was asked for, and launchd relaunches any other exit.
+          process.exit(0);
         }
         stopping = true;
         logger.info(`Shutting down: ${reason}.`);

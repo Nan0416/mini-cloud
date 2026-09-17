@@ -1,7 +1,7 @@
 import { PortInUseError } from '@mini-cloud/shared';
 import http from 'node:http';
 import net from 'node:net';
-import { assertListenersFree, bindListener } from '../src/listeners';
+import { bindListener, bindListeners, identifyOccupant } from '../src/listeners';
 
 const servers: Array<net.Server> = [];
 
@@ -15,13 +15,18 @@ async function occupy(server: net.Server, host = '127.0.0.1'): Promise<number> {
   return address.port;
 }
 
-/** Answers `/ping` the way the control plane does. */
-function miniCloudLookalike(): http.Server {
-  return http.createServer((req, res) => {
-    res.writeHead(req.url === '/ping' ? 200 : 404, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(req.url === '/ping' ? { status: 'ok' } : { error: 'Not found' }));
+function answering(status: number, body: string): http.Server {
+  return http.createServer((_req, res) => {
+    res.writeHead(status, { 'Content-Type': 'application/json' });
+    res.end(body);
   });
 }
+
+/** Answers `/ping` the way the control plane does. */
+const miniCloud = (): http.Server => answering(200, JSON.stringify({ status: 'ok' }));
+
+/** Accepts the connection, then hangs up without an HTTP answer. */
+const hangsUp = (): net.Server => net.createServer((socket) => socket.destroy());
 
 /** A port nothing is listening on — held, then released. */
 async function freePort(): Promise<number> {
@@ -36,69 +41,83 @@ afterEach(async () => {
   await Promise.all(servers.splice(0).map((server) => new Promise<void>((resolve) => server.close(() => resolve()))));
 });
 
-describe('assertListenersFree', () => {
-  it('lets a start through when nothing answers', async () => {
-    const port = await freePort();
-
-    await expect(assertListenersFree([{ name: 'internal', config: { host: '127.0.0.1', port } }])).resolves.toBeUndefined();
+describe('identifyOccupant', () => {
+  it('recognises a control plane by its pong', async () => {
+    expect(await identifyOccupant('127.0.0.1', await occupy(miniCloud()))).toBe('mini-cloud');
   });
 
-  it('names a control plane already on the address, so the operator knows it is a second copy', async () => {
-    const port = await occupy(miniCloudLookalike());
+  it('recognises one that refuses the probe, as the internal listener does outside its trusted subnets', async () => {
+    const port = await occupy(answering(403, JSON.stringify({ error: 'Outside the trusted subnets.', errorCode: 'FORBIDDEN' })));
 
-    const check = assertListenersFree([{ name: 'internal', config: { host: '127.0.0.1', port } }]);
-
-    await expect(check).rejects.toBeInstanceOf(PortInUseError);
-    await expect(check).rejects.toThrow(`A mini-cloud control plane is already listening on 127.0.0.1:${port}`);
+    expect(await identifyOccupant('127.0.0.1', port)).toBe('mini-cloud');
   });
 
-  it('points at the setting when the occupant is some other program', async () => {
-    // Accepts the connection, then hangs up rather than answering /ping.
-    const port = await occupy(net.createServer((socket) => socket.destroy()));
+  it('calls it something else only when something else answers', async () => {
+    const port = await occupy(answering(404, '<html>Not Found</html>'));
 
-    const check = assertListenersFree([{ name: 'public', config: { host: '127.0.0.1', port } }], 200);
-
-    await expect(check).rejects.toThrow(`Something other than mini-cloud is already listening on 127.0.0.1:${port}`);
-    await expect(check).rejects.toThrow('set a different public.port');
+    expect(await identifyOccupant('127.0.0.1', port)).toBe('other');
   });
 
-  it('checks every listener, not only the first', async () => {
-    const free = await freePort();
-    const taken = await occupy(miniCloudLookalike());
+  it('claims nothing when there is no HTTP answer to go on', async () => {
+    expect(await identifyOccupant('127.0.0.1', await occupy(hangsUp()))).toBe('unknown');
+  });
 
-    const check = assertListenersFree([
-      { name: 'internal', config: { host: '127.0.0.1', port: free } },
-      { name: 'public', config: { host: '127.0.0.1', port: taken } },
-    ]);
-
-    await expect(check).rejects.toThrow("the public listener's address");
+  it('claims nothing for an address it cannot put in a URL', async () => {
+    expect(await identifyOccupant('fe80::1%en0', 3000, 100)).toBe('unknown');
   });
 
   it('reaches a wildcard bind through loopback', async () => {
-    const port = await occupy(miniCloudLookalike());
-
-    await expect(assertListenersFree([{ name: 'public', config: { host: '0.0.0.0', port } }])).rejects.toBeInstanceOf(PortInUseError);
-  });
-
-  it('skips port 0, which asks for any free port and so cannot collide', async () => {
-    await expect(assertListenersFree([{ name: 'internal', config: { host: '127.0.0.1', port: 0 } }])).resolves.toBeUndefined();
+    expect(await identifyOccupant('0.0.0.0', await occupy(miniCloud()))).toBe('mini-cloud');
   });
 });
 
 describe('bindListener', () => {
-  it('reports the port it actually got, which is what makes 0 useful', async () => {
+  const bind = (port: number): Promise<void> => {
     const server = http.createServer();
     servers.push(server);
+    return bindListener({ server, listener: { name: 'public', config: { host: '127.0.0.1', port } } });
+  };
 
-    expect(await bindListener(server, { name: 'internal', config: { host: '127.0.0.1', port: 0 } })).toBeGreaterThan(0);
+  it('names a control plane already on the address, so the operator knows it is a second copy', async () => {
+    const port = await occupy(miniCloud());
+
+    const attempt = bind(port);
+
+    await expect(attempt).rejects.toMatchObject({ occupant: 'mini-cloud' });
+    await expect(attempt).rejects.toThrow(`A mini-cloud control plane is already listening on 127.0.0.1:${port}, the public listener's address.`);
   });
 
-  it('still refuses with a sentence when two processes race past the check', async () => {
-    const port = await occupy(net.createServer());
+  it('points at the setting when another program holds the port', async () => {
+    const port = await occupy(answering(404, 'nope'));
 
-    const bind = bindListener(http.createServer(), { name: 'public', config: { host: '127.0.0.1', port } });
+    const attempt = bind(port);
 
-    await expect(bind).rejects.toBeInstanceOf(PortInUseError);
-    await expect(bind).rejects.toThrow(`127.0.0.1:${port}, the public listener's address, is already in use`);
+    await expect(attempt).rejects.toMatchObject({ occupant: 'other' });
+    await expect(attempt).rejects.toThrow('set a different public.port');
+  });
+
+  it('says only that the port is taken when it cannot tell by whom', async () => {
+    const port = await occupy(hangsUp());
+
+    const attempt = bind(port);
+
+    await expect(attempt).rejects.toBeInstanceOf(PortInUseError);
+    await expect(attempt).rejects.toThrow(`127.0.0.1:${port}, the public listener's address, is already in use.`);
+  });
+});
+
+describe('bindListeners', () => {
+  it('releases the ports it did get when one is taken', async () => {
+    const free = await freePort();
+    const taken = await occupy(hangsUp());
+    const internal = http.createServer();
+
+    const attempt = bindListeners([
+      { server: internal, listener: { name: 'internal', config: { host: '127.0.0.1', port: free } } },
+      { server: http.createServer(), listener: { name: 'public', config: { host: '127.0.0.1', port: taken } } },
+    ]);
+
+    await expect(attempt).rejects.toBeInstanceOf(PortInUseError);
+    expect(internal.listening).toBe(false);
   });
 });

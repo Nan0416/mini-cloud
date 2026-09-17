@@ -131,9 +131,6 @@ export class WsMessageHub implements MessageHub {
       verifyClient: buildVerifyClient(props.trustedSubnets ?? []),
     });
     this.wss.on('connection', (socket) => this.onConnection(socket));
-    // ws re-emits the HTTP server's errors here. Whoever called listen() reports them;
-    // left unheard, a port in use would crash the process before that handler ran.
-    this.wss.on('error', (err) => logger.debug('The HTTP server under the hub reported an error.', err));
 
     // A dropped connection (laptop sleeping, cable pulled) does not always produce a
     // close event. Ping/pong is what actually reclaims those subscriptions.

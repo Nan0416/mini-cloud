@@ -1,4 +1,4 @@
-import { PortInUseError } from '@mini-cloud/shared';
+import { NotFoundError, PortInUseError } from '@mini-cloud/shared';
 import { Command } from 'commander';
 import { resolve } from 'node:path';
 import { parsePositiveInteger } from '../args';
@@ -45,18 +45,19 @@ function configFileOption(command: Command): string | undefined {
 
 function installed(unit: DaemonUnit, service: ServiceManager): ServiceManager {
   if (!service.isInstalled()) {
-    throw new Error(`The mini-cloud ${unit.displayName} daemon is not installed. Run \`${unit.command} start\` first.`);
+    throw new NotFoundError(`The mini-cloud ${unit.displayName} daemon is not installed. Run \`${unit.command} start\` first.`);
   }
   return service;
 }
 
 /**
  * Names the daemon when a start in the foreground finds its port taken and the daemon
- * is running — unless this process is the daemon, which lost the port to a copy started
- * by hand and should not point at itself.
+ * is running. Not when the port is known to be some other program's, and not unless the
+ * daemon is known to be another process: one that lost its port to a copy started by
+ * hand should not point at itself.
  */
 export function explainPortConflict(err: unknown, unit: DaemonUnit, managers: ServiceManagerFactory = createServiceManager): unknown {
-  if (!(err instanceof PortInUseError)) {
+  if (!(err instanceof PortInUseError) || err.occupant === 'other') {
     return err;
   }
   let status: ServiceStatus;
@@ -65,12 +66,12 @@ export function explainPortConflict(err: unknown, unit: DaemonUnit, managers: Se
   } catch {
     return err;
   }
-  if (status.state !== 'running' || status.pid === process.pid) {
+  if (status.state !== 'running' || status.pid === undefined || status.pid === process.pid) {
     return err;
   }
-  const pid = status.pid === undefined ? '' : ` (pid ${status.pid})`;
   return new PortInUseError(
-    `${err.message}\nThe mini-cloud ${unit.displayName} daemon is running${pid} and most likely holds it. Run \`${unit.command} stop\` first to use this one in the foreground.`,
+    `${err.message}\nThe mini-cloud ${unit.displayName} daemon is running (pid ${status.pid}) and most likely holds it. Run \`${unit.command} stop\` first to use this one in the foreground.`,
+    err.occupant,
   );
 }
 

@@ -1,4 +1,4 @@
-import { PortInUseError } from '@mini-cloud/shared';
+import { NotFoundError, PortInUseError } from '@mini-cloud/shared';
 import { Command } from 'commander';
 import { resolve } from 'node:path';
 import { buildDaemonCommand, explainPortConflict, ServiceManagerFactory } from '../../src/commands/daemon';
@@ -90,8 +90,8 @@ describe('the daemon command group', () => {
   });
 
   it('carries --config into the agent unit, though the group sits a level deeper', async () => {
-    // Read off `parent.parent`, the flag reached the `agent` group instead of the root
-    // and the unit silently supervised the default config.
+    // Two levels above `start` is `agent`, not the root, so the flag has to be looked up
+    // wherever it was given.
     await run('--config', 'elsewhere/config.json', 'agent', 'daemon', 'start');
 
     expect(fake(AGENT_UNIT).installed?.programArguments.slice(-4)).toEqual(['--config', resolve('elsewhere/config.json'), 'agent', 'start']);
@@ -121,7 +121,10 @@ describe('the daemon command group', () => {
   });
 
   it('refuses to stop a unit that was never installed, and names the command that installs it', async () => {
-    await expect(run('agent', 'daemon', 'stop')).rejects.toThrow('The mini-cloud agent daemon is not installed. Run `mini-cloud agent daemon start` first.');
+    const stop = run('agent', 'daemon', 'stop');
+
+    await expect(stop).rejects.toBeInstanceOf(NotFoundError);
+    await expect(stop).rejects.toThrow('The mini-cloud agent daemon is not installed. Run `mini-cloud agent daemon start` first.');
   });
 
   it('reassures that stopping the agent leaves its tasks running', async () => {
@@ -134,7 +137,7 @@ describe('the daemon command group', () => {
 });
 
 describe('explainPortConflict', () => {
-  const conflict = new PortInUseError('127.0.0.1:3100 is already in use.');
+  const conflict = new PortInUseError('127.0.0.1:3100 is already in use.', 'unknown');
   const managerWith =
     (status: ServiceStatus): ServiceManagerFactory =>
     () =>
@@ -143,7 +146,7 @@ describe('explainPortConflict', () => {
   it('names the running daemon and how to stop it', () => {
     const explained = explainPortConflict(conflict, AGENT_UNIT, managerWith({ state: 'running', pid: 4312 }));
 
-    expect(explained).toBeInstanceOf(PortInUseError);
+    expect(explained).toMatchObject({ occupant: 'unknown' });
     expect(explained).toHaveProperty(
       'message',
       '127.0.0.1:3100 is already in use.\nThe mini-cloud agent daemon is running (pid 4312) and most likely holds it. Run `mini-cloud agent daemon stop` first to use this one in the foreground.',
@@ -153,6 +156,16 @@ describe('explainPortConflict', () => {
   it('does not blame the daemon when this process is the daemon', () => {
     // The daemon crash-looping behind a copy started by hand would otherwise log advice to stop itself.
     expect(explainPortConflict(conflict, AGENT_UNIT, managerWith({ state: 'running', pid: process.pid }))).toBe(conflict);
+  });
+
+  it('does not blame the daemon for a port another program is known to hold', () => {
+    const foreign = new PortInUseError('Something other than mini-cloud is already listening on 127.0.0.1:4000.', 'other');
+
+    expect(explainPortConflict(foreign, CONTROL_PLANE_UNIT, managerWith({ state: 'running', pid: 4312 }))).toBe(foreign);
+  });
+
+  it('does not blame the daemon when it cannot tell the daemon is another process', () => {
+    expect(explainPortConflict(conflict, CONTROL_PLANE_UNIT, managerWith({ state: 'running' }))).toBe(conflict);
   });
 
   it('leaves the conflict alone when the daemon is not running', () => {

@@ -348,31 +348,3 @@ describe('WsMessageHub upgrades', () => {
     expect(await upgrade(port, { authorization: 'Bearer nonsense' })).toBe('connected');
   });
 });
-
-describe('WsMessageHub on a server that cannot bind', () => {
-  it('leaves the failure to whoever called listen, rather than crashing the process', async () => {
-    // ws forwards the HTTP server's `error` events to the hub. Unheard there, a port in
-    // use became an uncaught exception and a stack trace, even though listen() had a
-    // handler for exactly that error.
-    const occupant = createServer();
-    await new Promise<void>((resolve) => occupant.listen(0, '127.0.0.1', resolve));
-    const address: AddressInfo | string | null = occupant.address();
-    if (address === null || typeof address === 'string') {
-      throw new Error('Expected the occupant to be listening on a TCP port.');
-    }
-
-    const server = createServer();
-    const hub = new WsMessageHub({ server });
-    try {
-      const bound = new Promise<void>((resolve, reject) => {
-        server.once('error', reject);
-        server.listen(address.port, '127.0.0.1', resolve);
-      });
-
-      await expect(bound).rejects.toMatchObject({ code: 'EADDRINUSE' });
-    } finally {
-      await hub.terminate();
-      await new Promise<void>((resolve) => occupant.close(() => resolve()));
-    }
-  });
-});

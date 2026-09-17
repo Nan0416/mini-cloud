@@ -1,3 +1,4 @@
+import { InvalidRequestError } from '@mini-cloud/shared';
 import { SystemdServiceManager } from './systemd';
 import { LaunchdServiceManager } from './launchd';
 import { DaemonUnit, ServiceManager } from './types';
@@ -15,6 +16,8 @@ export function createServiceManager(unit: DaemonUnit, platform: NodeJS.Platform
     case 'linux':
       return new SystemdServiceManager(unit);
     default:
-      throw new Error(`Running the ${unit.displayName} as a service is not supported on ${platform}. Run it in the foreground with \`${unit.foregroundCommand}\`.`);
+      throw new InvalidRequestError(
+        `Running the ${unit.displayName} as a service is not supported on ${platform}. Run it in the foreground with \`mini-cloud ${unit.subcommand.join(' ')}\`.`,
+      );
   }
 }

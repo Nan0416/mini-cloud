@@ -93,7 +93,8 @@ export class ReporterServer {
         reject(
           isAddressInUse(err)
             ? new PortInUseError(
-                `127.0.0.1:${port}, the agent's reporter port, is already in use — most likely by another agent on this machine. Stop it, or run this one from a config file with its own agent.id and agent.port.`,
+                `127.0.0.1:${port}, the agent's reporter port, is already in use — most likely by another agent on this machine. Stop it, or run this one from a config file with its own agent.id, agent.port and agent.workDir.`,
+                'unknown',
               )
             : err,
         );

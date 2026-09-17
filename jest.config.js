@@ -1,5 +1,8 @@
 const path = require('node:path');
 
+/** Workspace packages a test may import, resolved to source so `npm test` needs no build. */
+const SOURCE_PACKAGES = ['shared', 'client', 'reporter', 'agent', 'service'];
+
 /**
  * Root jest config — runs unit tests across every workspace package.
  *
@@ -22,9 +25,7 @@ module.exports = {
   testMatch: ['**/tests/**/*.test.ts?(x)'],
   setupFiles: ['<rootDir>/jest.setup.js'],
   moduleNameMapper: {
-    '^@mini-cloud/shared$': '<rootDir>/packages/shared/src',
-    '^@mini-cloud/client$': '<rootDir>/packages/client/src',
-    '^@mini-cloud/reporter$': '<rootDir>/packages/reporter/src',
+    ...Object.fromEntries(SOURCE_PACKAGES.map((name) => [`^@mini-cloud/${name}$`, `<rootDir>/packages/${name}/src`])),
     // `web` reaches its own modules through the `@/` alias it declares in
     // vite.config.ts and tsconfig.json; jest resolves neither, so it needs the same
     // mapping here or a web test cannot import the module it is testing.
@@ -37,8 +38,9 @@ module.exports = {
     // which is easy to read as a coverage problem rather than a config one.
     //
     // `paths` mirrors the moduleNameMapper above: the mapper only tells jest where to
-    // load `@/…` from at runtime, and without the compiler knowing the same thing a
-    // web test fails to typecheck before it ever runs.
+    // load a module from at runtime. Without the compiler knowing the same thing, a web
+    // test fails to typecheck, and every `@mini-cloud/*` import typechecks against a
+    // `dist` that a fresh clone does not have — or a stale one that it does.
     '^.+\\.tsx?$': [
       'ts-jest',
       {
@@ -50,7 +52,10 @@ module.exports = {
           esModuleInterop: true,
           strict: true,
           baseUrl: __dirname,
-          paths: { '@/*': [path.join(__dirname, 'packages/web/src/*')] },
+          paths: {
+            '@/*': [path.join(__dirname, 'packages/web/src/*')],
+            ...Object.fromEntries(SOURCE_PACKAGES.map((name) => [`@mini-cloud/${name}`, [path.join(__dirname, `packages/${name}/src`)]])),
+          },
         },
       },
     ],

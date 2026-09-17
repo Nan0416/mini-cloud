@@ -1,4 +1,4 @@
-import { LoggerFactory } from '@mini-cloud/shared';
+import { LoggerFactory, NotFoundError } from '@mini-cloud/shared';
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -201,7 +201,7 @@ export class LaunchdServiceManager implements ServiceManager {
   logs(options: LogsOptions): void {
     const { logPath } = this.unit;
     if (!existsSync(logPath)) {
-      throw new Error(`No log file at ${logPath} yet. The daemon writes one once it has started; check \`${this.unit.command} status\`.`);
+      throw new NotFoundError(`No log file at ${logPath} yet. The daemon writes one once it has started; check \`${this.unit.command} status\`.`);
     }
     execFileSync('tail', ['-n', String(options.lines), ...(options.follow ? ['-F'] : []), logPath], { stdio: 'inherit' });
   }

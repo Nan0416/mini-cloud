@@ -47,6 +47,12 @@ instead. Delete a line once it has shipped.
 
 ## Operations
 
+- [ ] **Refuse a second agent under the same id.** The reporter port only stops a second
+      agent started from the same config. One with its own `agent.port` and the default
+      id — the hostname — connects, subscribes to the same agent topic, and the two run
+      each other's launch and terminate commands. The check belongs in the service, as a
+      refusal of a second live subscriber on an agent's topic, and has to let an agent
+      reconnect before the hub has swept its dead connection.
 - [ ] **Rotate the daemons' log files on macOS.** The launchd plists capture output to
       `~/.mini-cloud/service/service.log` and `~/.mini-cloud/agent/agent.log`, and
       nothing truncates either, so a long-running daemon grows one file forever.

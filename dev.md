@@ -88,7 +88,9 @@ at install time: after changing your `PATH`, run `agent daemon start` again.
 Tasks outlive the agent. `agent daemon stop`, `restart` and `uninstall` leave every task
 it launched running (on Linux the unit uses `KillMode=process` for this). `mini-cloud
 agent stop <agentId>` asks the agent to exit cleanly, which the supervisor respects: it
-stays down until `agent daemon start` or the next login.
+stays down until `agent daemon start`, or until the supervisor itself starts again — at
+the next login on macOS; on Linux when the user manager next starts, which with linger on
+means the next boot.
 
 Neither daemon waits for what it needs. A control plane that starts before Postgres,
 or an agent that starts before its control plane, exits and is restarted — every 10s
@@ -99,13 +101,16 @@ not linger, and `sudo loginctl enable-linger $USER` makes it start with the mach
 macOS LaunchAgent likewise waits for someone to log in, so a headless Mac worker needs
 automatic login.
 
-One of each per user account. A second agent on the same machine — its own config file
-with a different `agent.id` and `agent.port` — runs in the foreground.
+One of each per user account. A second agent on the same machine runs in the
+foreground, from its own config file with a different `agent.id`, `agent.port` and
+`agent.workDir` — two agents sharing a work directory replay each other's offline
+reports.
 
-Starting a second copy of either is refused with a sentence rather than a stack trace,
-and the sentence names the daemon when that is what holds the port. The control plane
-checks its ports before it touches the database, so a stray `serve` never applies
-migrations under a running daemon.
+Starting a second copy of either from the same config is refused with a sentence rather
+than a stack trace, and the sentence names the daemon when that is what holds the port.
+The control plane claims its ports before it touches the database and answers 503 until
+its migrations are in, so a stray `serve` never applies migrations under a running
+daemon.
 
 ## Configuration
 

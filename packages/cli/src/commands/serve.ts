@@ -39,7 +39,8 @@ export function buildServeCommand(): Command {
       const shutdown = async (signal: string): Promise<void> => {
         if (shuttingDown) {
           logger.warn(`Received ${signal} again; exiting now.`);
-          process.exit(1);
+          // 0 all the same: this stop was asked for, and launchd relaunches any other exit.
+          process.exit(0);
         }
         shuttingDown = true;
         logger.info(`Received ${signal}; shutting down.`);

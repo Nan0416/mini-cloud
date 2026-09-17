@@ -8,7 +8,6 @@ const DATA_DIR = join(homedir(), '.mini-cloud');
 export const CONTROL_PLANE_UNIT: DaemonUnit = {
   displayName: 'control plane',
   command: 'mini-cloud daemon',
-  foregroundCommand: 'mini-cloud serve',
   subcommand: ['serve'],
   // Reverse-DNS, matching the domain the console is served from.
   launchdLabel: 'dev.qinnan.mini-cloud',
@@ -21,7 +20,6 @@ export const CONTROL_PLANE_UNIT: DaemonUnit = {
 export const AGENT_UNIT: DaemonUnit = {
   displayName: 'agent',
   command: 'mini-cloud agent daemon',
-  foregroundCommand: 'mini-cloud agent start',
   subcommand: ['agent', 'start'],
   launchdLabel: 'dev.qinnan.mini-cloud.agent',
   systemdUnit: 'mini-cloud-agent.service',

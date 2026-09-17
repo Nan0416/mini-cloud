@@ -10,9 +10,4 @@ describe('daemon units', () => {
       expect(identity(AGENT_UNIT)[index]).not.toEqual(value);
     }
   });
-
-  it('run what each one runs in the foreground', () => {
-    expect(`mini-cloud ${CONTROL_PLANE_UNIT.subcommand.join(' ')}`).toBe(CONTROL_PLANE_UNIT.foregroundCommand);
-    expect(`mini-cloud ${AGENT_UNIT.subcommand.join(' ')}`).toBe(AGENT_UNIT.foregroundCommand);
-  });
 });

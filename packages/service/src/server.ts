@@ -1,4 +1,4 @@
-import { LoggerFactory } from '@mini-cloud/shared';
+import { ErrorResponse, LoggerFactory } from '@mini-cloud/shared';
 import type { ErrorRequestHandler, Express } from 'express';
 import http from 'node:http';
 import { AddressInfo } from 'node:net';
@@ -10,7 +10,7 @@ import { WsMessageHub } from './facades/message-hub';
 import { Scheduler } from './facades/scheduler';
 import { Service } from './service';
 import { ServiceConfig } from './config';
-import { NamedListener, assertListenersFree, bindListener } from './listeners';
+import { bindListeners, closeQuietly } from './listeners';
 import { consoleLink } from './utils/console-link';
 
 const logger = LoggerFactory.getLogger('MiniCloudServer');
@@ -47,18 +47,23 @@ export class MiniCloudServer {
 
   static async start(config: ServiceConfig, options: StartServerOptions = {}): Promise<MiniCloudServer> {
     assertDistinctListeners(config);
-    const internalListener: NamedListener = { name: 'internal', config: config.internal };
-    const publicListener: NamedListener = { name: 'public', config: config.public };
-    await assertListenersFree([internalListener, publicListener]);
+
+    // The ports are claimed first and held from here on: the bind is what refuses a
+    // second control plane, and it has to refuse one before this one touches the
+    // database. Until the migrations are in, both listeners answer 503.
+    const internalServer = http.createServer(startingUp);
+    const publicServer = http.createServer(startingUp);
+    await bindListeners([
+      { server: internalServer, listener: { name: 'internal', config: config.internal } },
+      { server: publicServer, listener: { name: 'public', config: config.public } },
+    ]);
 
     const pool = createPool({ connectionString: config.databaseUrl });
 
     // The hub attaches to the internal HTTP server, which is what puts `/ws` on the
-    // internal port and nowhere else. Both servers must exist before the dependency
-    // graph that publishes through the hub. Requests are routed once the apps are
-    // built, a few lines below.
-    const internalServer = http.createServer();
-    const publicServer = http.createServer();
+    // internal port and nowhere else. It attaches after the bind because ws forwards the
+    // server's errors to a hub that does not listen for them, which would turn a port in
+    // use into an uncaught exception before `bindListeners` could report it.
     const hub = new WsMessageHub({
       server: internalServer,
       trustedSubnets: config.internal.trustedSubnets,
@@ -70,28 +75,17 @@ export class MiniCloudServer {
     let dependencies: Dependencies;
     try {
       dependencies = new DependencyFactory({ config, pool, messageHub: hub }).build();
-    } catch (err) {
-      await pool.end();
-      throw err;
-    }
-    internalServer.on('request', buildApp('internal', dependencies.internal, dependencies.errorHandler));
-    publicServer.on('request', buildApp('public', dependencies.public, dependencies.errorHandler));
-
-    if (options.runMigrations !== false) {
-      await migrate(pool);
-    }
-
-    // Both or neither. A second port already in use would otherwise leave the first
-    // listener bound and the pool open behind a rejected start, so the retry after
-    // freeing the port fails on the port that was fine.
-    let internalPort: number;
-    let publicPort: number;
-    try {
-      [internalPort, publicPort] = await Promise.all([bindListener(internalServer, internalListener), bindListener(publicServer, publicListener)]);
+      if (options.runMigrations !== false) {
+        await migrate(pool);
+      }
     } catch (err) {
       await Promise.all([closeQuietly(internalServer), closeQuietly(publicServer), hub.terminate(), pool.end()]);
       throw err;
     }
+    serve(internalServer, buildApp('internal', dependencies.internal, dependencies.errorHandler));
+    serve(publicServer, buildApp('public', dependencies.public, dependencies.errorHandler));
+    const internalPort = portOf(internalServer, config.internal.port);
+    const publicPort = portOf(publicServer, config.public.port);
 
     dependencies.scheduler.start();
 
@@ -134,9 +128,14 @@ function buildApp(name: string, plane: PlaneDependencies, errorHandler: ErrorReq
   return new Service({ name, middleware: plane.middleware, endpoints: plane.endpoints, notFound: plane.notFound, errorHandler }).init();
 }
 
-/** Closes a server that may never have bound, without turning that into the failure. */
-async function closeQuietly(server: http.Server): Promise<void> {
-  await new Promise<void>((resolve) => server.close(() => resolve()));
+function startingUp(_req: http.IncomingMessage, res: http.ServerResponse): void {
+  const response: ErrorResponse = { error: 'The control plane is starting up. Try again in a moment.', errorCode: 'INTERNAL' };
+  res.writeHead(503, { 'Content-Type': 'application/json', 'Retry-After': '1' }).end(JSON.stringify(response));
+}
+
+function serve(server: http.Server, app: Express): void {
+  server.removeListener('request', startingUp);
+  server.on('request', app);
 }
 
 /**
