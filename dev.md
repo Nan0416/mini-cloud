@@ -77,6 +77,12 @@ mini-cloud daemon uninstall
 Linux logs go to journald. What the supervisor adds is restart-on-crash and
 start-at-login; `--no-enable` gives you the first without the second.
 
+The unit runs the binary it was installed from. For one installed by `install.sh` that is
+the `~/.local/bin/mini-cloud` symlink, so after `mini-cloud update` a `daemon restart`
+runs the new version — `update` names each daemon still on the old one. A unit written
+from a checkout or from an extracted tarball keeps running that; `daemon start` from the
+installed binary rewrites it.
+
 The unit holds no settings, so reconfiguring is editing `config.json` and restarting,
 never reinstalling. `start --config <path>` bakes that path into the unit. What the unit
 *does* copy from the shell you install from is the environment a supervisor would not
@@ -339,7 +345,7 @@ npm version 1.0.1 --workspace @mini-cloud/shared --workspace @mini-cloud/reporte
 git commit -am "chore: release 1.0.1"
 git tag sdk-v1.0.1 && git push origin main --tags
 
-# binaries: macOS arm64 + Linux x64/arm64 on a GitHub Release
+# binaries: macOS arm64 + Linux x64/arm64, to the downloads bucket and a GitHub Release
 git tag cli-v1.0.1 && git push origin cli-v1.0.1
 ```
 
@@ -353,11 +359,38 @@ Authentication is npm Trusted Publishing over OIDC — no `NPM_TOKEN`. The bindi
 this repository **and this filename**, so renaming `release-sdk.yml` breaks publishing
 until both packages' trusted publisher entries on npmjs.com match.
 
+`release-cli.yml` builds, checks each binary runs and reports the tag's version, then
+publishes to <https://mini-cloud.qinnan.dev/downloads/cli/>:
+
+```
+install.sh  version.json                  the latest release: revalidated on every request
+v1.0.1/     install.sh  SHA256SUMS         one directory per release, never rewritten
+            mini-cloud-{darwin-arm64,linux-x64,linux-arm64}.tar.gz
+```
+
+`version.json` is what `mini-cloud update` and `install.sh` read to find the latest
+release, and is written last. A prerelease tag (`cli-v1.1.0-rc.1`) gets its directory
+and a GitHub prerelease, and leaves `version.json` alone — install it with
+`MINI_CLOUD_VERSION=1.1.0-rc.1`.
+
+It reaches AWS over OIDC too, through a role only this repository's `cli-v*` tags can
+assume. It needs two repository secrets, both outputs of the `MiniCloudConsole` stack:
+
+```bash
+out() { aws cloudformation describe-stacks --stack-name MiniCloudConsole --region us-east-1 \
+  --query "Stacks[0].Outputs[?OutputKey=='$1'].OutputValue" --output text; }
+gh secret set AWS_RELEASE_ROLE_ARN --body "$(out ReleaseRoleArn)"
+gh secret set DOWNLOADS_BUCKET --body "$(out DownloadsBucketName)"
+```
+
+Secrets rather than variables because the repository is public, its workflow logs are
+too, and the role ARN carries the account id.
+
 ## Deploying the hosted console
 
-The copy at <https://mini-cloud.qinnan.dev> is a CDK stack in [`infra/`](./infra/README.md),
-deployed by hand from this machine. A redeploy uploads whatever is in
-`packages/web/dist`, so build first:
+The copy at <https://mini-cloud.qinnan.dev> — and the downloads bucket behind
+`/downloads/` — is a CDK stack in [`infra/`](./infra/README.md), deployed by hand from
+this machine. A redeploy uploads whatever is in `packages/web/dist`, so build first:
 
 ```bash
 aws sso login --profile mini-cloud           # when the SSO session has expired

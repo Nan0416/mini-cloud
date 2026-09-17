@@ -24,7 +24,8 @@ Dependencies point one way: `cli` → `service`/`agent`/`client` → `shared`, a
 program launched by mini-cloud can import the reporter without vendoring it. The rest
 stay private. A release is an `sdk-v*` tag, never a merge — see
 [dev.md](./dev.md#releasing). The `mini-cloud` binary releases separately, on
-`cli-v*`.
+`cli-v*`, to `https://mini-cloud.qinnan.dev/downloads/cli/` — the bucket is in `infra/`,
+and `install.sh` and `mini-cloud update` read from it.
 
 Inside `service`: `routes` parse and delegate → `services` answer requests →
 `facades` do work no request waits on → `data` talks to Postgres. `DependencyFactory`

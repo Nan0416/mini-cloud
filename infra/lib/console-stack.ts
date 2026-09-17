@@ -1,4 +1,4 @@
-import { CfnOutput, Duration, RemovalPolicy, Stack } from 'aws-cdk-lib';
+import { Annotations, CfnOutput, Duration, RemovalPolicy, Stack } from 'aws-cdk-lib';
 import type { StackProps } from 'aws-cdk-lib';
 import * as acm from 'aws-cdk-lib/aws-certificatemanager';
 import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
@@ -11,6 +11,7 @@ import type { Construct } from 'constructs';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import type { ConsoleConfig } from './config';
+import { Downloads, DOWNLOADS_PATH_PATTERN } from './downloads';
 
 export interface ConsoleStackProps extends StackProps, ConsoleConfig {}
 
@@ -19,7 +20,8 @@ const BUNDLE_DIR = path.join(__dirname, '..', '..', 'packages', 'web', 'dist');
 
 /**
  * Everything behind `https://<domainName>`: a private bucket, the distribution that
- * fronts it, the certificate that terminates TLS and the DNS records that point at it.
+ * fronts it, the certificate that terminates TLS and the DNS records that point at it —
+ * and, under `/downloads/`, the `mini-cloud` binaries (see {@link Downloads}).
  *
  * One stack rather than several because the certificate must be in `us-east-1` for
  * CloudFront to accept it, and splitting on that line would buy a cross-region
@@ -96,6 +98,23 @@ export class ConsoleStack extends Stack {
       },
     });
 
+    // react-router owns every path but the bundle's own files, so a deep link has to reach
+    // index.html. A function on this behavior rather than distribution-wide error
+    // responses, which would also answer a missing download with a 200 and the console.
+    const spaRouting = new cloudfront.Function(this, 'SpaRouting', {
+      comment: 'Serves index.html for every console path outside /assets/',
+      runtime: cloudfront.FunctionRuntime.JS_2_0,
+      code: cloudfront.FunctionCode.fromInline(`function handler(event) {
+  var request = event.request;
+  if (!request.uri.startsWith('/assets/')) {
+    request.uri = '/index.html';
+  }
+  return request;
+}`),
+    });
+
+    const downloads = new Downloads(this, 'Downloads', { githubRepository: props.githubRepository });
+
     const distribution = new cloudfront.Distribution(this, 'Distribution', {
       comment: `mini-cloud console (${props.domainName})`,
       domainNames: [props.domainName],
@@ -109,16 +128,18 @@ export class ConsoleStack extends Stack {
         cachePolicy: cloudfront.CachePolicy.CACHING_OPTIMIZED,
         responseHeadersPolicy: responseHeaders,
         compress: true,
+        functionAssociations: [{ function: spaRouting, eventType: cloudfront.FunctionEventType.VIEWER_REQUEST }],
       },
-      // react-router owns the paths, so a deep link has to reach the bundle rather than
-      // an error page. Both codes are mapped because a key missing from a *private*
-      // bucket comes back as 403, not 404 — mapping only 404 is the bug everyone hits
-      // once. The zero TTL keeps a genuinely missing asset from being cached as HTML.
-      errorResponses: [
-        { httpStatus: 403, responseHttpStatus: 200, responsePagePath: '/index.html', ttl: Duration.seconds(0) },
-        { httpStatus: 404, responseHttpStatus: 200, responsePagePath: '/index.html', ttl: Duration.seconds(0) },
-      ],
+      additionalBehaviors: {
+        [DOWNLOADS_PATH_PATTERN]: { ...downloads.behavior, responseHeadersPolicy: responseHeaders },
+      },
     });
+    // The risk is a request for the bucket root listing every key. Only `/downloads/*`
+    // reaches that bucket, so its root is never asked for.
+    Annotations.of(distribution).acknowledgeWarning(
+      '@aws-cdk/aws-cloudfront-origins:listBucketSecurityRisk',
+      'LIST is granted only to the downloads origin, which no request reaches at its root',
+    );
 
     // Two deployments because `Cache-Control` is set per deployment and the two halves
     // of a Vite build want opposite answers.
@@ -162,5 +183,6 @@ export class ConsoleStack extends Stack {
     new CfnOutput(this, 'DistributionDomainName', { value: distribution.distributionDomainName, description: 'CloudFront domain, for checking the site before DNS resolves.' });
     new CfnOutput(this, 'DistributionId', { value: distribution.distributionId, description: 'For a manual invalidation.' });
     new CfnOutput(this, 'BucketName', { value: bucket.bucketName, description: 'Holds the built console.' });
+    new CfnOutput(this, 'DownloadsUrl', { value: `https://${props.domainName}/downloads/cli`, description: 'Where install.sh and the binaries are served.' });
   }
 }

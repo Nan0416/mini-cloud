@@ -7,6 +7,7 @@ import { buildInstanceCommand } from './commands/instance';
 import { buildPubSubCommand } from './commands/pubsub';
 import { buildMigrateCommand, buildServeCommand } from './commands/serve';
 import { buildTaskCommand } from './commands/task';
+import { buildUpdateCommand } from './commands/update';
 import { buildVarCommand } from './commands/var';
 import { CONTROL_PLANE_UNIT } from './service';
 import { cliVersion } from './version';
@@ -21,7 +22,7 @@ const LOG_LEVELS: ReadonlyArray<LogLevel> = ['debug', 'info', 'warn', 'error'];
  * `console.log`, and the launchd/systemd chatter underneath is for `--log-level debug`.
  * A warning still gets through, which is what carries the missing-token notice.
  */
-const QUIET_COMMANDS = new Set(['task', 'instance', 'var', 'pubsub', 'migrate', 'daemon', 'config']);
+const QUIET_COMMANDS = new Set(['task', 'instance', 'var', 'pubsub', 'migrate', 'daemon', 'config', 'update']);
 
 const EXAMPLES = `
 Examples:
@@ -35,6 +36,7 @@ Examples:
   mini-cloud task enable 1234567890
   mini-cloud task launch 1234567890 -- --dry-run
   mini-cloud instance list --task 1234567890
+  mini-cloud update
 
 Variable substitution:
   Set fleet-wide values with 'var set', then use \${NAME} in cmd, cwd, args, env or
@@ -93,6 +95,7 @@ export function buildProgram(): Command {
   program.addCommand(buildInstanceCommand());
   program.addCommand(buildVarCommand());
   program.addCommand(buildPubSubCommand());
+  program.addCommand(buildUpdateCommand());
 
   return program;
 }

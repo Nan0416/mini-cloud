@@ -18,6 +18,8 @@ export interface ConsoleConfig {
   readonly zoneName: string;
   /** Where the console is served, e.g. `console.example.com`. Must sit inside the zone. */
   readonly domainName: string;
+  /** `owner/name` of the repository whose `cli-v*` tags may publish to the downloads bucket. */
+  readonly githubRepository: string;
 }
 
 function required(name: string): string {
@@ -61,5 +63,10 @@ export function loadConsoleConfig(): ConsoleConfig {
     throw new Error(`MINI_CLOUD_CONSOLE_DOMAIN ("${domainName}") must sit inside MINI_CLOUD_ZONE_NAME ("${zoneName}"), or the DNS records land in a zone that does not serve it.`);
   }
 
-  return { account, hostedZoneId, zoneName, domainName };
+  const githubRepository = required('MINI_CLOUD_GITHUB_REPOSITORY');
+  if (!/^[\w.-]+\/[\w.-]+$/.test(githubRepository)) {
+    throw new Error(`MINI_CLOUD_GITHUB_REPOSITORY must be owner/name, such as Nan0416/mini-cloud, not "${githubRepository}".`);
+  }
+
+  return { account, hostedZoneId, zoneName, domainName, githubRepository };
 }
