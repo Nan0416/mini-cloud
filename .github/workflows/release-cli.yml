@@ -2,7 +2,7 @@
 # GitHub Release.
 #
 # A separate tag from release-sdk.yml's `sdk-v*`: a CLI fix is not a reason to republish
-# a library, and a library release is not a reason to rebuild four binaries.
+# a library, and a library release is not a reason to rebuild three binaries.
 name: Release CLI
 on:
   push:
@@ -49,10 +49,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # No darwin-x64: GitHub retired the macos-13 runner in December 2025, and its
+          # remaining Intel image, macos-15-intel, goes the same way in August 2027.
           - target: darwin-arm64
             runner: macos-latest
-          - target: darwin-x64
-            runner: macos-13
           - target: linux-x64
             runner: ubuntu-latest
           - target: linux-arm64
@@ -117,7 +117,7 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ matrix.target }}
-          retention-days: 7
+          retention-days: 1
           path: packages/cli/build/sea/*.tar.gz
 
   release:

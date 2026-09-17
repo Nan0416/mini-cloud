@@ -339,7 +339,7 @@ npm version 1.0.1 --workspace @mini-cloud/shared --workspace @mini-cloud/reporte
 git commit -am "chore: release 1.0.1"
 git tag sdk-v1.0.1 && git push origin main --tags
 
-# binaries: four platforms on a GitHub Release
+# binaries: macOS arm64 + Linux x64/arm64 on a GitHub Release
 git tag cli-v1.0.1 && git push origin cli-v1.0.1
 ```
 
@@ -352,3 +352,37 @@ because `reporter` pins `shared` exactly.
 Authentication is npm Trusted Publishing over OIDC — no `NPM_TOKEN`. The binding is to
 this repository **and this filename**, so renaming `release-sdk.yml` breaks publishing
 until both packages' trusted publisher entries on npmjs.com match.
+
+## Deploying the hosted console
+
+The copy at <https://mini-cloud.qinnan.dev> is a CDK stack in [`infra/`](./infra/README.md),
+deployed by hand from this machine. A redeploy uploads whatever is in
+`packages/web/dist`, so build first:
+
+```bash
+aws sso login --profile mini-cloud           # when the SSO session has expired
+export AWS_PROFILE=mini-cloud
+
+npm run build -w @mini-cloud/web             # from the repository root
+cd infra
+npm install                                  # once, or after its package.json changes
+npm run diff                                 # optional: what would change
+npm run deploy
+```
+
+The profile must be for the account named in `infra/.env`, and CDK uses SSO profiles
+as they are. `npm run deploy -- --profile mini-cloud` works too, instead of exporting.
+
+The deploy invalidates `/index.html` itself, and everything under `assets/` is
+content-hashed, so a reload shows the new console. To flush the whole cache anyway:
+
+```bash
+DIST_ID=$(aws cloudformation describe-stacks --stack-name MiniCloudConsole --region us-east-1 \
+  --query "Stacks[0].Outputs[?OutputKey=='DistributionId'].OutputValue" --output text)
+aws cloudfront create-invalidation --distribution-id "$DIST_ID" --paths '/*'
+```
+
+Anything in `packages/web/.env` is compiled into the bundle, so a
+`VITE_MINI_CLOUD_TOKEN` there would ship to every visitor. Keep that file empty or
+absent when building for this. First-time setup — `.env`, the hosted zone, bootstrapping
+— is in [infra/README.md](./infra/README.md).
