@@ -1,4 +1,4 @@
-import { LoggerFactory } from '@mini-cloud/shared';
+import { LoggerFactory, PortInUseError } from '@mini-cloud/shared';
 import { ReporterHandlers, ReporterServer } from '../src/reporter-endpoints';
 
 const T0 = Date.UTC(2026, 5, 1, 12, 0, 0);
@@ -188,14 +188,16 @@ describe('ReporterServer', () => {
       await expect(twice.stop()).resolves.toBeUndefined();
     });
 
-    it('surfaces a port it cannot bind rather than starting silently broken', async () => {
+    it('refuses a port another agent holds, and says so, rather than starting silently broken', async () => {
       const holder = new ReporterServer(recordingHandlers().handlers);
       const port = await holder.start(0);
       const clashing = new ReporterServer(recordingHandlers().handlers);
 
       // Two agents configured with the same port is a real misconfiguration, and one
       // of them starting without a reporter API would break every task it launches.
-      await expect(clashing.start(port)).rejects.toThrow();
+      const start = clashing.start(port);
+      await expect(start).rejects.toBeInstanceOf(PortInUseError);
+      await expect(start).rejects.toThrow('most likely by another agent on this machine');
       await holder.stop();
     });
   });

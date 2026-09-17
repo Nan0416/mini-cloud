@@ -54,7 +54,11 @@ module.exports = {
         },
       },
     ],
+    // commander ships ESM only, which jest's CommonJS runtime cannot load; compiled
+    // here, a test can drive the real command tree rather than a copy of its wiring.
+    '/node_modules/commander/.+\\.js$': ['ts-jest', { tsconfig: { module: 'commonjs', target: 'es2022', allowJs: true } }],
   },
+  transformIgnorePatterns: ['/node_modules/(?!commander/)'],
   collectCoverageFrom: [
     'packages/*/src/**/*.ts',
     'packages/*/src/**/*.tsx',

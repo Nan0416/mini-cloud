@@ -1,4 +1,14 @@
-import { InvalidRequestError, LoggerFactory, TASK_EVENT_LEVELS, assertInteger, assertNonEmptyString, assertOneOf, assertRecord } from '@mini-cloud/shared';
+import {
+  InvalidRequestError,
+  LoggerFactory,
+  PortInUseError,
+  TASK_EVENT_LEVELS,
+  assertInteger,
+  assertNonEmptyString,
+  assertOneOf,
+  assertRecord,
+  isAddressInUse,
+} from '@mini-cloud/shared';
 import express, { NextFunction, Request, Response } from 'express';
 import http from 'node:http';
 
@@ -77,9 +87,20 @@ export class ReporterServer {
         reject(new Error('Reporter server was disposed before it started.'));
         return;
       }
-      server.once('error', reject);
+      // Bound before the agent contacts the service, so a second agent on this machine
+      // stops here rather than after registering under the same id.
+      const onError = (err: Error): void => {
+        reject(
+          isAddressInUse(err)
+            ? new PortInUseError(
+                `127.0.0.1:${port}, the agent's reporter port, is already in use — most likely by another agent on this machine. Stop it, or run this one from a config file with its own agent.id and agent.port.`,
+              )
+            : err,
+        );
+      };
+      server.once('error', onError);
       server.listen(port, '127.0.0.1', () => {
-        server.removeListener('error', reject);
+        server.removeListener('error', onError);
         resolve();
       });
     });

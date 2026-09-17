@@ -82,6 +82,21 @@ export class ServiceUnreachableError extends AppError {
   }
 }
 
+/**
+ * A port this process needs to listen on is already taken — most often by another copy
+ * of the same process. Raised at startup and never seen on the wire; an `AppError` so
+ * the CLI prints the sentence rather than a stack trace.
+ */
+export class PortInUseError extends ConflictError {}
+
+/**
+ * Whether `listen()` failed because something else holds the address. Checked by shape:
+ * an error raised inside Node is not an `instanceof Error` from every realm.
+ */
+export function isAddressInUse(err: unknown): boolean {
+  return typeof err === 'object' && err !== null && 'code' in err && err.code === 'EADDRINUSE';
+}
+
 export interface ErrorResponse {
   readonly error: string;
   readonly errorCode: ErrorCode;

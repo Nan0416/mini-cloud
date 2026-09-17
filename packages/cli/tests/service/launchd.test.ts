@@ -1,13 +1,15 @@
-import { buildPlist, LAUNCHD_LABEL } from '../../src/service/launchd';
-import { InstallOptions } from '../../src/service/types';
+import { buildPlist as buildPlistFor } from '../../src/service/launchd';
+import { DaemonUnit, InstallOptions } from '../../src/service/types';
+import { AGENT_UNIT, CONTROL_PLANE_UNIT } from '../../src/service/units';
 
 const options = (overrides: Partial<InstallOptions> = {}): InstallOptions => ({
   programArguments: ['/usr/local/bin/mini-cloud', 'serve'],
   env: { HOME: '/Users/someone', PATH: '/usr/bin' },
-  logPath: '/Users/someone/.mini-cloud/service/service.log',
   enable: true,
   ...overrides,
 });
+
+const buildPlist = (installOptions: InstallOptions, unit: DaemonUnit = CONTROL_PLANE_UNIT): string => buildPlistFor(unit, installOptions);
 
 describe('buildPlist', () => {
   it('runs the resolved argv, one element per string, so a path with a space survives', () => {
@@ -57,12 +59,41 @@ describe('buildPlist', () => {
   it('sends both streams to the same file, so the order of a crash is readable', () => {
     const plist = buildPlist(options());
 
-    expect(plist).toContain(`<key>StandardOutPath</key>\n  <string>${options().logPath}</string>`);
-    expect(plist).toContain(`<key>StandardErrorPath</key>\n  <string>${options().logPath}</string>`);
+    expect(plist).toContain(`<key>StandardOutPath</key>\n  <string>${CONTROL_PLANE_UNIT.logPath}</string>`);
+    expect(plist).toContain(`<key>StandardErrorPath</key>\n  <string>${CONTROL_PLANE_UNIT.logPath}</string>`);
   });
 
   it('labels itself under the domain the project already owns', () => {
-    expect(LAUNCHD_LABEL).toBe('dev.qinnan.mini-cloud');
-    expect(buildPlist(options())).toContain(`<string>${LAUNCHD_LABEL}</string>`);
+    expect(CONTROL_PLANE_UNIT.launchdLabel).toBe('dev.qinnan.mini-cloud');
+    expect(buildPlist(options())).toContain('<string>dev.qinnan.mini-cloud</string>');
+  });
+
+  it('runs the control plane as a background job, since it launches no tasks', () => {
+    const plist = buildPlist(options());
+
+    expect(plist).toMatch(/<key>ProcessType<\/key>\s*<string>Background<\/string>/);
+    expect(plist).not.toContain('AbandonProcessGroup');
+  });
+});
+
+describe('buildPlist for the agent', () => {
+  const plist = buildPlist(options({ programArguments: ['/usr/local/bin/mini-cloud', 'agent', 'start'] }), AGENT_UNIT);
+
+  it('takes its own label and log, so it installs beside a control plane', () => {
+    expect(plist).toContain('<string>dev.qinnan.mini-cloud.agent</string>');
+    expect(plist).toContain(`<string>${AGENT_UNIT.logPath}</string>`);
+    expect(plist).not.toContain(CONTROL_PLANE_UNIT.logPath);
+  });
+
+  it('is not a background job, whose CPU and I/O throttling every task would inherit', () => {
+    expect(plist).toMatch(/<key>ProcessType<\/key>\s*<string>Standard<\/string>/);
+  });
+
+  it('leaves the tasks it launched running when it stops', () => {
+    expect(plist).toMatch(/<key>AbandonProcessGroup<\/key>\s*<true\s*\/>/);
+  });
+
+  it('still restarts a crash and still lets a stop stick', () => {
+    expect(plist).toContain('<key>SuccessfulExit</key>');
   });
 });

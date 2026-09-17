@@ -8,12 +8,14 @@ import { buildPubSubCommand } from './commands/pubsub';
 import { buildMigrateCommand, buildServeCommand } from './commands/serve';
 import { buildTaskCommand } from './commands/task';
 import { buildVarCommand } from './commands/var';
+import { CONTROL_PLANE_UNIT } from './service';
 import { cliVersion } from './version';
 
 const LOG_LEVELS: ReadonlyArray<LogLevel> = ['debug', 'info', 'warn', 'error'];
 
 /**
- * Commands that print a report, where service log lines would only be noise.
+ * Commands that print a report, where service log lines would only be noise. A command
+ * is quiet when any group above it is listed, which is how `agent daemon` is.
  *
  * `daemon` belongs here for the same reason a table does: it says what it did through
  * `console.log`, and the launchd/systemd chatter underneath is for `--log-level debug`.
@@ -27,6 +29,7 @@ Examples:
   mini-cloud serve
   mini-cloud daemon start
   mini-cloud agent start
+  mini-cloud agent daemon start
   mini-cloud task create --name backup --cmd ./backup.sh --cwd ~/scripts --every 1d --at 2026-01-01T03:00:00Z
   mini-cloud task agents 1234567890 --agent laptop-1
   mini-cloud task enable 1234567890
@@ -39,6 +42,14 @@ Variable substitution:
   \${AGENT_NAME}, \${AGENT_DIR}, \${STDOUT_DIR}, \${STDERR_DIR}, \${INSTANCE_ID} and
   \${TASK_ID} on the machine where the task actually runs.
 `;
+
+function commandPath(command: Command): ReadonlyArray<string> {
+  const names: string[] = [];
+  for (let current: Command | null = command; current !== null; current = current.parent) {
+    names.push(current.name());
+  }
+  return names;
+}
 
 export function buildProgram(): Command {
   const program = new Command();
@@ -68,14 +79,13 @@ export function buildProgram(): Command {
     }
     // `serve` and `agent start` are long-running processes whose logs are the point,
     // so they keep the default level.
-    const root = actionCommand.parent?.name() ?? actionCommand.name();
-    if (QUIET_COMMANDS.has(root)) {
+    if (commandPath(actionCommand).some((name) => QUIET_COMMANDS.has(name))) {
       LoggerFactory.setLevel('warn');
     }
   });
 
   program.addCommand(buildServeCommand());
-  program.addCommand(buildDaemonCommand());
+  program.addCommand(buildDaemonCommand(CONTROL_PLANE_UNIT));
   program.addCommand(buildConfigCommand());
   program.addCommand(buildMigrateCommand());
   program.addCommand(buildAgentCommand());

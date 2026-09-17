@@ -9,7 +9,8 @@ import { Dependencies, DependencyFactory, PlaneDependencies } from './dependenci
 import { WsMessageHub } from './facades/message-hub';
 import { Scheduler } from './facades/scheduler';
 import { Service } from './service';
-import { ListenerConfig, ServiceConfig } from './config';
+import { ServiceConfig } from './config';
+import { NamedListener, assertListenersFree, bindListener } from './listeners';
 import { consoleLink } from './utils/console-link';
 
 const logger = LoggerFactory.getLogger('MiniCloudServer');
@@ -17,19 +18,6 @@ const logger = LoggerFactory.getLogger('MiniCloudServer');
 export interface StartServerOptions {
   /** Apply pending migrations on startup. Defaults to true. */
   readonly runMigrations?: boolean;
-}
-
-/** Binds one listener and reports the port it actually got, which `0` makes useful. */
-async function listen(server: http.Server, config: ListenerConfig): Promise<number> {
-  await new Promise<void>((resolve, reject) => {
-    server.once('error', reject);
-    server.listen(config.port, config.host, () => {
-      server.removeListener('error', reject);
-      resolve();
-    });
-  });
-  const address = server.address();
-  return address !== null && typeof address !== 'string' ? address.port : config.port;
 }
 
 function portOf(server: http.Server, fallback: number): number {
@@ -59,6 +47,9 @@ export class MiniCloudServer {
 
   static async start(config: ServiceConfig, options: StartServerOptions = {}): Promise<MiniCloudServer> {
     assertDistinctListeners(config);
+    const internalListener: NamedListener = { name: 'internal', config: config.internal };
+    const publicListener: NamedListener = { name: 'public', config: config.public };
+    await assertListenersFree([internalListener, publicListener]);
 
     const pool = createPool({ connectionString: config.databaseUrl });
 
@@ -96,7 +87,7 @@ export class MiniCloudServer {
     let internalPort: number;
     let publicPort: number;
     try {
-      [internalPort, publicPort] = await Promise.all([listen(internalServer, config.internal), listen(publicServer, config.public)]);
+      [internalPort, publicPort] = await Promise.all([bindListener(internalServer, internalListener), bindListener(publicServer, publicListener)]);
     } catch (err) {
       await Promise.all([closeQuietly(internalServer), closeQuietly(publicServer), hub.terminate(), pool.end()]);
       throw err;

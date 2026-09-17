@@ -91,7 +91,7 @@ export function buildConfigCommand(): Command {
         console.log('Pass --force to replace one — it writes defaults over your settings, and a new token logs every browser out.');
       }
       if (written.length > 0) {
-        console.log('Restart the control plane to pick them up: mini-cloud daemon restart');
+        console.log('Restart whatever runs from them to pick them up: mini-cloud daemon restart, mini-cloud agent daemon restart');
       }
     });
 

@@ -3,16 +3,12 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { getDaemonPaths } from '../paths';
-import { InstallOptions, LogsOptions, ServiceManager, ServiceStatus } from './types';
+import { DaemonUnit, InstallOptions, LogsOptions, ServiceManager, ServiceStatus } from './types';
 
 const logger = LoggerFactory.getLogger('launchd');
 
-/** Reverse-DNS, matching the domain the console is served from. */
-export const LAUNCHD_LABEL = 'dev.qinnan.mini-cloud';
-
-function plistPath(): string {
-  return join(homedir(), 'Library', 'LaunchAgents', `${LAUNCHD_LABEL}.plist`);
+function plistPath(unit: DaemonUnit): string {
+  return join(homedir(), 'Library', 'LaunchAgents', `${unit.launchdLabel}.plist`);
 }
 
 function xmlEscape(value: string): string {
@@ -27,19 +23,24 @@ function xmlEscape(value: string): string {
  * crash recovery to it made `--no-enable` mean something different on each platform,
  * since the systemd unit keeps `Restart=on-failure` either way.
  */
-export function buildPlist(options: InstallOptions): string {
+export function buildPlist(unit: DaemonUnit, options: InstallOptions): string {
   const argumentsXml = options.programArguments.map((argument) => `    <string>${xmlEscape(argument)}</string>`).join('\n');
   const environmentXml = Object.entries(options.env)
     .map(([key, value]) => `    <key>${xmlEscape(key)}</key>\n    <string>${xmlEscape(value)}</string>`)
     .join('\n');
   const keepAlive = '<dict>\n    <key>SuccessfulExit</key>\n    <false/>\n  </dict>';
+  // Background throttles CPU and I/O, and a task would inherit that. Tasks are detached
+  // into their own process group already; AbandonProcessGroup keeps a stop from
+  // reaching them even if that ever changes.
+  const processType = unit.launchesTasks ? 'Standard' : 'Background';
+  const abandonProcessGroup = unit.launchesTasks ? '\n  <key>AbandonProcessGroup</key>\n  <true/>' : '';
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
   <key>Label</key>
-  <string>${xmlEscape(LAUNCHD_LABEL)}</string>
+  <string>${xmlEscape(unit.launchdLabel)}</string>
   <key>ProgramArguments</key>
   <array>
 ${argumentsXml}
@@ -53,13 +54,13 @@ ${environmentXml}
   <key>KeepAlive</key>
   ${keepAlive}
   <key>StandardOutPath</key>
-  <string>${xmlEscape(options.logPath)}</string>
+  <string>${xmlEscape(unit.logPath)}</string>
   <key>StandardErrorPath</key>
-  <string>${xmlEscape(options.logPath)}</string>
+  <string>${xmlEscape(unit.logPath)}</string>
   <key>ExitTimeOut</key>
   <integer>30</integer>
   <key>ProcessType</key>
-  <string>Background</string>
+  <string>${processType}</string>${abandonProcessGroup}
 </dict>
 </plist>
 `;
@@ -71,14 +72,18 @@ function sleepSync(ms: number): void {
 }
 
 export class LaunchdServiceManager implements ServiceManager {
-  private readonly plist = plistPath();
+  private readonly plist: string;
+
+  constructor(private readonly unit: DaemonUnit) {
+    this.plist = plistPath(unit);
+  }
 
   private get domainTarget(): string {
     return `gui/${process.getuid?.() ?? 0}`;
   }
 
   private get serviceTarget(): string {
-    return `${this.domainTarget}/${LAUNCHD_LABEL}`;
+    return `${this.domainTarget}/${this.unit.launchdLabel}`;
   }
 
   /** stderr captured, not inherited: a `bootout` of an unloaded label fails noisily. */
@@ -97,8 +102,8 @@ export class LaunchdServiceManager implements ServiceManager {
 
   install(options: InstallOptions): void {
     mkdirSync(dirname(this.plist), { recursive: true });
-    mkdirSync(dirname(options.logPath), { recursive: true });
-    writeFileSync(this.plist, buildPlist(options), { encoding: 'utf8', mode: 0o600 });
+    mkdirSync(dirname(this.unit.logPath), { recursive: true });
+    writeFileSync(this.plist, buildPlist(this.unit, options), { encoding: 'utf8', mode: 0o600 });
     logger.info(`Wrote ${this.plist}`);
 
     this.tryBootout();
@@ -118,7 +123,7 @@ export class LaunchdServiceManager implements ServiceManager {
 
   private isLoaded(): boolean {
     try {
-      this.launchctl(['list', LAUNCHD_LABEL]);
+      this.launchctl(['list', this.unit.launchdLabel]);
       return true;
     } catch {
       return false;
@@ -133,7 +138,7 @@ export class LaunchdServiceManager implements ServiceManager {
     const deadline = Date.now() + 35_000;
     while (this.isLoaded()) {
       if (Date.now() > deadline) {
-        logger.warn(`${LAUNCHD_LABEL} is still loaded after 35s; continuing anyway.`);
+        logger.warn(`${this.unit.launchdLabel} is still loaded after 35s; continuing anyway.`);
         return;
       }
       sleepSync(200);
@@ -175,7 +180,7 @@ export class LaunchdServiceManager implements ServiceManager {
     // Read from the plist, not from "is loaded": a --no-enable service is both.
     const enabled = this.runAtLoad();
     try {
-      const listed = this.launchctl(['list', LAUNCHD_LABEL]);
+      const listed = this.launchctl(['list', this.unit.launchdLabel]);
       const pid = /"PID"\s*=\s*(\d+)/.exec(listed);
       return pid === null ? { state: 'stopped', enabled } : { state: 'running', pid: Number(pid[1]), enabled };
     } catch {
@@ -194,10 +199,15 @@ export class LaunchdServiceManager implements ServiceManager {
 
   /** `-F`, not `-f`: reopen by name, so rotation does not leave us on a dead inode. */
   logs(options: LogsOptions): void {
-    const { logPath } = getDaemonPaths();
+    const { logPath } = this.unit;
     if (!existsSync(logPath)) {
-      throw new Error(`No log file at ${logPath} yet. The daemon writes one once it has started; check \`mini-cloud daemon status\`.`);
+      throw new Error(`No log file at ${logPath} yet. The daemon writes one once it has started; check \`${this.unit.command} status\`.`);
     }
     execFileSync('tail', ['-n', String(options.lines), ...(options.follow ? ['-F'] : []), logPath], { stdio: 'inherit' });
+  }
+
+  /** A LaunchAgent always waits for a login, on every Mac alike, so there is nothing to detect. */
+  bootWarning(): string | undefined {
+    return undefined;
   }
 }
