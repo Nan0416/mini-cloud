@@ -1,6 +1,8 @@
 import { LoadConfigOptions, MiniCloudServer, createPool, loadConfig, migrate } from '@mini-cloud/service';
 import { LoggerFactory } from '@mini-cloud/shared';
 import { Command } from 'commander';
+import { CONTROL_PLANE_UNIT } from '../service';
+import { explainPortConflict } from './daemon';
 
 const logger = LoggerFactory.getLogger('serve');
 
@@ -24,7 +26,12 @@ export function buildServeCommand(): Command {
       // this machine's config file being well-formed just to parse an argument.
       const config = loadConfig(configOption(command));
 
-      const server = await MiniCloudServer.start(config, { runMigrations: options.skipMigrations !== true });
+      let server: MiniCloudServer;
+      try {
+        server = await MiniCloudServer.start(config, { runMigrations: options.skipMigrations !== true });
+      } catch (err) {
+        throw explainPortConflict(err, CONTROL_PLANE_UNIT);
+      }
 
       // Shut down in an orderly way so in-flight work finishes and the database pool
       // is released; a second signal means the operator is impatient, so exit now.
@@ -32,7 +39,8 @@ export function buildServeCommand(): Command {
       const shutdown = async (signal: string): Promise<void> => {
         if (shuttingDown) {
           logger.warn(`Received ${signal} again; exiting now.`);
-          process.exit(1);
+          // 0 all the same: this stop was asked for, and launchd relaunches any other exit.
+          process.exit(0);
         }
         shuttingDown = true;
         logger.info(`Received ${signal}; shutting down.`);

@@ -14,7 +14,7 @@ const logger = LoggerFactory.getLogger('TaskLauncher');
  * the service token and its own identity, and a task should not silently inherit
  * either. Everything else a task needs comes from its own `env`.
  */
-const INHERITED_ENV_KEYS: ReadonlyArray<string> = ['PATH', 'HOME', 'SHELL', 'USER', 'LOGNAME', 'LANG', 'LC_ALL', 'TMPDIR', 'TZ'];
+export const INHERITED_ENV_KEYS: ReadonlyArray<string> = ['PATH', 'HOME', 'SHELL', 'USER', 'LOGNAME', 'LANG', 'LC_ALL', 'TMPDIR', 'TZ'];
 
 export interface LaunchOptions {
   readonly agentId: string;

@@ -87,6 +87,7 @@ jobs:
           cd packages/cli/build/sea
           ./mini-cloud --help > /dev/null
           ./mini-cloud daemon status
+          ./mini-cloud agent daemon status
 
           # The version has to be the one stamped above, not whatever was compiled in
           # last: a binary reporting the wrong version cannot be traced to a release.

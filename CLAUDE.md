@@ -49,7 +49,8 @@ face a port forward. A route belongs to exactly one of them; the 404 on the othe
 the right listener.
 
 `mini-cloud daemon start` runs the control plane under launchd or systemd instead of in
-the terminal, and `npm run build:sea:mac -w @mini-cloud/cli` (or `build:sea:linux`)
+the terminal (`mini-cloud agent daemon start` does the same for an agent, and both fit on
+one machine), and `npm run build:sea:mac -w @mini-cloud/cli` (or `build:sea:linux`)
 builds the single-file binary
 (the migrations are compiled into it; see [dev.md](./dev.md#building-the-binary)).
 

@@ -49,31 +49,68 @@ Flags need a `--` separator, or npm eats them: `npm start -- --config ~/other/co
 
 ## Running as a daemon
 
-`mini-cloud serve` dies with its terminal. To survive a logout and a reboot:
+`mini-cloud serve` and `mini-cloud agent start` die with their terminal. To survive a
+logout, a crash and a reboot, run either one — or both, on the same machine — under the
+OS supervisor:
 
 ```bash
-mini-cloud daemon start             # install the service and start it
-mini-cloud daemon status
+mini-cloud daemon start             # the control plane: install the service and start it
+mini-cloud agent daemon start       # the agent, the same way
+```
+
+Both groups take the same verbs:
+
+```bash
+mini-cloud daemon status            # or: mini-cloud agent daemon status
 mini-cloud daemon logs -f
 mini-cloud daemon restart
 mini-cloud daemon stop              # stays installed, starts again at login
 mini-cloud daemon uninstall
 ```
 
-launchd on macOS (`~/Library/LaunchAgents/dev.qinnan.mini-cloud.plist`), systemd `--user`
-on Linux (`~/.config/systemd/user/mini-cloud.service`). Both run the same
-`mini-cloud serve`; what they add is restart-on-crash and start-at-login. `--no-enable`
-gives you the first without the second.
+| | Control plane | Agent |
+| --- | --- | --- |
+| launchd (macOS) | `~/Library/LaunchAgents/dev.qinnan.mini-cloud.plist` | `…/dev.qinnan.mini-cloud.agent.plist` |
+| systemd `--user` (Linux) | `~/.config/systemd/user/mini-cloud.service` | `…/mini-cloud-agent.service` |
+| Log on macOS | `~/.mini-cloud/service/service.log` | `~/.mini-cloud/agent/agent.log` |
 
-The unit holds no settings — only `HOME` and `PATH` — so reconfiguring is editing
-`config.json` and restarting, never reinstalling. `daemon start --config <path>` bakes
-that path into the unit.
+Linux logs go to journald. What the supervisor adds is restart-on-crash and
+start-at-login; `--no-enable` gives you the first without the second.
 
-On Linux a user service starts at *login*. `sudo loginctl enable-linger $USER` makes it
-start with the machine.
+The unit holds no settings, so reconfiguring is editing `config.json` and restarting,
+never reinstalling. `start --config <path>` bakes that path into the unit. What the unit
+*does* copy from the shell you install from is the environment a supervisor would not
+provide: `HOME` and `PATH` for the control plane, and for the agent every variable a
+task inherits (`PATH`, `HOME`, `SHELL`, `USER`, `LOGNAME`, `LANG`, `LC_ALL`, `TMPDIR`,
+`TZ`), so a task behaves the same under the daemon as in that terminal. They are captured
+at install time: after changing your `PATH`, run `agent daemon start` again.
 
-Postgres is not waited for: a control plane that starts first crashes and is restarted
-until the database answers.
+Tasks outlive the agent. `agent daemon stop`, `restart` and `uninstall` leave every task
+it launched running (on Linux the unit uses `KillMode=process` for this). `mini-cloud
+agent stop <agentId>` asks the agent to exit cleanly, which the supervisor respects: it
+stays down until `agent daemon start`, or until the supervisor itself starts again — at
+the next login on macOS; on Linux when the user manager next starts, which with linger on
+means the next boot.
+
+Neither daemon waits for what it needs. A control plane that starts before Postgres,
+or an agent that starts before its control plane, exits and is restarted — every 10s
+under launchd, every 5s under systemd — until the other side answers.
+
+On Linux a user service starts at *login*; `daemon start` says so when the account does
+not linger, and `sudo loginctl enable-linger $USER` makes it start with the machine. A
+macOS LaunchAgent likewise waits for someone to log in, so a headless Mac worker needs
+automatic login.
+
+One of each per user account. A second agent on the same machine runs in the
+foreground, from its own config file with a different `agent.id`, `agent.port` and
+`agent.workDir` — two agents sharing a work directory replay each other's offline
+reports.
+
+Starting a second copy of either from the same config is refused with a sentence rather
+than a stack trace, and the sentence names the daemon when that is what holds the port.
+The control plane claims its ports before it touches the database and answers 503 until
+its migrations are in, so a stray `serve` never applies migrations under a running
+daemon.
 
 ## Configuration
 

@@ -3,6 +3,8 @@ import { LoggerFactory, TaskAgent } from '@mini-cloud/shared';
 import { Command } from 'commander';
 import { GlobalOptions, createClient, resolveConfig } from '../client-factory';
 import { Column, formatAge, printJson, printTable } from '../output';
+import { AGENT_UNIT } from '../service';
+import { buildDaemonCommand, explainPortConflict } from './daemon';
 
 const logger = LoggerFactory.getLogger('agent');
 
@@ -23,12 +25,18 @@ export function buildAgentCommand(): Command {
       const global: GlobalOptions = this.optsWithGlobals();
       const config = resolveAgentConfig(resolveConfig(global).agent);
 
-      const running = await MiniCloudAgent.start(config);
+      let running: MiniCloudAgent;
+      try {
+        running = await MiniCloudAgent.start(config);
+      } catch (err) {
+        throw explainPortConflict(err, AGENT_UNIT);
+      }
 
       let stopping = false;
       const shutdown = async (reason: string): Promise<void> => {
         if (stopping) {
-          process.exit(1);
+          // 0 all the same: this stop was asked for, and launchd relaunches any other exit.
+          process.exit(0);
         }
         stopping = true;
         logger.info(`Shutting down: ${reason}.`);
@@ -59,12 +67,14 @@ export function buildAgentCommand(): Command {
 
   agent
     .command('stop')
-    .description('ask an agent to shut down')
+    .description('ask an agent, anywhere in the fleet, to shut down; a daemon leaves it down until its next start')
     .argument('<agentId>')
     .action(async function (this: Command, agentId: string) {
       await createClient(this.optsWithGlobals()).terminateAgent({ agentId });
       console.log(`Asked agent ${agentId} to shut down.`);
     });
+
+  agent.addCommand(buildDaemonCommand(AGENT_UNIT));
 
   return agent;
 }
