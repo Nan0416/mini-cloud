@@ -98,21 +98,6 @@ export class ConsoleStack extends Stack {
       },
     });
 
-    // react-router owns every path but the bundle's own files, so a deep link has to reach
-    // index.html. A function on this behavior rather than distribution-wide error
-    // responses, which would also answer a missing download with a 200 and the console.
-    const spaRouting = new cloudfront.Function(this, 'SpaRouting', {
-      comment: 'Serves index.html for every console path outside /assets/',
-      runtime: cloudfront.FunctionRuntime.JS_2_0,
-      code: cloudfront.FunctionCode.fromInline(`function handler(event) {
-  var request = event.request;
-  if (!request.uri.startsWith('/assets/')) {
-    request.uri = '/index.html';
-  }
-  return request;
-}`),
-    });
-
     const downloads = new Downloads(this, 'Downloads', { githubRepository: props.githubRepository });
 
     const distribution = new cloudfront.Distribution(this, 'Distribution', {
@@ -128,11 +113,21 @@ export class ConsoleStack extends Stack {
         cachePolicy: cloudfront.CachePolicy.CACHING_OPTIMIZED,
         responseHeadersPolicy: responseHeaders,
         compress: true,
-        functionAssociations: [{ function: spaRouting, eventType: cloudfront.FunctionEventType.VIEWER_REQUEST }],
       },
       additionalBehaviors: {
         [DOWNLOADS_PATH_PATTERN]: { ...downloads.behavior, responseHeadersPolicy: responseHeaders },
       },
+      // react-router owns the paths, so a deep link has to reach the bundle rather than
+      // an error page, and the console bucket answers a key it does not hold with a 403
+      // rather than a 404 — it grants CloudFront no LIST, so S3 will not confirm the
+      // absence. The zero TTL keeps a genuinely missing asset from being cached as HTML.
+      //
+      // 404 is deliberately NOT mapped, although this rule covers every behavior: the
+      // downloads bucket *does* grant LIST, so a file that is not there answers 404, and
+      // leaving that code alone is what keeps `curl -f` failing on a missing download
+      // rather than writing this page to disk with a 200. Granting the console bucket
+      // LIST, or taking it from the downloads bucket, breaks one of the two.
+      errorResponses: [{ httpStatus: 403, responseHttpStatus: 200, responsePagePath: '/index.html', ttl: Duration.seconds(0) }],
     });
     // The risk is a request for the bucket root listing every key. Only `/downloads/*`
     // reaches that bucket, so its root is never asked for.

@@ -26,7 +26,6 @@ That also means the root `npm run lint` and `npm run format:lint` do not reach i
 | --- | --- |
 | S3 bucket | The console. Private. All public access blocked, no website endpoint. Reached only through the distribution |
 | CloudFront distribution | `index.html` as the root object, HTTP redirected to HTTPS, compression on, HTTP/2 and /3 |
-| CloudFront Function | Serves `index.html` for every console path outside `/assets/`, so deep links work |
 | Downloads bucket | The binaries, under `downloads/cli/`. Private, retained when the stack is destroyed, served at `/downloads/*` |
 | IAM role `mini-cloud-cli-release` | What `release-cli.yml` assumes over GitHub's OIDC to write to the downloads bucket |
 | Origin Access Control | How CloudFront reaches the bucket, so the bucket is never a public origin |
@@ -119,16 +118,23 @@ bucket. It lives in this stack rather than a second one because the behavior has
 on this distribution, and a separate stack would reference the distribution while this
 one referenced its bucket — a cycle.
 
-**The console's deep links are a function, not error pages.** CloudFront's custom error
-responses apply to the whole distribution, so mapping 403 and 404 to `index.html` would
-also answer a missing download with a `200` and the console's HTML — which `curl -f`
-accepts. The function on the default behavior rewrites every path outside `/assets/` to
-`/index.html`; `/downloads/*` never runs it, so a missing file there is a real 404.
+**403 and 404 mean different things here, and that is what keeps both halves working.**
+CloudFront's custom error responses apply to the whole distribution — there is nowhere
+to put one on a single behavior — so the rule that sends the console's deep links to
+`index.html` covers `/downloads/*` too. It maps **403 only**, and the two buckets
+answer differently on purpose:
 
-**LIST is granted on the downloads bucket alone**, so a missing key is a 404 rather than
-S3's 403. CDK warns about it because LIST on a *default* behavior lets a request for `/`
-list the bucket; no request reaches this bucket at its root, and the warning is
-acknowledged in the stack.
+- **The console bucket grants no LIST**, so S3 will not confirm a key's absence and
+  answers 403 for `/tasks`. That is what the mapping catches, and react-router takes it
+  from there.
+- **The downloads bucket grants LIST**, so a file that is not there answers 404 — a code
+  nothing maps, so it reaches the viewer as a 404 and `curl -f` fails on it rather than
+  writing this page to disk with a 200.
+
+Granting the console bucket LIST, or taking it from the downloads bucket, breaks one of
+those two. CDK warns about LIST because on a *default* behavior it lets a request for
+`/` list the bucket; no request reaches the downloads bucket at its root, and the
+warning is acknowledged in the stack.
 
 **The release workflow sets the caching.** A version's directory is uploaded with
 `immutable`, and `install.sh` and `version.json` at the top with `no-cache`, which the
