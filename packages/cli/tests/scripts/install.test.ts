@@ -120,6 +120,22 @@ describe('install.sh', () => {
     expect(readlinkSync(launcher())).toBe(join(versionsDir(), '1.3.0', 'mini-cloud'));
   });
 
+  it('keeps a version pinned by hand, and the two installed most recently beside it', async () => {
+    // Pinning an old build is deliberate, so it stays and the least recently installed of
+    // the rest goes. Pruning by version order would drop the same directory: the version
+    // being installed is never a candidate, so both orders choose among the others.
+    for (const version of ['1.0.0', '1.1.0', '1.2.0', '1.3.0']) {
+      publish(version);
+      await install({ MINI_CLOUD_VERSION: version });
+    }
+    expect(readdirSync(versionsDir()).sort()).toEqual(['1.1.0', '1.2.0', '1.3.0']);
+
+    expect(await install({ MINI_CLOUD_VERSION: '1.0.0' })).toMatchObject({ code: 0 });
+
+    expect(readdirSync(versionsDir()).sort()).toEqual(['1.0.0', '1.2.0', '1.3.0']);
+    expect(execFileSync(launcher(), ['--version'], { encoding: 'utf-8' })).toBe('1.0.0\n');
+  });
+
   it('remembers a custom symlink directory, so an update relinks it rather than a second one', async () => {
     const binDir = join(work, 'custom-bin');
     publish('1.2.0');
