@@ -159,7 +159,9 @@ await metrics?.flush();
 ```
 
 Each flush appends one embedded-metric-format document to a spool file; the local
-agent folds a minute's worth into one datum per series and reports it. Because that
+agent folds a minute's worth into one datum per series and reports it. A metric is
+stamped with when it was recorded rather than when it was flushed, so buffering never
+files work under the wrong minute. Because that
 format is CloudWatch's, the same instrumentation would work unchanged if any of this
 ever moved to AWS — and the API is `aws-embedded-metrics`', so swapping in the real
 library is a change of import.

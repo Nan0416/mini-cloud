@@ -171,6 +171,177 @@ describe('MetricLogger.flush', () => {
   });
 });
 
+describe('MetricLogger minute accuracy', () => {
+  const MINUTE = Date.UTC(2026, 8, 20, 4, 19, 0);
+
+  /** A logger whose clock the test drives, so a boundary needs no waiting. */
+  function atClock(): { sink: RecordingSink; metrics: MetricLogger; setNow: (at: number) => void } {
+    const sink = new RecordingSink();
+    let now = MINUTE;
+    const metrics = new MetricLogger({ sink, namespace: 'MyApp', flushOnMinuteBoundary: false, clock: () => now });
+    return { sink, metrics, setNow: (at: number) => (now = at) };
+  }
+
+  it('stamps a document with when the work happened, not when it was flushed', async () => {
+    // The case that motivated this: recorded at 4:19:03, flushed at 4:23:04. Stamping
+    // at flush would file it under 4:23 and lose the minute it belongs to.
+    const { sink, metrics, setNow } = atClock();
+    setNow(MINUTE + 3_000);
+    metrics.putMetric('Latency', 42, 'Milliseconds');
+
+    setNow(MINUTE + 4 * 60_000 + 4_000);
+    await metrics.flush();
+
+    expect(sink.only._aws.Timestamp).toBe(MINUTE + 3_000);
+  });
+
+  it('closes the open document as soon as an observation lands in a later minute', async () => {
+    const { sink, metrics, setNow } = atClock();
+    setNow(MINUTE + 3_000);
+    metrics.putMetric('Latency', 10, 'Milliseconds');
+
+    setNow(MINUTE + 61_000);
+    metrics.putMetric('Latency', 20, 'Milliseconds');
+    await metrics.flush();
+
+    // Two documents, each stamped inside its own minute — never one spanning both.
+    expect(sink.documents.map((document) => document._aws.Timestamp)).toEqual([MINUTE + 3_000, MINUTE + 61_000]);
+    expect(sink.documents.map((document) => document['Latency'])).toEqual([10, 20]);
+  });
+
+  it('keeps observations from one minute in a single document', async () => {
+    const { sink, metrics, setNow } = atClock();
+    setNow(MINUTE + 1_000);
+    metrics.putMetric('Latency', 1, 'Milliseconds');
+    setNow(MINUTE + 59_999);
+    metrics.putMetric('Latency', 2, 'Milliseconds');
+
+    await metrics.flush();
+
+    expect(sink.only['Latency']).toEqual([1, 2]);
+  });
+
+  it('splits a run that spans several minutes into one document per minute', async () => {
+    const { sink, metrics, setNow } = atClock();
+    for (let minute = 0; minute < 4; minute += 1) {
+      setNow(MINUTE + minute * 60_000 + 5_000);
+      metrics.putMetric('Calls', 1, 'Count');
+    }
+    await metrics.flush();
+
+    expect(sink.documents).toHaveLength(4);
+    expect(sink.documents.map((document) => document._aws.Timestamp)).toEqual([MINUTE + 5_000, MINUTE + 65_000, MINUTE + 125_000, MINUTE + 185_000]);
+  });
+
+  it('leaves an explicitly set timestamp in charge', async () => {
+    // The caller has taken control of what the document claims; second-guessing that
+    // would be worse than the default.
+    const chosen = Date.UTC(2026, 8, 20, 1, 0, 0);
+    const { sink, metrics, setNow } = atClock();
+    metrics.setTimestamp(chosen);
+    setNow(MINUTE + 3_000);
+    metrics.putMetric('Latency', 1, 'Milliseconds');
+    setNow(MINUTE + 61_000);
+    metrics.putMetric('Latency', 2, 'Milliseconds');
+
+    await metrics.flush();
+
+    expect(sink.documents).toHaveLength(1);
+    expect(sink.only._aws.Timestamp).toBe(chosen);
+  });
+
+  it('starts a fresh minute after an explicit flush', async () => {
+    const { sink, metrics, setNow } = atClock();
+    setNow(MINUTE + 3_000);
+    metrics.putMetric('Calls', 1, 'Count');
+    await metrics.flush();
+
+    setNow(MINUTE + 10_000);
+    metrics.putMetric('Calls', 1, 'Count');
+    await metrics.flush();
+
+    expect(sink.documents.map((document) => document._aws.Timestamp)).toEqual([MINUTE + 3_000, MINUTE + 10_000]);
+  });
+});
+
+describe('MetricLogger boundary timer', () => {
+  const MINUTE = Date.UTC(2026, 8, 20, 4, 19, 0);
+
+  beforeEach(() => jest.useFakeTimers());
+  afterEach(() => jest.useRealTimers());
+
+  it('writes out a quiet minute shortly after it ends', async () => {
+    // Otherwise a program that records once and goes quiet leaves that minute
+    // buffered until it next records, and the agent never sees it.
+    const sink = new RecordingSink();
+    const now = MINUTE + 3_000;
+    const metrics = new MetricLogger({ sink, namespace: 'MyApp', clock: () => now });
+    metrics.putMetric('Latency', 42, 'Milliseconds');
+
+    expect(sink.documents).toHaveLength(0);
+    await jest.advanceTimersByTimeAsync(58_000);
+    expect(sink.documents).toHaveLength(1);
+    expect(sink.documents[0]._aws.Timestamp).toBe(MINUTE + 3_000);
+  });
+
+  it('does not hold the process open', () => {
+    // An unref'd timer is what lets a short-lived program exit on its own schedule
+    // instead of waiting out the rest of the minute. `jest.getTimerCount()` counts
+    // pending timers whether or not they hold a ref, so the call itself is the thing
+    // worth asserting.
+    jest.useRealTimers();
+    const unref = jest.fn();
+    const spy = jest.spyOn(global, 'setTimeout').mockImplementation(() => ({ unref }) as unknown as NodeJS.Timeout);
+
+    try {
+      const metrics = new MetricLogger({ sink: new RecordingSink(), namespace: 'MyApp', clock: () => MINUTE });
+      metrics.putMetric('Latency', 1, 'Milliseconds');
+
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(unref).toHaveBeenCalledTimes(1);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('arms the timer to fire just past the end of the minute it is holding', () => {
+    jest.useRealTimers();
+    const spy = jest.spyOn(global, 'setTimeout').mockImplementation(() => ({ unref: jest.fn() }) as unknown as NodeJS.Timeout);
+
+    try {
+      const metrics = new MetricLogger({ sink: new RecordingSink(), namespace: 'MyApp', clock: () => MINUTE + 3_000 });
+      metrics.putMetric('Latency', 1, 'Milliseconds');
+
+      // 57s left in the minute, plus a second of grace so a value recorded at 59.9s
+      // is not racing the flush.
+      expect(spy.mock.calls[0][1]).toBe(58_000);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('stops the timer once the document it was holding is flushed', async () => {
+    const sink = new RecordingSink();
+    const metrics = new MetricLogger({ sink, namespace: 'MyApp', flushOnMinuteBoundary: true, clock: () => MINUTE });
+    metrics.putMetric('Latency', 1, 'Milliseconds');
+    await metrics.flush();
+
+    await jest.advanceTimersByTimeAsync(120_000);
+
+    expect(sink.documents).toHaveLength(1);
+  });
+
+  it('close writes the last partial minute', async () => {
+    const sink = new RecordingSink();
+    const metrics = new MetricLogger({ sink, namespace: 'MyApp', clock: () => MINUTE + 3_000 });
+    metrics.putMetric('Latency', 1, 'Milliseconds');
+
+    await metrics.close();
+
+    expect(sink.documents).toHaveLength(1);
+  });
+});
+
 describe('MetricLogger validation', () => {
   it('drops a non-finite value instead of throwing', async () => {
     // A metrics library that can crash the program it measures is worse than no

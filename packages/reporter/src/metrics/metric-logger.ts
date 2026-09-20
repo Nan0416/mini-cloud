@@ -3,10 +3,12 @@ import {
   EmfDocument,
   EmfMetricDefinition,
   LoggerFactory,
+  METRIC_RESOLUTION_MS,
   MetricDimensions,
   MetricUnit,
   REPORTER_ENV,
   StorageResolution,
+  floorToResolution,
   isWithinDocumentSize,
   validateEmfDocument,
 } from '@mini-cloud/shared';
@@ -15,6 +17,9 @@ import path from 'node:path';
 import { ConsoleSink, MetricSink, SpoolSink } from './metric-sink';
 
 const logger = LoggerFactory.getLogger('MetricLogger');
+
+/** How long after a minute ends an open document for it is flushed. */
+const BOUNDARY_GRACE_MS = 1_000;
 
 export interface MetricLoggerProps {
   readonly sink: MetricSink;
@@ -28,6 +33,16 @@ export interface MetricLoggerProps {
   readonly defaultDimensions?: MetricDimensions;
   /** Context attached to every document, such as the instance that produced it. */
   readonly defaultProperties?: Record<string, unknown>;
+  /**
+   * Flush an open document shortly after the minute it belongs to ends.
+   *
+   * On by default. Without it a program that records one metric and then goes quiet
+   * leaves that minute buffered until it next records or flushes, and the agent
+   * cannot see it. The timer is unref'd, so it never keeps a process alive.
+   */
+  readonly flushOnMinuteBoundary?: boolean;
+  /** Injected so a test can drive the boundary without waiting a minute. */
+  readonly clock?: () => number;
 }
 
 interface PendingMetric {
@@ -59,6 +74,12 @@ export class MetricLogger {
   private metrics = new Map<string, PendingMetric>();
   private timestamp?: number;
 
+  /** When the open document's first observation was recorded. Its minute is the bucket. */
+  private observedAt?: number;
+  private boundaryTimer?: NodeJS.Timeout;
+  private readonly flushOnMinuteBoundary: boolean;
+  private readonly clock: () => number;
+
   /** Whether custom dimensions survive a flush. Matches the upstream field. */
   flushPreserveDimensions = true;
 
@@ -70,6 +91,8 @@ export class MetricLogger {
     this.namespace = props.namespace;
     this.defaultDimensions = props.defaultDimensions ?? {};
     this.defaultProperties = props.defaultProperties ?? {};
+    this.flushOnMinuteBoundary = props.flushOnMinuteBoundary ?? true;
+    this.clock = props.clock ?? (() => Date.now());
   }
 
   /**
@@ -134,6 +157,11 @@ export class MetricLogger {
       return;
     }
 
+    const now = this.clock();
+    // Before recording, not after: a value observed in a later minute belongs to a
+    // document of its own, and the one being closed must keep its own minute.
+    this.rollMinute(now);
+
     const existing = this.metrics.get(name);
     if (existing === undefined) {
       this.metrics.set(name, { values: [value], unit, storageResolution });
@@ -145,6 +173,54 @@ export class MetricLogger {
       if (existing.values.length >= EMF_LIMITS.valuesPerMetric) {
         void this.flush();
       }
+    }
+
+    if (this.observedAt === undefined) {
+      this.observedAt = now;
+    }
+    this.armBoundaryTimer(now);
+  }
+
+  /**
+   * Closes the open document when this observation belongs to a later minute.
+   *
+   * This is what makes a metric accurate to the minute it happened rather than the
+   * minute it was flushed. Stamping at flush — which is what `aws-embedded-metrics`
+   * does, and what this did before — attributes everything buffered since the last
+   * flush to whenever the flush happened, so work done at 4:19 is filed under 4:23.
+   *
+   * An explicitly set timestamp turns this off: the caller has taken control of what
+   * the document claims, and second-guessing that would be worse than the default.
+   */
+  private rollMinute(now: number): void {
+    if (this.timestamp !== undefined || this.observedAt === undefined) {
+      return;
+    }
+    if (floorToResolution(now, '1m') !== floorToResolution(this.observedAt, '1m')) {
+      void this.flush();
+    }
+  }
+
+  /** One pending timer per open document, cleared whenever the document is flushed. */
+  private armBoundaryTimer(now: number): void {
+    if (!this.flushOnMinuteBoundary || this.boundaryTimer !== undefined) {
+      return;
+    }
+    // A little past the boundary, so a value recorded at 59.9s is not racing it.
+    const delay = floorToResolution(now, '1m') + METRIC_RESOLUTION_MS['1m'] + BOUNDARY_GRACE_MS - now;
+    const timer = setTimeout(() => {
+      this.boundaryTimer = undefined;
+      void this.flush();
+    }, delay);
+    // Never hold the program open on the metrics logger's account.
+    timer.unref?.();
+    this.boundaryTimer = timer;
+  }
+
+  private clearBoundaryTimer(): void {
+    if (this.boundaryTimer !== undefined) {
+      clearTimeout(this.boundaryTimer);
+      this.boundaryTimer = undefined;
     }
   }
 
@@ -205,6 +281,18 @@ export class MetricLogger {
 
     this.pending = this.pending.then(() => this.sink.write(document));
     await this.pending;
+  }
+
+  /**
+   * Writes anything still open and stops the boundary timer.
+   *
+   * Call it from a shutdown handler. Without it the last partial minute is only
+   * written if the timer happens to fire before the process exits, and an unref'd
+   * timer is exactly the kind that does not.
+   */
+  async close(): Promise<void> {
+    this.clearBoundaryTimer();
+    await this.flush();
   }
 
   private validDimensions(dimensions: MetricDimensions): boolean {
@@ -269,7 +357,9 @@ export class MetricLogger {
     const document: EmfDocument = {
       ...root,
       _aws: {
-        Timestamp: this.timestamp ?? Date.now(),
+        // The first observation's own time, so the document lands in the minute the
+        // work happened rather than the minute it was written out.
+        Timestamp: this.timestamp ?? this.observedAt ?? this.clock(),
         CloudWatchMetrics: [
           {
             Namespace: this.namespace,
@@ -296,6 +386,8 @@ export class MetricLogger {
   private reset(): void {
     this.metrics = new Map();
     this.properties = {};
+    this.observedAt = undefined;
+    this.clearBoundaryTimer();
     if (!this.flushPreserveDimensions) {
       this.dimensionSets = [];
     }

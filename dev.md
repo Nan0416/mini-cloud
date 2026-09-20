@@ -346,6 +346,11 @@ metrics.putDimensions({ Operation: 'Ingest' });
 metrics.putMetric('Latency', 42, 'Milliseconds');
 metrics.setProperty('requestId', requestId); // searchable, but not a series
 await metrics.flush();
+
+process.on('SIGTERM', async () => {
+  await metrics.close(); // writes the last partial minute
+  process.exit(0);
+});
 ```
 
 Metrics are written in the [AWS embedded metric format][emf], so what a program emits
@@ -359,6 +364,21 @@ A **dimension** is part of a metric's identity — every distinct set is its own
 so keep them low-cardinality and use `setProperty` for anything like a request id. Like
 `TaskReporter`, no method throws: a document the format would reject is dropped with a
 warning naming the reason.
+
+**A metric is stamped with when it was recorded, not when it was flushed.** An
+observation belonging to a later minute closes the open document first, so one document
+never spans two minutes and nothing is filed under the minute you happened to flush in.
+An open document is also written out about a second after its minute ends, so a program
+that records once and goes quiet does not sit on it — that timer is unref'd and never
+keeps a process alive. `setTimestamp()` turns both off and puts you in charge.
+
+Sub-minute accuracy is a different matter: the format allows one timestamp per
+document, so a document holding several observations carries the time of its first. If
+you need per-second precision, flush per observation.
+
+`close()` writes whatever is still open and stops the timer; call it from a shutdown
+handler, or the last partial minute depends on the timer firing before the process
+exits.
 
 Each flush appends one JSON document to an hourly file under `agent.metricsSpoolDir`.
 The local agent tails those files, folds a minute's observations into one datum per
