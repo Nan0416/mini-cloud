@@ -85,8 +85,13 @@ export function buildDaemonCommand(unit: DaemonUnit, managers: ServiceManagerFac
     .action((options: { enable: boolean }, command: Command) => {
       const service = managers(unit);
       const configFile = configFileOption(command);
-      service.install(installOptions(unit, options.enable, configFile));
+      const install = installOptions(unit, options.enable, configFile);
+      service.install(install);
       console.log(`Wrote ${service.unitPath()}`);
+      // Which binary it will run, because that is the one thing here the unit does not
+      // take from a file: an installed binary is named through the symlink `install.sh`
+      // keeps current, and anything else is pinned to the file it was started from.
+      console.log(`Runs ${install.programArguments.join(' ')}`);
       if (configFile !== undefined) {
         console.log(`Reading ${configFile}, and the secret.json beside it.`);
       }

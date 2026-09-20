@@ -87,6 +87,9 @@ describe('the daemon command group', () => {
     expect(fake(AGENT_UNIT).installed?.programArguments.slice(-2)).toEqual(['agent', 'start']);
     expect(fakes.has(CONTROL_PLANE_UNIT)).toBe(false);
     expect(printed).toContain('mini-cloud agent daemon: running (pid 4312)');
+    // Which binary a unit runs is the one thing it does not read from a file, and an
+    // update only reaches a daemon whose unit names the installer's symlink.
+    expect(printed).toContain(`Runs ${fake(AGENT_UNIT).installed?.programArguments.join(' ')}`);
   });
 
   it('carries --config into the agent unit, though the group sits a level deeper', async () => {

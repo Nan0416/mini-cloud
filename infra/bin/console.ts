@@ -12,7 +12,7 @@ const stack = new ConsoleStack(app, 'MiniCloudConsole', {
   // us-east-1, and a stack that silently follows whatever AWS_PROFILE happens to be
   // set is one `cdk deploy` away from creating this in the wrong account.
   env: { account: config.account, region: CERTIFICATE_REGION },
-  description: `Static hosting for the mini-cloud console at ${config.domainName} (S3, CloudFront, ACM, Route 53).`,
+  description: `The mini-cloud console at ${config.domainName}, and the CLI binaries under /downloads (S3, CloudFront, ACM, Route 53, IAM).`,
 });
 
 Tags.of(stack).add('Project', 'mini-cloud');
