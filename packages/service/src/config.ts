@@ -141,10 +141,11 @@ export function loadConfig(options: LoadConfigOptions = {}): ServiceConfig {
       retentionTickMs: scheduler.positiveInteger('retentionTickMs', 3600_000),
     },
     metrics: {
-      // The same fortnight bounds raw storage, how far back percentiles can be
-      // answered, and how late an agent may report — so anything accepted has a
-      // partition to land in.
-      rawRetentionDays: metrics.positiveInteger('rawRetentionDays', 14),
+      // One number bounds three things: raw storage, how far back percentiles can
+      // be answered, and how late an agent may report — so anything accepted always
+      // has a partition to land in. Four weeks, so a month-on-month comparison is
+      // still answerable at full resolution.
+      rawRetentionDays: metrics.positiveInteger('rawRetentionDays', 28),
       // A little over a year, so this week can be compared with the same week last year.
       rollupRetentionDays: metrics.positiveInteger('rollupRetentionDays', 400),
       // Three agent ticks: a machine that misses one still lands inside the window,

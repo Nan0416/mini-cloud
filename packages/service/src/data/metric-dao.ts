@@ -20,18 +20,28 @@ export interface PutMetricDataOutput {
   readonly duplicate: boolean;
 }
 
-export interface ListNamespacesInput {}
+export interface ListNamespacesInput {
+  readonly limit?: number;
+  /** Keyset cursor: return only namespaces ordered after this one. */
+  readonly after?: string;
+}
 
 export interface ListNamespacesOutput {
   readonly namespaces: ReadonlyArray<string>;
+  /** Absent when the page reached the end. */
+  readonly nextCursor?: string;
 }
 
 export interface ListMetricsInput {
   readonly namespace: string;
+  readonly limit?: number;
+  /** Keyset cursor: return only metric names ordered after this one. */
+  readonly after?: string;
 }
 
 export interface ListMetricsOutput {
   readonly metrics: ReadonlyArray<MetricSummary>;
+  readonly nextCursor?: string;
 }
 
 export interface ListDimensionSetsInput {

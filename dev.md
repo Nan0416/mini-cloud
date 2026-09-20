@@ -145,7 +145,7 @@ mini-cloud reads anywhere.
 | `scheduler.startTimeoutMs` | `60000` | How long at `launched` without reporting a pid |
 | `scheduler.retentionDays` | `365` | How long instance and event history is kept |
 | `scheduler.retentionTickMs` | `3600000` | How often that history is pruned |
-| `metrics.rawRetentionDays` | `14` | How long 1-minute metrics live. Also bounds how far back percentiles can be answered and how late an agent may report |
+| `metrics.rawRetentionDays` | `28` | How long 1-minute metrics live. Also bounds how far back percentiles can be answered and how late an agent may report |
 | `metrics.rollupRetentionDays` | `400` | How long the hour and day rollups live |
 | `metrics.queryLagMs` | `180000` | How far behind now reads stop, so every agent has reported the newest bucket |
 | `metrics.ingestBatchRetentionMs` | `86400000` | How long a delivered batch is remembered, for recognising a retry |
@@ -338,6 +338,8 @@ Outside this repository: `npm install @mini-cloud/reporter`.
 ```ts
 import { MetricLogger } from '@mini-cloud/reporter';
 
+// The namespace is required: it is the top of a metric's identity, and a shared
+// default would quietly merge unrelated programs into one.
 const metrics = MetricLogger.fromEnvironment('MyApp') ?? MetricLogger.toConsole('MyApp');
 
 metrics.putDimensions({ Operation: 'Ingest' });
@@ -377,6 +379,17 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 A query names the **exact** dimension set it wants, as repeated `dimension=Name:Value`
 parameters — a subset would sum across sets that each already counted the same
 observation. `/metrics/dimensions` lists the sets available.
+
+`/metrics/namespaces` and `/metrics/names` are paged: `limit` (default 100, maximum
+1000) and `after`, which takes the previous response's `nextCursor`. The cursor is the
+last name returned rather than an offset, so a metric first reported while you are
+paging cannot shift a later page back onto entries you have already read. `nextCursor`
+is absent on the last page.
+
+```bash
+curl -s -H "Authorization: Bearer $TOKEN" 'localhost:3001/metrics/names?namespace=MyApp&limit=50'
+curl -s -H "Authorization: Bearer $TOKEN" 'localhost:3001/metrics/names?namespace=MyApp&limit=50&after=Latency'
+```
 
 Three things are worth knowing about what comes back:
 

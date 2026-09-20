@@ -184,6 +184,14 @@ export interface MetricDatum extends MetricStatisticSet {
   readonly histogram: MetricHistogram;
 }
 
+/**
+ * Page sizes for the listing endpoints.
+ *
+ * A cap rather than a convention: a namespace that has accumulated thousands of
+ * metric names should not be able to make one request return all of them.
+ */
+export const METRIC_PAGE_SIZE = { default: 100, max: 1000 } as const;
+
 /** A metric the service has seen, for the console's pickers. */
 export interface MetricSummary {
   readonly namespace: string;

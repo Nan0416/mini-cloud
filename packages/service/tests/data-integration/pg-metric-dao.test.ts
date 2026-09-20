@@ -245,6 +245,47 @@ describeIfDatabase('PgMetricDao', () => {
     expect((await dao.listMetrics({ namespace: 'MyApp' })).metrics).toEqual([{ namespace: 'MyApp', metricName: 'Latency', unit: 'Milliseconds', lastSeenAt: expect.any(Number) }]);
   });
 
+  it('walks every namespace across pages without repeating or skipping one', async () => {
+    for (const namespace of ['a', 'b', 'c', 'd', 'e']) {
+      await report('agent-a', [aDatum({ namespace })]);
+    }
+
+    const seen: string[] = [];
+    let after: string | undefined;
+    do {
+      const page = await dao.listNamespaces({ limit: 2, after });
+      seen.push(...page.namespaces);
+      after = page.nextCursor;
+    } while (after !== undefined);
+
+    expect(seen).toEqual(['a', 'b', 'c', 'd', 'e']);
+  });
+
+  it('gives a full page of metric names even when each has several dimension sets', async () => {
+    // The fold happens in SQL for exactly this reason: folding after the LIMIT would
+    // have returned one name here instead of two.
+    for (const metricName of ['m1', 'm2', 'm3']) {
+      await report('agent-a', [
+        aDatum({ metricName, dimensions: { Operation: 'Ingest' } }),
+        aDatum({ metricName, dimensions: { Operation: 'Query' } }),
+        aDatum({ metricName, dimensions: {} }),
+      ]);
+    }
+
+    const page = await dao.listMetrics({ namespace: 'MyApp', limit: 2 });
+
+    expect(page.metrics.map((metric) => metric.metricName)).toEqual(['m1', 'm2']);
+    expect(page.nextCursor).toBe('m2');
+    expect((await dao.listMetrics({ namespace: 'MyApp', limit: 2, after: page.nextCursor })).metrics.map((m) => m.metricName)).toEqual(['m3']);
+  });
+
+  it('reports the newest unit for a metric whose unit changed between reports', async () => {
+    await report('agent-a', [aDatum({ unit: 'Milliseconds' })]);
+    await report('agent-b', [aDatum({ bucketStart: MINUTE + 60_000, unit: 'Seconds' })]);
+
+    expect((await dao.listMetrics({ namespace: 'MyApp' })).metrics[0].unit).toBe('Seconds');
+  });
+
   it('drops a raw day without taking the rollups derived from it', async () => {
     // The whole reason the table is partitioned by resolution first: a fortnight of
     // minutes is worth keeping, a year of daily rollups is, and one DROP must not

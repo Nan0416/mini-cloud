@@ -12,7 +12,9 @@ import {
   ListHealthChecksRequest,
   ListMetricDimensionsRequest,
   ListMetricNamesRequest,
+  ListMetricNamespacesRequest,
   ListTaskInstancesRequest,
+  METRIC_PAGE_SIZE,
   METRIC_STATISTICS,
   METRIC_UNITS,
   MetricDatum,
@@ -353,9 +355,22 @@ export function parsePutMetricDataRequest(body: unknown): PutMetricDataRequest {
   };
 }
 
+/** Shared by both listings: a positive limit no larger than the cap, and a cursor. */
+function parseMetricPaging(record: Record<string, unknown>): { limit?: number; after?: string } {
+  const limit = parseOptionalIntegerParam(record['limit'], 'limit');
+  if (limit !== undefined && (limit < 1 || limit > METRIC_PAGE_SIZE.max)) {
+    throw new InvalidRequestError(`limit must be between 1 and ${METRIC_PAGE_SIZE.max}`);
+  }
+  return { limit, after: assertOptionalString(record['after'], 'after') };
+}
+
+export function parseListMetricNamespacesRequest(query: unknown): ListMetricNamespacesRequest {
+  return parseMetricPaging(assertRecord(query, 'query'));
+}
+
 export function parseListMetricNamesRequest(query: unknown): ListMetricNamesRequest {
   const record = assertRecord(query, 'query');
-  return { namespace: assertNonEmptyString(record['namespace'], 'namespace') };
+  return { namespace: assertNonEmptyString(record['namespace'], 'namespace'), ...parseMetricPaging(record) };
 }
 
 export function parseListMetricDimensionsRequest(query: unknown): ListMetricDimensionsRequest {

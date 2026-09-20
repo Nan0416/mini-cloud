@@ -135,6 +135,89 @@ describe('PgMetricDao.putMetricData', () => {
   });
 });
 
+describe('PgMetricDao.listNamespaces', () => {
+  const rows = (count: number) => Array.from({ length: count }, (_unused, index) => ({ namespace: `ns-${String(index).padStart(3, '0')}` }));
+
+  it('asks for one more row than the caller wanted', async () => {
+    // How a full page is told from the last one, without a second count query.
+    const pool = fakePool().on('SELECT DISTINCT namespace', { rows: rows(3) });
+
+    await new PgMetricDao(pool.asPool()).listNamespaces({ limit: 2 });
+
+    expect(pool.find('SELECT DISTINCT namespace').values).toEqual([3, null]);
+  });
+
+  it('returns a cursor when there is another page, and trims to the page size', async () => {
+    const pool = fakePool().on('SELECT DISTINCT namespace', { rows: rows(3) });
+
+    const result = await new PgMetricDao(pool.asPool()).listNamespaces({ limit: 2 });
+
+    expect(result.namespaces).toEqual(['ns-000', 'ns-001']);
+    expect(result.nextCursor).toBe('ns-001');
+  });
+
+  it('omits the cursor on the last page', async () => {
+    const pool = fakePool().on('SELECT DISTINCT namespace', { rows: rows(2) });
+
+    const result = await new PgMetricDao(pool.asPool()).listNamespaces({ limit: 2 });
+
+    expect(result.namespaces).toEqual(['ns-000', 'ns-001']);
+    expect(result.nextCursor).toBeUndefined();
+  });
+
+  it('resumes strictly after the cursor', async () => {
+    const pool = fakePool().on('SELECT DISTINCT namespace', { rows: [] });
+
+    await new PgMetricDao(pool.asPool()).listNamespaces({ limit: 10, after: 'ns-005' });
+
+    const query = pool.find('SELECT DISTINCT namespace');
+    expect(query.sql.replace(/\s+/g, ' ')).toContain('namespace > $2');
+    expect(query.values).toEqual([11, 'ns-005']);
+  });
+
+  it('caps a limit larger than the maximum', async () => {
+    // A DAO called directly must not be able to ask for everything either.
+    const pool = fakePool().on('SELECT DISTINCT namespace', { rows: [] });
+
+    await new PgMetricDao(pool.asPool()).listNamespaces({ limit: 99_999 });
+
+    expect(pool.find('SELECT DISTINCT namespace').values[0]).toBe(1001);
+  });
+});
+
+describe('PgMetricDao.listMetrics', () => {
+  const rows = (count: number) => Array.from({ length: count }, (_unused, index) => ({ metric_name: `m-${index}`, unit: 'Milliseconds', last_seen_at: new Date(MINUTE) }));
+
+  it('folds to one row per metric name in SQL, so a page is a page of names', async () => {
+    // Folding after the LIMIT would return fewer than asked for whenever a metric
+    // had several dimension sets.
+    const pool = fakePool().on('ARRAY_AGG', { rows: rows(2) });
+
+    const result = await new PgMetricDao(pool.asPool()).listMetrics({ namespace: 'MyApp', limit: 5 });
+
+    const sql = pool.find('ARRAY_AGG').sql.replace(/\s+/g, ' ');
+    expect(sql).toContain('GROUP BY metric_name');
+    expect(result.metrics.map((metric) => metric.metricName)).toEqual(['m-0', 'm-1']);
+  });
+
+  it('takes the most recently reported unit for a metric whose unit changed', async () => {
+    const pool = fakePool().on('ARRAY_AGG', { rows: rows(1) });
+
+    await new PgMetricDao(pool.asPool()).listMetrics({ namespace: 'MyApp' });
+
+    expect(pool.find('ARRAY_AGG').sql.replace(/\s+/g, ' ')).toContain('ARRAY_AGG(unit ORDER BY last_seen_at DESC))[1]');
+  });
+
+  it('pages on the metric name, scoped to the namespace', async () => {
+    const pool = fakePool().on('ARRAY_AGG', { rows: rows(3) });
+
+    const result = await new PgMetricDao(pool.asPool()).listMetrics({ namespace: 'MyApp', limit: 2, after: 'm-9' });
+
+    expect(pool.find('ARRAY_AGG').values).toEqual(['MyApp', 3, 'm-9']);
+    expect(result.nextCursor).toBe('m-1');
+  });
+});
+
 describe('PgMetricDao.readSeries', () => {
   it('returns nothing for a series that was never written', async () => {
     const pool = fakePool().on('SELECT unit FROM metric_series', { rows: [] });

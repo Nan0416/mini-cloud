@@ -7,6 +7,8 @@ import {
   parseHeartbeatRequest,
   parseLaunchTaskRequest,
   parseListHealthChecksRequest,
+  parseListMetricNamesRequest,
+  parseListMetricNamespacesRequest,
   parseListTaskInstancesQuery,
   parseReportInstancePidRequest,
   parseReportInstanceStatusRequest,
@@ -472,5 +474,32 @@ describe('path and query parameter helpers', () => {
   it('rejects a query that is not an object', () => {
     expect(() => requireTaskIdParam(undefined)).toThrow('query must be an object');
     expect(() => requireStringField(undefined, 'agentId')).toThrow('body must be an object');
+  });
+});
+
+describe('metric listing paging', () => {
+  it('reads a limit and a cursor off the query string', () => {
+    expect(parseListMetricNamespacesRequest({ limit: '50', after: 'ns-5' })).toEqual({ limit: 50, after: 'ns-5' });
+  });
+
+  it('leaves both unset for a first page', () => {
+    expect(parseListMetricNamespacesRequest({})).toEqual({ limit: undefined, after: undefined });
+  });
+
+  it('refuses a limit past the cap, rather than letting one request return everything', () => {
+    expect(() => parseListMetricNamespacesRequest({ limit: '1001' })).toThrow(/between 1 and 1000/);
+    expect(() => parseListMetricNamespacesRequest({ limit: '0' })).toThrow(/between 1 and 1000/);
+  });
+
+  it('refuses a limit that is not a whole number', () => {
+    expect(() => parseListMetricNamespacesRequest({ limit: 'lots' })).toThrow(/must be an integer/);
+  });
+
+  it('keeps the namespace alongside the paging fields', () => {
+    expect(parseListMetricNamesRequest({ namespace: 'MyApp', limit: '10' })).toEqual({ namespace: 'MyApp', limit: 10, after: undefined });
+  });
+
+  it('still requires a namespace', () => {
+    expect(() => parseListMetricNamesRequest({ limit: '10' })).toThrow(/namespace/);
   });
 });

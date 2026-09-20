@@ -3,11 +3,21 @@ import { queryKeys } from '@/lib/query-keys';
 import { floorToPeriod, parseDimensionsHash, type MetricStatistic } from '@mini-cloud/shared';
 import { useQuery } from '@tanstack/react-query';
 
+/** What a dropdown can usefully show at once. */
+const PICKER_PAGE_SIZE = 200;
+
+/**
+ * The first page of namespaces.
+ *
+ * The pickers show one page. A home fleet does not have hundreds of namespaces, and
+ * a picker that silently paged would hide the rest just as effectively — better to
+ * ask for a known number than to pretend the list is complete.
+ */
 export function useMetricNamespaces() {
   const api = useApi();
   return useQuery({
     queryKey: queryKeys.metricNamespaces(),
-    queryFn: () => api.listMetricNamespaces({}),
+    queryFn: () => api.listMetricNamespaces({ limit: PICKER_PAGE_SIZE }),
   });
 }
 
@@ -15,7 +25,7 @@ export function useMetricNames(namespace: string | undefined) {
   const api = useApi();
   return useQuery({
     queryKey: queryKeys.metricNames(namespace ?? ''),
-    queryFn: () => api.listMetricNames({ namespace: namespace ?? '' }),
+    queryFn: () => api.listMetricNames({ namespace: namespace ?? '', limit: PICKER_PAGE_SIZE }),
     enabled: namespace !== undefined,
   });
 }

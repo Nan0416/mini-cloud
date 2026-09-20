@@ -1,6 +1,7 @@
 import {
   InternalServiceError,
   LoggerFactory,
+  METRIC_PAGE_SIZE,
   METRIC_RESOLUTIONS,
   MetricDatapoint,
   MetricDatum,
@@ -8,7 +9,6 @@ import {
   MetricHistogram,
   MetricResolution,
   MetricStatistic,
-  MetricSummary,
   MetricUnit,
   PERCENTILE_STATISTICS,
   floorToPeriod,
@@ -57,10 +57,8 @@ interface HistogramRow {
   readonly histogram: MetricHistogram | null;
 }
 
-interface SeriesRow {
-  readonly namespace: string;
+interface MetricNameRow {
   readonly metric_name: string;
-  readonly dimensions_hash: string;
   readonly unit: string;
   readonly last_seen_at: Date;
 }
@@ -81,6 +79,17 @@ interface MergedDatum {
 }
 
 /** JSON rather than a delimiter, so no namespace or metric name can forge a collision. */
+/** Clamped at the edge too, but a DAO called directly must not be able to ask for everything. */
+function pageLimit(requested: number | undefined): number {
+  const limit = requested ?? METRIC_PAGE_SIZE.default;
+  return Math.min(Math.max(1, limit), METRIC_PAGE_SIZE.max);
+}
+
+/** A cursor only when the extra row came back, meaning there is more to read. */
+function cursorFor(fetched: number, limit: number, last: string | undefined): string | undefined {
+  return fetched > limit ? last : undefined;
+}
+
 function seriesKey(datum: { namespace: string; metricName: string; dimensionsHash: string }): string {
   return JSON.stringify([datum.namespace, datum.metricName, datum.dimensionsHash]);
 }
@@ -244,32 +253,49 @@ export class PgMetricDao implements MetricDao {
     ]);
   }
 
-  async listNamespaces(_input: ListNamespacesInput): Promise<ListNamespacesOutput> {
-    const result = await this.pool.query<{ namespace: string }>('SELECT DISTINCT namespace FROM metric_series ORDER BY namespace ASC');
-    return { namespaces: result.rows.map((row) => row.namespace) };
+  async listNamespaces(input: ListNamespacesInput): Promise<ListNamespacesOutput> {
+    const limit = pageLimit(input.limit);
+    const result = await this.pool.query<{ namespace: string }>(
+      `SELECT DISTINCT namespace
+       FROM metric_series
+       WHERE $2::text IS NULL OR namespace > $2
+       ORDER BY namespace ASC
+       LIMIT $1`,
+      // One more than asked for, which is how the last page is told from a full one
+      // without a second count query.
+      [limit + 1, input.after ?? null],
+    );
+
+    const page = result.rows.slice(0, limit).map((row) => row.namespace);
+    return { namespaces: page, nextCursor: cursorFor(result.rows.length, limit, page[page.length - 1]) };
   }
 
   async listMetrics(input: ListMetricsInput): Promise<ListMetricsOutput> {
-    const result = await this.pool.query<SeriesRow>(
-      `SELECT namespace, metric_name, dimensions_hash, unit, MAX(last_seen_at) AS last_seen_at
+    const limit = pageLimit(input.limit);
+    // Folded to one row per metric name in SQL rather than afterwards: a page has to
+    // be a page of metric names, and folding after the LIMIT would return fewer than
+    // asked for whenever a metric had several dimension sets.
+    const result = await this.pool.query<MetricNameRow>(
+      `SELECT metric_name,
+              (ARRAY_AGG(unit ORDER BY last_seen_at DESC))[1] AS unit,
+              MAX(last_seen_at) AS last_seen_at
        FROM metric_series
-       WHERE namespace = $1
-       GROUP BY namespace, metric_name, dimensions_hash, unit
-       ORDER BY metric_name ASC`,
-      [input.namespace],
+       WHERE namespace = $1 AND ($3::text IS NULL OR metric_name > $3)
+       GROUP BY metric_name
+       ORDER BY metric_name ASC
+       LIMIT $2`,
+      [input.namespace, limit + 1, input.after ?? null],
     );
 
-    // One entry per metric name, not per series: the picker offers metrics, and the
-    // dimension sets under one are a separate choice.
-    const metrics = new Map<string, MetricSummary>();
-    for (const row of result.rows) {
-      const existing = metrics.get(row.metric_name);
-      const lastSeenAt = row.last_seen_at.getTime();
-      if (existing === undefined || lastSeenAt > existing.lastSeenAt) {
-        metrics.set(row.metric_name, { namespace: row.namespace, metricName: row.metric_name, unit: toMetricUnit(row.unit), lastSeenAt });
-      }
-    }
-    return { metrics: Array.from(metrics.values()) };
+    const page = result.rows.slice(0, limit).map((row) => ({
+      namespace: input.namespace,
+      metricName: row.metric_name,
+      // The most recently reported unit wins, which is the same rule `metric_series`
+      // applies on write. A metric whose unit changed reads as its newest one.
+      unit: toMetricUnit(row.unit),
+      lastSeenAt: row.last_seen_at.getTime(),
+    }));
+    return { metrics: page, nextCursor: cursorFor(result.rows.length, limit, page[page.length - 1]?.metricName) };
   }
 
   async listDimensionSets(input: ListDimensionSetsInput): Promise<ListDimensionSetsOutput> {

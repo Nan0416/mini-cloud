@@ -16,11 +16,14 @@ import { ConsoleSink, MetricSink, SpoolSink } from './metric-sink';
 
 const logger = LoggerFactory.getLogger('MetricLogger');
 
-const DEFAULT_NAMESPACE = 'MiniCloud';
-
 export interface MetricLoggerProps {
   readonly sink: MetricSink;
-  readonly namespace?: string;
+  /**
+   * Required. A namespace is the top of a metric's identity, and a shared default
+   * would quietly merge unrelated programs into one — which is only discovered once
+   * two of them disagree about what `Latency` means.
+   */
+  readonly namespace: string;
   /** Applied to every flush unless `setDimensions`/`resetDimensions` removes them. */
   readonly defaultDimensions?: MetricDimensions;
   /** Context attached to every document, such as the instance that produced it. */
@@ -64,7 +67,7 @@ export class MetricLogger {
 
   constructor(props: MetricLoggerProps) {
     this.sink = props.sink;
-    this.namespace = props.namespace ?? DEFAULT_NAMESPACE;
+    this.namespace = props.namespace;
     this.defaultDimensions = props.defaultDimensions ?? {};
     this.defaultProperties = props.defaultProperties ?? {};
   }
@@ -74,7 +77,7 @@ export class MetricLogger {
    * when the program was not started by mini-cloud — so it is safe to call
    * unconditionally in a program you also run by hand.
    */
-  static fromEnvironment(namespace?: string): MetricLogger | undefined {
+  static fromEnvironment(namespace: string): MetricLogger | undefined {
     const spoolDir = process.env[REPORTER_ENV.metricsSpoolDir];
     const instanceId = process.env[REPORTER_ENV.instanceId];
     if (typeof spoolDir !== 'string' || spoolDir.length === 0) {
@@ -101,7 +104,7 @@ export class MetricLogger {
   }
 
   /** A logger that prints to stdout, for a program running outside mini-cloud. */
-  static toConsole(namespace?: string): MetricLogger {
+  static toConsole(namespace: string): MetricLogger {
     return new MetricLogger({ sink: new ConsoleSink(), namespace });
   }
 
@@ -302,12 +305,12 @@ export class MetricLogger {
 /**
  * Runs `handler` with a logger and flushes it afterwards, even if the handler throws.
  *
- * The same shape as the upstream decorator, so instrumentation written against
- * `aws-embedded-metrics` moves across unchanged.
+ * Takes the logger rather than building one, which is where this departs from the
+ * upstream decorator: upstream can fall back to a default namespace and this
+ * deliberately has none.
  */
-export function metricScope<T, A extends unknown[]>(handler: (metrics: MetricLogger) => (...args: A) => Promise<T>, logger_?: MetricLogger): (...args: A) => Promise<T> {
+export function metricScope<T, A extends unknown[]>(metrics: MetricLogger, handler: (metrics: MetricLogger) => (...args: A) => Promise<T>): (...args: A) => Promise<T> {
   return async (...args: A): Promise<T> => {
-    const metrics = logger_ ?? MetricLogger.fromEnvironment() ?? MetricLogger.toConsole();
     try {
       return await handler(metrics)(...args);
     } finally {

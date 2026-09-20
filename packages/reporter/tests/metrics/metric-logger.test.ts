@@ -222,6 +222,19 @@ describe('MetricLogger validation', () => {
     expect(sink.only['Count']).toBe(1);
   });
 
+  it('drops the document when the namespace it was built with is unusable', async () => {
+    // The namespace is mandatory in the type, so this only happens when an untyped
+    // caller pushes an empty string through. Dropping beats emitting a document
+    // CloudWatch would reject, and beats throwing inside the program being measured.
+    const sink = new RecordingSink();
+    const metrics = new MetricLogger({ sink, namespace: '' });
+    metrics.putMetric('Count', 1, 'Count');
+
+    await metrics.flush();
+
+    expect(sink.documents).toEqual([]);
+  });
+
   it('ignores an empty namespace rather than emitting an invalid document', async () => {
     const { sink, metrics } = build();
     metrics.setNamespace('');

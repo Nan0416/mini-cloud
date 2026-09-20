@@ -37,7 +37,7 @@ CREATE TABLE IF NOT EXISTS metric_datum (
 -- Partitioned by resolution first, then by time within each resolution.
 --
 -- The nesting is what makes retention a DROP rather than a DELETE: raw minutes are
--- worth keeping for a fortnight and daily rollups for years, and with a single level
+-- worth keeping for weeks and daily rollups for years, and with a single level
 -- both would share a partition, so expiring the minutes would take the rollups with
 -- them. Leaf partitions are created on demand by MetricPartitionManager, in whatever
 -- width suits the resolution: a day for '1m', a month for '1h', a year for '1d'.

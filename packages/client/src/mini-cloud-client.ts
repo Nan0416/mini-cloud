@@ -152,8 +152,8 @@ export class MiniCloudClient {
 
   // ---- metrics ----
 
-  async listMetricNamespaces(_request: ListMetricNamespacesRequest): Promise<ListMetricNamespacesResponse> {
-    return this.http.request('GET', '/metrics/namespaces');
+  async listMetricNamespaces(request: ListMetricNamespacesRequest = {}): Promise<ListMetricNamespacesResponse> {
+    return this.http.request('GET', '/metrics/namespaces', { query: { ...request } });
   }
 
   async listMetricNames(request: ListMetricNamesRequest): Promise<ListMetricNamesResponse> {

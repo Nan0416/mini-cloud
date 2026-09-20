@@ -22,18 +22,35 @@ export interface PutMetricDataResponse {
   readonly duplicate: boolean;
 }
 
-export interface ListMetricNamespacesRequest {}
+/**
+ * Listings are paged by keyset rather than by offset: the cursor is the last name
+ * returned, and the next page is everything ordered after it. A row inserted while
+ * someone is paging therefore cannot shift a later page onto entries they have
+ * already seen, which an OFFSET would.
+ */
+export interface ListMetricNamespacesRequest {
+  readonly limit?: number;
+  /** The previous page's `nextCursor`. Omit for the first page. */
+  readonly after?: string;
+}
 
 export interface ListMetricNamespacesResponse {
   readonly namespaces: ReadonlyArray<string>;
+  /** Pass back as `after`. Absent when this was the last page. */
+  readonly nextCursor?: string;
 }
 
 export interface ListMetricNamesRequest {
   readonly namespace: string;
+  readonly limit?: number;
+  /** The previous page's `nextCursor`. Omit for the first page. */
+  readonly after?: string;
 }
 
 export interface ListMetricNamesResponse {
   readonly metrics: ReadonlyArray<MetricSummary>;
+  /** Pass back as `after`. Absent when this was the last page. */
+  readonly nextCursor?: string;
 }
 
 /**

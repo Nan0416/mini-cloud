@@ -2,7 +2,7 @@ import { GetMetricDataResponse, ListMetricDimensionsResponse, ListMetricNamesRes
 import { Router } from 'express';
 import type { Express } from 'express';
 import { MetricService } from '../services/metric-service';
-import { parseGetMetricDataRequest, parseListMetricDimensionsRequest, parseListMetricNamesRequest } from '../utils/request-parsing';
+import { parseGetMetricDataRequest, parseListMetricDimensionsRequest, parseListMetricNamesRequest, parseListMetricNamespacesRequest } from '../utils/request-parsing';
 import { Endpoints } from './endpoints';
 
 export interface MetricEndpointsProps {
@@ -24,8 +24,9 @@ export class MetricEndpoints implements Endpoints {
     const { metricService } = props;
     this.router = Router();
 
-    this.router.get('/metrics/namespaces', async (_req, res) => {
-      const response: ListMetricNamespacesResponse = await metricService.listNamespaces({});
+    this.router.get('/metrics/namespaces', async (req, res) => {
+      const request = parseListMetricNamespacesRequest(req.query);
+      const response: ListMetricNamespacesResponse = await metricService.listNamespaces(request);
       res.status(200).json(response);
     });
 

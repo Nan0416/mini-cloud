@@ -114,14 +114,14 @@ export class MetricService {
     return { accepted: result.accepted, rejected, duplicate: result.duplicate };
   }
 
-  async listNamespaces(_request: ListMetricNamespacesRequest): Promise<ListMetricNamespacesResponse> {
-    const { namespaces } = await this.metricDao.listNamespaces({});
-    return { namespaces };
+  async listNamespaces(request: ListMetricNamespacesRequest): Promise<ListMetricNamespacesResponse> {
+    const { namespaces, nextCursor } = await this.metricDao.listNamespaces({ limit: request.limit, after: request.after });
+    return { namespaces, nextCursor };
   }
 
   async listMetricNames(request: ListMetricNamesRequest): Promise<ListMetricNamesResponse> {
-    const { metrics } = await this.metricDao.listMetrics({ namespace: request.namespace });
-    return { metrics };
+    const { metrics, nextCursor } = await this.metricDao.listMetrics({ namespace: request.namespace, limit: request.limit, after: request.after });
+    return { metrics, nextCursor };
   }
 
   async listDimensions(request: ListMetricDimensionsRequest): Promise<ListMetricDimensionsResponse> {

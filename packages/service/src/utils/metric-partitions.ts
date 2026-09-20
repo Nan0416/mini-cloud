@@ -12,8 +12,8 @@ import { MetricResolution } from '@mini-cloud/shared';
 export type PartitionWidth = 'day' | 'month' | 'year';
 
 export const PARTITION_WIDTH: Readonly<Record<MetricResolution, PartitionWidth>> = {
-  // A fortnight of minutes is fourteen partitions; a day of them is a manageable size
-  // to drop in one statement.
+  // Four weeks of minutes is twenty-eight partitions; a day of them is a manageable
+  // size to drop in one statement.
   '1m': 'day',
   '1h': 'month',
   '1d': 'year',
