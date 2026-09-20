@@ -4,3 +4,7 @@ export * from './async-queue';
 export * from './env';
 export * from './sleep';
 export * from './variables';
+export * from './dimensions';
+export * from './histogram';
+export * from './emf';
+export * from './metric-buckets';

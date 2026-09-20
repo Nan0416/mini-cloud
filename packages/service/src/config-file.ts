@@ -141,6 +141,15 @@ export class Section {
     return typeof value === 'string' ? value : this.fail(key, 'a string', value);
   }
 
+  optionalBoolean(key: string): boolean | undefined {
+    this.known.add(key);
+    const value = this.values[key];
+    if (value === undefined) {
+      return undefined;
+    }
+    return typeof value === 'boolean' ? value : this.fail(key, 'true or false', value);
+  }
+
   optionalInteger(key: string): number | undefined {
     this.known.add(key);
     const value = this.values[key];

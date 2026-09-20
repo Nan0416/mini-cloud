@@ -7,6 +7,8 @@ import {
   DeleteTaskResponse,
   GetHealthRequest,
   GetHealthResponse,
+  GetMetricDataRequest,
+  GetMetricDataResponse,
   GetHubStatusRequest,
   GetHubStatusResponse,
   GetTaskDynamicsRequest,
@@ -23,6 +25,14 @@ import {
   ListAgentInstancesResponse,
   ListAgentsRequest,
   ListAgentsResponse,
+  ListMetricDimensionsRequest,
+  ListMetricDimensionsResponse,
+  ListMetricNamesRequest,
+  ListMetricNamesResponse,
+  ListMetricNamespacesRequest,
+  ListMetricNamespacesResponse,
+  PutMetricDataRequest,
+  PutMetricDataResponse,
   ListHealthChecksRequest,
   ListHealthChecksResponse,
   ListReplacementVariablesRequest,
@@ -140,6 +150,28 @@ export class MiniCloudClient {
     return this.http.request('PUT', '/variables', { body: request });
   }
 
+  // ---- metrics ----
+
+  async listMetricNamespaces(_request: ListMetricNamespacesRequest): Promise<ListMetricNamespacesResponse> {
+    return this.http.request('GET', '/metrics/namespaces');
+  }
+
+  async listMetricNames(request: ListMetricNamesRequest): Promise<ListMetricNamesResponse> {
+    return this.http.request('GET', '/metrics/names', { query: { ...request } });
+  }
+
+  async listMetricDimensions(request: ListMetricDimensionsRequest): Promise<ListMetricDimensionsResponse> {
+    return this.http.request('GET', '/metrics/dimensions', { query: { ...request } });
+  }
+
+  async getMetricData(request: GetMetricDataRequest): Promise<GetMetricDataResponse> {
+    const { dimensions, ...rest } = request;
+    // The set is the series identity, so it travels as one parameter per dimension
+    // rather than as a nested object a query string cannot express.
+    const dimension = Object.entries(dimensions ?? {}).map(([name, value]) => `${name}:${value}`);
+    return this.http.request('GET', '/metrics/data', { query: { ...rest, dimension } });
+  }
+
   // ---- agents ----
 
   async listAgents(_request: ListAgentsRequest): Promise<ListAgentsResponse> {
@@ -154,6 +186,10 @@ export class MiniCloudClient {
 
   async heartbeat(request: HeartbeatRequest): Promise<HeartbeatResponse> {
     return this.http.request('POST', '/agent-api/heartbeat', { body: request });
+  }
+
+  async putMetricData(request: PutMetricDataRequest): Promise<PutMetricDataResponse> {
+    return this.http.request('POST', '/agent-api/metrics', { body: request });
   }
 
   async reportInstanceStatus(request: ReportInstanceStatusRequest): Promise<ReportInstanceStatusResponse> {

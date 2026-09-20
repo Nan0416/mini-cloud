@@ -2,6 +2,7 @@ import { LoggerFactory } from '@mini-cloud/shared';
 import { ErrorRequestHandler, RequestHandler } from 'express';
 import { Pool } from 'pg';
 import { PgAgentDao } from '../data/pg-agent-dao';
+import { PgMetricDao } from '../data/pg-metric-dao';
 import { PgTaskDao } from '../data/pg-task-dao';
 import { PgTaskDynamicsDao } from '../data/pg-task-dynamics-dao';
 import { PgTaskEventDao } from '../data/pg-task-event-dao';
@@ -9,6 +10,7 @@ import { PgTaskInstanceDao } from '../data/pg-task-instance-dao';
 import { PgVariableDao } from '../data/pg-variable-dao';
 import { HubAgentCommander } from '../facades/agent-commander';
 import { MessageHub } from '../facades/message-hub';
+import { MetricRetention } from '../facades/metric-retention';
 import { Scheduler } from '../facades/scheduler';
 import { TaskDispatcher } from '../facades/task-dispatcher';
 import { bearerTokenAuth } from '../middleware/auth';
@@ -21,9 +23,12 @@ import { AgentEndpoints } from '../routes/agent-endpoints';
 import { AgentReportEndpoints } from '../routes/agent-report-endpoints';
 import { Endpoints } from '../routes/endpoints';
 import { HealthEndpoints } from '../routes/health-endpoints';
+import { MetricEndpoints } from '../routes/metric-endpoints';
+import { MetricReportEndpoints } from '../routes/metric-report-endpoints';
 import { PubSubEndpoints } from '../routes/pubsub-endpoints';
 import { TaskEndpoints } from '../routes/task-endpoints';
 import { AgentService } from '../services/agent-service';
+import { MetricService } from '../services/metric-service';
 import { TaskService } from '../services/task-service';
 import { isDefaultPublicToken, ServiceConfig } from '../config';
 
@@ -31,7 +36,7 @@ const logger = LoggerFactory.getLogger('DependencyFactory');
 
 /** What each listener serves, for the hint in the other one's 404. */
 const INTERNAL_ROUTES: ReadonlyArray<string> = ['/agent-api/*', '/pubsub/*', '/ws'];
-const PUBLIC_ROUTES: ReadonlyArray<string> = ['/tasks', '/instances', '/agents', '/variables'];
+const PUBLIC_ROUTES: ReadonlyArray<string> = ['/tasks', '/instances', '/agents', '/variables', '/metrics/*'];
 
 /** One express application's worth of wiring: what runs before the routes, and the routes. */
 export interface PlaneDependencies {
@@ -47,8 +52,10 @@ export interface Dependencies {
   readonly public: PlaneDependencies;
   readonly errorHandler: ErrorRequestHandler;
   readonly scheduler: Scheduler;
+  readonly metricRetention: MetricRetention;
   readonly taskService: TaskService;
   readonly agentService: AgentService;
+  readonly metricService: MetricService;
 }
 
 export interface DependencyFactoryProps {
@@ -82,12 +89,14 @@ export class DependencyFactory {
     const taskEventDao = new PgTaskEventDao(pool);
     const agentDao = new PgAgentDao(pool);
     const variableDao = new PgVariableDao(pool);
+    const metricDao = new PgMetricDao(pool);
 
     const agentCommander = new HubAgentCommander(messageHub);
     const taskDispatcher = new TaskDispatcher({ taskInstanceDao, taskEventDao, agentCommander });
 
     const taskService = new TaskService({ taskDao, taskDynamicsDao, taskInstanceDao, taskEventDao, variableDao, agentCommander, taskDispatcher });
     const agentService = new AgentService({ agentDao, agentCommander });
+    const metricService = new MetricService({ metricDao, config: config.metrics });
 
     const scheduler = new Scheduler({
       taskDao,
@@ -100,12 +109,17 @@ export class DependencyFactory {
       config: config.scheduler,
     });
 
+    const metricRetention = new MetricRetention({ metricDao, config: config.metrics, tickMs: config.metrics.retentionTickMs });
+
     return {
       internal: {
         middleware: this.internalMiddleware(),
         endpoints: [
           new HealthEndpoints({ pool }),
           new AgentReportEndpoints({ agentService, taskService }),
+          // Internal only: agents deliver metrics, people read them on the public
+          // listener through MetricEndpoints.
+          new MetricReportEndpoints({ metricService }),
           // Also on the public listener: the console shows hub status and can publish,
           // while programs on the LAN publish here without needing the operator's token.
           new PubSubEndpoints({ messageHub }),
@@ -119,7 +133,13 @@ export class DependencyFactory {
       },
       public: {
         middleware: this.publicMiddleware(),
-        endpoints: [new HealthEndpoints({ pool }), new TaskEndpoints({ taskService }), new AgentEndpoints({ agentService }), new PubSubEndpoints({ messageHub })],
+        endpoints: [
+          new HealthEndpoints({ pool }),
+          new TaskEndpoints({ taskService }),
+          new AgentEndpoints({ agentService }),
+          new MetricEndpoints({ metricService }),
+          new PubSubEndpoints({ messageHub }),
+        ],
         notFound: notFoundHandler({
           plane: 'public',
           otherPlane: 'internal',
@@ -129,8 +149,10 @@ export class DependencyFactory {
       },
       errorHandler,
       scheduler,
+      metricRetention,
       taskService,
       agentService,
+      metricService,
     };
   }
 

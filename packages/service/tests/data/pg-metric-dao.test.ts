@@ -1,0 +1,320 @@
+import { MetricDatum } from '@mini-cloud/shared';
+import { PgMetricDao } from '../../src/data/pg-metric-dao';
+import { fakePool } from './test-helpers';
+
+const MINUTE = Date.UTC(2026, 8, 19, 14, 30);
+
+const aDatum = (overrides: Partial<MetricDatum> = {}): MetricDatum => ({
+  namespace: 'MyApp',
+  metricName: 'Latency',
+  dimensions: { Operation: 'Ingest' },
+  unit: 'Milliseconds',
+  bucketStart: MINUTE,
+  sampleCount: 2,
+  sum: 30,
+  min: 10,
+  max: 20,
+  histogram: { '10': 1, '20': 1 },
+  ...overrides,
+});
+
+/** Every successful ingest claims the batch id first. */
+const claimed = () => fakePool().on('INSERT INTO metric_ingest_batch', { rows: [{ batch_id: 'b1' }], rowCount: 1 });
+
+describe('PgMetricDao.putMetricData', () => {
+  it('claims the batch and writes all three resolutions in one transaction', async () => {
+    const pool = claimed();
+
+    await new PgMetricDao(pool.asPool()).putMetricData({ batchId: 'b1', agentId: 'agent-a', data: [aDatum()] });
+
+    const inTransaction = pool.queries.filter((query) => query.onClient).map((query) => query.sql.replace(/\s+/g, ' ').trim());
+    expect(inTransaction[0]).toBe('BEGIN');
+    expect(inTransaction[1]).toContain('INSERT INTO metric_ingest_batch');
+    expect(inTransaction.filter((sql) => sql.includes('INSERT INTO metric_datum'))).toHaveLength(3);
+    expect(inTransaction[inTransaction.length - 2]).toContain('INSERT INTO metric_series');
+    expect(inTransaction[inTransaction.length - 1]).toBe('COMMIT');
+    expect(pool.releases).toBe(1);
+  });
+
+  it('writes nothing and reports a duplicate when the batch id is already known', async () => {
+    // The merge is additive, so applying a resent batch again would double every
+    // count in it. The claim is what turns a retry into a no-op.
+    const pool = fakePool().on('INSERT INTO metric_ingest_batch', { rows: [], rowCount: 0 });
+
+    const result = await new PgMetricDao(pool.asPool()).putMetricData({ batchId: 'b1', agentId: 'agent-a', data: [aDatum()] });
+
+    expect(result).toEqual({ accepted: 0, duplicate: true });
+    expect(pool.statements.some((sql) => sql.includes('INSERT INTO metric_datum'))).toBe(false);
+    expect(pool.statements[pool.statements.length - 1]).toBe('COMMIT');
+  });
+
+  it('merges rather than replaces, so two agents reporting one bucket both count', async () => {
+    const pool = claimed();
+
+    await new PgMetricDao(pool.asPool()).putMetricData({ batchId: 'b1', agentId: 'agent-a', data: [aDatum()] });
+
+    const upsert = pool.queries.filter((query) => query.sql.includes('INSERT INTO metric_datum'))[0].sql.replace(/\s+/g, ' ');
+    expect(upsert).toContain('sample_count = metric_datum.sample_count + EXCLUDED.sample_count');
+    expect(upsert).toContain('sum_value = metric_datum.sum_value + EXCLUDED.sum_value');
+    expect(upsert).toContain('min_value = LEAST(metric_datum.min_value, EXCLUDED.min_value)');
+    expect(upsert).toContain('max_value = GREATEST(metric_datum.max_value, EXCLUDED.max_value)');
+    expect(upsert).toContain('histogram = metric_histogram_merge(metric_datum.histogram, EXCLUDED.histogram)');
+  });
+
+  it('folds several minutes of one series into one row per coarser bucket', async () => {
+    // Postgres refuses to let one statement update the same row twice, and sixty
+    // minutes of a series all land in one hour, so the fold has to happen first.
+    const pool = claimed();
+    const data = [aDatum({ bucketStart: MINUTE }), aDatum({ bucketStart: MINUTE + 60_000 }), aDatum({ bucketStart: MINUTE + 120_000 })];
+
+    await new PgMetricDao(pool.asPool()).putMetricData({ batchId: 'b1', agentId: 'agent-a', data });
+
+    const upserts = pool.queries.filter((query) => query.sql.includes('INSERT INTO metric_datum'));
+    // Three minutes, but one hour and one day.
+    expect((upserts[0].values[1] as unknown[]).length).toBe(3);
+    expect((upserts[1].values[1] as unknown[]).length).toBe(1);
+    expect((upserts[2].values[1] as unknown[]).length).toBe(1);
+  });
+
+  it('adds the folded counts rather than keeping the last one', async () => {
+    const pool = claimed();
+    const data = [aDatum({ bucketStart: MINUTE, sampleCount: 2, sum: 30, min: 10, max: 20 }), aDatum({ bucketStart: MINUTE + 60_000, sampleCount: 3, sum: 6, min: 1, max: 3 })];
+
+    await new PgMetricDao(pool.asPool()).putMetricData({ batchId: 'b1', agentId: 'agent-a', data });
+
+    const hourly = pool.queries.filter((query) => query.sql.includes('INSERT INTO metric_datum'))[1];
+    expect(hourly.values[7]).toEqual([5]);
+    expect(hourly.values[8]).toEqual([36]);
+    expect(hourly.values[9]).toEqual([1]);
+    // The extreme across both minutes, not the last one written.
+    expect(hourly.values[10]).toEqual([20]);
+  });
+
+  it('keeps a distribution only at the minute', async () => {
+    // An hour's percentile derived from sixty minutes' percentiles would not mean
+    // anything, so the coarser rows do not pretend to offer one.
+    const pool = claimed();
+
+    await new PgMetricDao(pool.asPool()).putMetricData({ batchId: 'b1', agentId: 'agent-a', data: [aDatum()] });
+
+    const upserts = pool.queries.filter((query) => query.sql.includes('INSERT INTO metric_datum'));
+    expect(upserts[0].values[0]).toBe('1m');
+    expect(upserts[0].values[11]).toEqual([JSON.stringify({ '10': 1, '20': 1 })]);
+    expect(upserts[1].values[11]).toEqual([null]);
+    expect(upserts[2].values[11]).toEqual([null]);
+  });
+
+  it('separates two dimension sets of one metric into two series', async () => {
+    const pool = claimed();
+    const data = [aDatum({ dimensions: { Operation: 'Ingest' } }), aDatum({ dimensions: { Operation: 'Query' } })];
+
+    await new PgMetricDao(pool.asPool()).putMetricData({ batchId: 'b1', agentId: 'agent-a', data });
+
+    const minutes = pool.queries.filter((query) => query.sql.includes('INSERT INTO metric_datum'))[0];
+    expect(new Set(minutes.values[3] as string[]).size).toBe(2);
+  });
+
+  it('rolls back, releases the client and rethrows when a statement fails', async () => {
+    const pool = claimed().failOn('INSERT INTO metric_series', new Error('unit too long'));
+
+    await expect(new PgMetricDao(pool.asPool()).putMetricData({ batchId: 'b1', agentId: 'agent-a', data: [aDatum()] })).rejects.toThrow('unit too long');
+
+    // Rolling back takes the batch claim with it, so the agent's retry is applied
+    // rather than mistaken for a replay of a batch that never landed.
+    expect(pool.statements[pool.statements.length - 1]).toBe('ROLLBACK');
+    expect(pool.releases).toBe(1);
+  });
+
+  it('does not open a transaction for an empty batch', async () => {
+    const pool = fakePool();
+
+    const result = await new PgMetricDao(pool.asPool()).putMetricData({ batchId: 'b1', agentId: 'agent-a', data: [] });
+
+    expect(result).toEqual({ accepted: 0, duplicate: false });
+    expect(pool.connects).toBe(0);
+  });
+});
+
+describe('PgMetricDao.readSeries', () => {
+  it('returns nothing for a series that was never written', async () => {
+    const pool = fakePool().on('SELECT unit FROM metric_series', { rows: [] });
+
+    const result = await new PgMetricDao(pool.asPool()).readSeries({
+      namespace: 'MyApp',
+      metricName: 'Latency',
+      dimensionsHash: 'Operation/Ingest',
+      resolution: '1m',
+      statistic: 'avg',
+      periodMs: 60_000,
+      from: MINUTE,
+      to: MINUTE + 600_000,
+    });
+
+    expect(result).toEqual({ datapoints: [] });
+  });
+
+  it('divides the sum by the sample count for an average', async () => {
+    // Not the average of averages: a bucket holding one slow request and a bucket
+    // holding a thousand fast ones must not weigh the same.
+    const pool = fakePool()
+      .on('SELECT unit FROM metric_series', { rows: [{ unit: 'Milliseconds' }] })
+      .on('SUM(sample_count)', { rows: [{ bucket_ms: String(MINUTE), sample_count: '4', sum_value: 100, min_value: 5, max_value: 60 }] });
+
+    const result = await new PgMetricDao(pool.asPool()).readSeries({
+      namespace: 'MyApp',
+      metricName: 'Latency',
+      dimensionsHash: 'Operation/Ingest',
+      resolution: '1m',
+      statistic: 'avg',
+      periodMs: 60_000,
+      from: MINUTE,
+      to: MINUTE + 600_000,
+    });
+
+    expect(result).toEqual({ unit: 'Milliseconds', datapoints: [{ timestamp: MINUTE, value: 25 }] });
+  });
+
+  it('reads the count as a number, not the string pg returns for int8', async () => {
+    const pool = fakePool()
+      .on('SELECT unit FROM metric_series', { rows: [{ unit: 'Count' }] })
+      .on('SUM(sample_count)', { rows: [{ bucket_ms: String(MINUTE), sample_count: '7', sum_value: 7, min_value: 1, max_value: 1 }] });
+
+    const result = await new PgMetricDao(pool.asPool()).readSeries({
+      namespace: 'MyApp',
+      metricName: 'Calls',
+      dimensionsHash: '_none',
+      resolution: '1m',
+      statistic: 'count',
+      periodMs: 60_000,
+      from: MINUTE,
+      to: MINUTE + 600_000,
+    });
+
+    expect(result.datapoints).toEqual([{ timestamp: MINUTE, value: 7 }]);
+  });
+
+  it('computes a percentile from the merged distribution of the buckets in the period', async () => {
+    const pool = fakePool()
+      .on('SELECT unit FROM metric_series', { rows: [{ unit: 'Milliseconds' }] })
+      .on('SELECT bucket_start, histogram', {
+        rows: [
+          { bucket_start: new Date(MINUTE), histogram: { '1': 9, '100': 1 } },
+          { bucket_start: new Date(MINUTE + 60_000), histogram: { '1': 90, '100': 10 } },
+        ],
+      });
+
+    const result = await new PgMetricDao(pool.asPool()).readSeries({
+      namespace: 'MyApp',
+      metricName: 'Latency',
+      dimensionsHash: '_none',
+      resolution: '1m',
+      statistic: 'p90',
+      periodMs: 300_000,
+      from: MINUTE,
+      to: MINUTE + 600_000,
+    });
+
+    // Both minutes fall in one five-minute bucket, so their distributions merge into
+    // one before the percentile is taken.
+    expect(result.datapoints).toHaveLength(1);
+    expect(result.datapoints[0].value).toBe(1);
+  });
+
+  it('skips buckets with no distribution rather than reporting a zero percentile', async () => {
+    const pool = fakePool()
+      .on('SELECT unit FROM metric_series', { rows: [{ unit: 'Milliseconds' }] })
+      .on('SELECT bucket_start, histogram', { rows: [{ bucket_start: new Date(MINUTE), histogram: null }] });
+
+    const result = await new PgMetricDao(pool.asPool()).readSeries({
+      namespace: 'MyApp',
+      metricName: 'Latency',
+      dimensionsHash: '_none',
+      resolution: '1m',
+      statistic: 'p99',
+      periodMs: 60_000,
+      from: MINUTE,
+      to: MINUTE + 600_000,
+    });
+
+    expect(result.datapoints).toEqual([]);
+  });
+});
+
+describe('PgMetricDao.ensurePartitions', () => {
+  it('creates a leaf for each distinct day, month and year the data needs', async () => {
+    const pool = fakePool();
+
+    const { created } = await new PgMetricDao(pool.asPool()).ensurePartitions({
+      buckets: [
+        { resolution: '1m', bucketStart: MINUTE },
+        { resolution: '1h', bucketStart: MINUTE },
+        { resolution: '1d', bucketStart: MINUTE },
+      ],
+    });
+
+    expect(created).toEqual(['metric_datum_1m_20260919', 'metric_datum_1h_202609', 'metric_datum_1d_2026']);
+    expect(pool.sql(0)).toContain("PARTITION OF metric_datum_1m FOR VALUES FROM ('2026-09-19T00:00:00.000Z') TO ('2026-09-20T00:00:00.000Z')");
+  });
+
+  it('issues the DDL once, however often a partition is asked for', async () => {
+    // Otherwise every write would take a DDL lock, on a table every write contends on.
+    const pool = fakePool();
+    const dao = new PgMetricDao(pool.asPool());
+
+    await dao.ensurePartitions({ buckets: [{ resolution: '1m', bucketStart: MINUTE }] });
+    await dao.ensurePartitions({ buckets: [{ resolution: '1m', bucketStart: MINUTE + 60_000 }] });
+
+    expect(pool.statements.filter((sql) => sql.includes('CREATE TABLE'))).toHaveLength(1);
+  });
+
+  it('treats another connection having created the partition as success', async () => {
+    const duplicate = Object.assign(new Error('relation already exists'), { code: '42P07' });
+    const pool = fakePool().failOn('CREATE TABLE', duplicate);
+
+    await expect(new PgMetricDao(pool.asPool()).ensurePartitions({ buckets: [{ resolution: '1m', bucketStart: MINUTE }] })).resolves.toEqual({ created: [] });
+  });
+
+  it('still raises a failure that is not a race', async () => {
+    const pool = fakePool().failOn('CREATE TABLE', Object.assign(new Error('out of disk'), { code: '53100' }));
+
+    await expect(new PgMetricDao(pool.asPool()).ensurePartitions({ buckets: [{ resolution: '1m', bucketStart: MINUTE }] })).rejects.toThrow('out of disk');
+  });
+});
+
+describe('PgMetricDao.dropExpiredPartitions', () => {
+  it('drops only the leaves that are wholly past their resolution cutoff', async () => {
+    // The listing answers with the 1m leaves for every resolution; the ones that do
+    // not belong to the resolution being swept are skipped by name, which is also
+    // what keeps an unrelated table from ever being dropped.
+    const pool = fakePool()
+      .on('pg_inherits', { rows: [{ relname: 'metric_datum_1m_20260901' }, { relname: 'metric_datum_1m_20260919' }] })
+      .on('DELETE FROM metric_ingest_batch', { rows: [], rowCount: 3 });
+
+    const { dropped, prunedBatches } = await new PgMetricDao(pool.asPool()).dropExpiredPartitions({
+      rawCutoff: Date.UTC(2026, 8, 10),
+      rollupCutoff: Date.UTC(2020, 0, 1),
+      batchCutoff: Date.UTC(2026, 8, 18),
+    });
+
+    // Retention is per resolution, which is the whole reason the table is nested by
+    // it: a raw day expires while the rollups derived from it stay.
+    expect(dropped).toEqual(['metric_datum_1m_20260901']);
+    expect(prunedBatches).toBe(3);
+    expect(pool.statements).toContain('DROP TABLE IF EXISTS metric_datum_1m_20260901');
+  });
+
+  it('leaves a table it cannot read a range from alone', async () => {
+    const pool = fakePool()
+      .on('pg_inherits', { rows: [{ relname: 'metric_datum_1m_backup' }] })
+      .on('DELETE FROM metric_ingest_batch', { rows: [], rowCount: 0 });
+
+    const { dropped } = await new PgMetricDao(pool.asPool()).dropExpiredPartitions({
+      rawCutoff: Date.UTC(2030, 0, 1),
+      rollupCutoff: Date.UTC(2030, 0, 1),
+      batchCutoff: Date.UTC(2030, 0, 1),
+    });
+
+    expect(dropped).toEqual([]);
+    expect(pool.statements.some((sql) => sql.startsWith('DROP TABLE'))).toBe(false);
+  });
+});

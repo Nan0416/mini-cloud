@@ -24,6 +24,14 @@ event log, so "did last night's backup run?" is one command, not a hunt through 
 **Carries messages.** A topic-based pub/sub hub the service uses to reach agents, and
 that your own programs can use too.
 
+**Measures what runs.** Programs publish metrics in the [AWS embedded metric
+format][emf] and the fleet aggregates them: one minute per series, rolled into hours
+and days as they land, queryable by statistic — including percentiles — over any
+range. Agents report their own machine's CPU, memory and disk, so there is something
+to look at before anything is instrumented.
+
+[emf]: https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/CloudWatch_Embedded_Metric_Format_Specification.html
+
 ## How it fits together
 
 ```
@@ -139,6 +147,27 @@ Agents then resolve host-local values on the machine where the task actually run
 a single pass and leaves unknown placeholders alone, which is what lets the service's
 pass and the agent's pass compose without interfering.
 
+## Metrics
+
+```ts
+import { MetricLogger } from '@mini-cloud/reporter';
+
+const metrics = MetricLogger.fromEnvironment('MyApp');
+metrics?.putDimensions({ Operation: 'Ingest' });
+metrics?.putMetric('Latency', 42, 'Milliseconds');
+await metrics?.flush();
+```
+
+Each flush appends one embedded-metric-format document to a spool file; the local
+agent folds a minute's worth into one datum per series and reports it. Because that
+format is CloudWatch's, the same instrumentation would work unchanged if any of this
+ever moved to AWS — and the API is `aws-embedded-metrics`', so swapping in the real
+library is a change of import.
+
+Several machines can publish into one series at once. Their reports merge rather than
+overwrite, in whatever order they arrive, and an agent that was offline backfills into
+the hours and days it missed. See [dev.md](./dev.md#recording-metrics).
+
 ## Web console
 
 Everything above, in a browser: what is running right now, the task list and each
@@ -158,8 +187,8 @@ running unattended. See [packages/web/README.md](./packages/web/README.md).
 
 ## Status
 
-Task scheduling, pub/sub and the web console work end to end. Artifact storage, the
-issue tracker and metrics aggregation are next.
+Task scheduling, pub/sub, metrics and the web console work end to end. Artifact storage
+and the issue tracker are next.
 
 ## License
 

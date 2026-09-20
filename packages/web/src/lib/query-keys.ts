@@ -1,4 +1,5 @@
 import type { ListTaskInstancesRequest } from '@mini-cloud/shared';
+import type { MetricSeriesParams } from '@/hooks/use-metrics';
 
 /**
  * Every cache key the console uses, built from one place.
@@ -16,6 +17,11 @@ export const queryKeys = {
   instances: (filter: ListTaskInstancesRequest = {}) => ['instances', filter] as const,
   instance: (instanceId: string) => ['instances', instanceId] as const,
   instanceEvents: (instanceId: string) => ['instances', instanceId, 'events'] as const,
+
+  metricNamespaces: () => ['metrics', 'namespaces'] as const,
+  metricNames: (namespace: string) => ['metrics', 'names', namespace] as const,
+  metricDimensions: (namespace: string, metricName: string) => ['metrics', 'dimensions', namespace, metricName] as const,
+  metricData: (params: MetricSeriesParams | undefined) => ['metrics', 'data', params ?? null] as const,
 
   agents: () => ['agents'] as const,
   variables: () => ['variables'] as const,

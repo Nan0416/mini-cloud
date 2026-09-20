@@ -48,6 +48,13 @@ const aConfig = (overrides: Partial<ServiceConfig> = {}): ServiceConfig => ({
     retentionDays: 365,
     retentionTickMs: 3600_000,
   },
+  metrics: {
+    rawRetentionDays: 14,
+    rollupRetentionDays: 400,
+    queryLagMs: 180_000,
+    ingestBatchRetentionMs: 86_400_000,
+    retentionTickMs: 3600_000,
+  },
   ...overrides,
 });
 
@@ -99,6 +106,7 @@ const ROUTES: ReadonlyArray<{ method: 'GET' | 'POST'; path: string; internal: bo
   { method: 'POST', path: '/agent-api/instance-event', internal: true, public: false },
   { method: 'POST', path: '/agent-api/instances', internal: true, public: false },
   { method: 'POST', path: '/agent-api/health-checks', internal: true, public: false },
+  { method: 'POST', path: '/agent-api/metrics', internal: true, public: false },
   { method: 'GET', path: '/pubsub/status', internal: true, public: true },
   { method: 'POST', path: '/pubsub/broadcast', internal: true, public: true },
   { method: 'POST', path: '/pubsub/p2p', internal: true, public: true },
@@ -107,6 +115,10 @@ const ROUTES: ReadonlyArray<{ method: 'GET' | 'POST'; path: string; internal: bo
   { method: 'GET', path: '/instances', internal: false, public: true },
   { method: 'GET', path: '/agents', internal: false, public: true },
   { method: 'GET', path: '/variables', internal: false, public: true },
+  { method: 'GET', path: '/metrics/namespaces', internal: false, public: true },
+  { method: 'GET', path: '/metrics/names', internal: false, public: true },
+  { method: 'GET', path: '/metrics/dimensions', internal: false, public: true },
+  { method: 'GET', path: '/metrics/data', internal: false, public: true },
 ];
 
 let listeners: Listeners | undefined;

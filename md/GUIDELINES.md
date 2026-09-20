@@ -27,6 +27,12 @@ specific bug, the bug is named — a rule you can't justify is a rule that gets 
    range, then check that `find . -type d -path '*node_modules/typescript'` returns
    one path per install root — the workspace's, plus `infra/`'s, which is deliberately
    outside `packages/*` and so has a tree of its own.
+- **2d. Metrics are the AWS embedded metric format, not a shape of our own.** A private
+  cloud that one day moves to AWS should not have to re-instrument every program, and
+  the format costs nothing here: it is JSON, and `shared` owns the types and the
+  validator. The reporter's API is deliberately `aws-embedded-metrics`', so swapping in
+  the real library later is a change of import rather than of instrumentation.
+
 3. **Layers within `service`**: `routes` parse and delegate, `services` answer
    requests, `facades` carry out work that no request waits on — dispatching a
    launch, the background ticks — `data` talks to Postgres, `utils` holds pure

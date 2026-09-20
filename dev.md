@@ -144,6 +144,12 @@ mini-cloud reads anywhere.
 | `scheduler.launchTimeoutMs` | `15000` | How long an instance may sit at `initiated` |
 | `scheduler.startTimeoutMs` | `60000` | How long at `launched` without reporting a pid |
 | `scheduler.retentionDays` | `365` | How long instance and event history is kept |
+| `scheduler.retentionTickMs` | `3600000` | How often that history is pruned |
+| `metrics.rawRetentionDays` | `14` | How long 1-minute metrics live. Also bounds how far back percentiles can be answered and how late an agent may report |
+| `metrics.rollupRetentionDays` | `400` | How long the hour and day rollups live |
+| `metrics.queryLagMs` | `180000` | How far behind now reads stop, so every agent has reported the newest bucket |
+| `metrics.ingestBatchRetentionMs` | `86400000` | How long a delivered batch is remembered, for recognising a retry |
+| `metrics.retentionTickMs` | `3600000` | How often metric partitions are created and expired ones dropped |
 | `cli.serviceUrl` / `.internalUrl` | `:3001` / `:3000` | Where the CLI points |
 | `agent.id` | this machine's hostname | Unique per agent; two sharing an id receive each other's commands |
 | `agent.name` | the agent id | Display name |
@@ -154,6 +160,10 @@ mini-cloud reads anywhere.
 | `agent.healthCheckTickMs` | `5000` | How often instance health is checked |
 | `agent.passiveToleranceMs` | `2000` | Grace before a passive heartbeat counts as missed |
 | `agent.pingFailureThreshold` | `3` | Failed probes before an instance is unhealthy |
+| `agent.metricsTickMs` | `60000` | How often the metrics spool is drained and reported |
+| `agent.metricsSpoolDir` | `~/.mini-cloud/metrics` | Where launched programs write metrics for this agent to collect |
+| `agent.hostMetrics` | `true` | Report this machine's own CPU, memory and disk |
+| `agent.maxHistogramBuckets` | `100` | Distinct values one minute of one series keeps before they are rounded |
 
 An unknown key warns; a file that will not parse is fatal.
 
@@ -284,7 +294,7 @@ One process, two ports, split by who calls.
 
 | | Internal `:3000` | Public `:3001` |
 | --- | --- | --- |
-| Serves | `/agent-api/*`, `/pubsub/*`, `/ws`, `/ping`, `/health` | `/tasks*`, `/instances*`, `/agents*`, `/variables`, `/pubsub/*`, `/ping`, `/health` |
+| Serves | `/agent-api/*`, `/pubsub/*`, `/ws`, `/ping`, `/health` | `/tasks*`, `/instances*`, `/agents*`, `/variables`, `/metrics/*`, `/pubsub/*`, `/ping`, `/health` |
 | Called by | agents, LAN programs | the console, the CLI |
 | Authentication | none — the source address is the credential | `publicToken`, always |
 | Source check | `internal.trustedSubnets` | none |
@@ -322,6 +332,68 @@ which makes it safe to leave in something you also run by hand. No method throws
 report that cannot be delivered is buffered to disk and replayed.
 
 Outside this repository: `npm install @mini-cloud/reporter`.
+
+## Recording metrics
+
+```ts
+import { MetricLogger } from '@mini-cloud/reporter';
+
+const metrics = MetricLogger.fromEnvironment('MyApp') ?? MetricLogger.toConsole('MyApp');
+
+metrics.putDimensions({ Operation: 'Ingest' });
+metrics.putMetric('Latency', 42, 'Milliseconds');
+metrics.setProperty('requestId', requestId); // searchable, but not a series
+await metrics.flush();
+```
+
+Metrics are written in the [AWS embedded metric format][emf], so what a program emits
+here is what CloudWatch Logs would ingest unchanged. The API is deliberately the one
+`aws-embedded-metrics` uses, so swapping in the real library later is a change of
+import rather than a change of instrumentation.
+
+[emf]: https://docs.aws.amazon.com/AmazonCloudWatch/latest/monitoring/CloudWatch_Embedded_Metric_Format_Specification.html
+
+A **dimension** is part of a metric's identity — every distinct set is its own series —
+so keep them low-cardinality and use `setProperty` for anything like a request id. Like
+`TaskReporter`, no method throws: a document the format would reject is dropped with a
+warning naming the reason.
+
+Each flush appends one JSON document to an hourly file under `agent.metricsSpoolDir`.
+The local agent tails those files, folds a minute's observations into one datum per
+series, and posts once a minute. Going through disk is what lets a metric survive the
+agent restarting, or the program exiting between flushes.
+
+Reading them back, on the public listener:
+
+```bash
+TOKEN=$(jq -r .publicToken ~/.mini-cloud/secret.json)
+curl -s -H "Authorization: Bearer $TOKEN" localhost:3001/metrics/namespaces
+curl -s -H "Authorization: Bearer $TOKEN" 'localhost:3001/metrics/names?namespace=MyApp'
+curl -s -H "Authorization: Bearer $TOKEN" 'localhost:3001/metrics/dimensions?namespace=MyApp&metricName=Latency'
+curl -s -H "Authorization: Bearer $TOKEN" \
+  "localhost:3001/metrics/data?namespace=MyApp&metricName=Latency&statistic=p99&periodMs=60000&from=$(( ($(date +%s) - 3600) * 1000 ))&dimension=Operation:Ingest"
+```
+
+A query names the **exact** dimension set it wants, as repeated `dimension=Name:Value`
+parameters — a subset would sum across sets that each already counted the same
+observation. `/metrics/dimensions` lists the sets available.
+
+Three things are worth knowing about what comes back:
+
+- **Reads stop `metrics.queryLagMs` behind now.** Agents report independently, so the
+  newest minute would otherwise hold only whichever machines reported first — a
+  datapoint that dips and silently corrects itself.
+- **Data that arrives late still counts.** Rollups are updated as data lands rather than
+  on a schedule, so an agent that was offline backfills into the hour and day it belongs
+  to. Buckets older than `metrics.rawRetentionDays`, or more than two hours ahead, are
+  refused and named in the response.
+- **Percentiles need the distribution**, which only the 1-minute rows keep, so they are
+  exact inside `metrics.rawRetentionDays` and refused beyond it rather than approximated
+  from an average of percentiles.
+
+Agents also report their own machine's CPU, memory and disk under `MiniCloud/Agent`, so
+there is something to look at before anything is instrumented. Turn it off with
+`agent.hostMetrics`.
 
 ## Building the binary
 

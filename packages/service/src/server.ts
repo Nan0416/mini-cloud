@@ -7,6 +7,7 @@ import { migrate } from './data/migrate';
 import { createPool } from './data/pool';
 import { Dependencies, DependencyFactory, PlaneDependencies } from './dependencies/dependency-factory';
 import { WsMessageHub } from './facades/message-hub';
+import { MetricRetention } from './facades/metric-retention';
 import { Scheduler } from './facades/scheduler';
 import { Service } from './service';
 import { ServiceConfig } from './config';
@@ -41,6 +42,7 @@ export class MiniCloudServer {
     private readonly publicServer: http.Server,
     private readonly hub: WsMessageHub,
     private readonly scheduler: Scheduler,
+    private readonly metricRetention: MetricRetention,
     private readonly pool: Pool,
     private readonly config: ServiceConfig,
   ) {}
@@ -88,6 +90,7 @@ export class MiniCloudServer {
     const publicPort = portOf(publicServer, config.public.port);
 
     dependencies.scheduler.start();
+    dependencies.metricRetention.start();
 
     logger.info(`Internal listener (agents, pub/sub) on http://${config.internal.host}:${internalPort} — WebSocket at ws://${config.internal.host}:${internalPort}/ws.`);
     logger.info(`Public listener (console, CLI) on http://${config.public.host}:${publicPort}.`);
@@ -100,7 +103,7 @@ export class MiniCloudServer {
       logger.info(`Open the console: ${link}`);
     }
 
-    return new MiniCloudServer(internalServer, publicServer, hub, dependencies.scheduler, pool, config);
+    return new MiniCloudServer(internalServer, publicServer, hub, dependencies.scheduler, dependencies.metricRetention, pool, config);
   }
 
   /** The port agents and the hub are on. */
@@ -117,6 +120,7 @@ export class MiniCloudServer {
   async stop(): Promise<void> {
     logger.info('Shutting down.');
     this.scheduler.stop();
+    this.metricRetention.stop();
     await this.hub.terminate();
     await Promise.all([new Promise<void>((resolve) => this.internalServer.close(() => resolve())), new Promise<void>((resolve) => this.publicServer.close(() => resolve()))]);
     await this.pool.end();
