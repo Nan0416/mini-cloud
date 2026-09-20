@@ -10,9 +10,15 @@ specific bug, the bug is named — a rule you can't justify is a rule that gets 
    launched programs), `cli` (the binary), `web` (the browser console). A package
    exists when something needs to be installed separately — `reporter` is separate
    because user programs import it and should not pull in the service.
-2. **Dependencies point one way**: `cli` → `service`/`agent`/`client` → `shared`, and
-   `web` → `client` → `shared`. Nothing imports upward, and `shared` imports nothing
-   of ours.
+2. **Dependencies point one way**: `cli` → `service`/`agent`/`client` → `shared`,
+   `agent` → `reporter` → `shared`, and `web` → `client` → `shared`. Nothing imports
+   upward, and `shared` imports nothing of ours.
+2a. **`agent` depends on `reporter` so the agent's own metrics are not a special case.**
+   Host CPU, memory and disk go through the same `MetricLogger` a launched program
+   uses. A second place that knows how to build an embedded-metric-format document is
+   a second place for it to drift from the specification, and validation, dimension
+   handling and the document limits then come for free. `reporter` imports only
+   `shared`, so the edge adds no cycle.
 2b. **A package that two runtimes consume splits its entry point, not itself.**
    `client` has `index.ts` for Node and `browser.ts` for bundles; the second is the
    first minus `WsSubscriber`, which imports `ws`. Publishing a separate

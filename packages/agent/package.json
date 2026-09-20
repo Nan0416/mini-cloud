@@ -11,6 +11,7 @@
   },
   "dependencies": {
     "@mini-cloud/client": "1.0.0",
+    "@mini-cloud/reporter": "1.0.0",
     "@mini-cloud/shared": "1.0.0",
     "express": "^5.1.0"
   },

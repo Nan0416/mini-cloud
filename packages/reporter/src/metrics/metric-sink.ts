@@ -68,6 +68,29 @@ export class SpoolSink implements MetricSink {
 }
 
 /**
+ * Keeps flushed documents in memory for the caller to take.
+ *
+ * For a producer that delivers its own documents rather than spooling them — the
+ * agent's host metrics go straight into the batch it is already assembling, so
+ * writing them to disk for itself to read back would be a round trip and a tick of
+ * delay for nothing.
+ */
+export class MemorySink implements MetricSink {
+  private documents: EmfDocument[] = [];
+
+  async write(document: EmfDocument): Promise<void> {
+    this.documents.push(document);
+  }
+
+  /** Everything written since the last drain. Taking it clears the buffer. */
+  drain(): ReadonlyArray<EmfDocument> {
+    const taken = this.documents;
+    this.documents = [];
+    return taken;
+  }
+}
+
+/**
  * Writes documents to stdout, which is what `AWS_EMF_ENVIRONMENT=Local` does.
  *
  * Used when no spool directory is configured, so a program run by hand still produces

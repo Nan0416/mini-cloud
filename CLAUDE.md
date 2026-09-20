@@ -17,8 +17,8 @@ An npm-workspaces monorepo, seven packages under `packages/`:
 | `cli` | The `mini-cloud` binary |
 | `web` | The browser console (React, Tailwind, Radix) |
 
-Dependencies point one way: `cli` → `service`/`agent`/`client` → `shared`, and
-`web` → `client` → `shared`.
+Dependencies point one way: `cli` → `service`/`agent`/`client` → `shared`,
+`agent` → `reporter` → `shared`, and `web` → `client` → `shared`.
 
 `shared` and `reporter` are published to npmjs.org under the `@mini-cloud` scope, so a
 program launched by mini-cloud can import the reporter without vendoring it. The rest
