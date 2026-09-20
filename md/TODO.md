@@ -7,6 +7,24 @@ instead. Delete a line once it has shipped.
 
 ---
 
+## Control plane
+
+- [ ] **A built-in agent, so one machine runs one process.** `serve` would start an agent
+      in the same process — registered like any other, so the console, `agent list` and
+      `task launch --agent` still see it — but reached directly rather than over the hub: a
+      local agent is not a WebSocket subscriber, and a launch on the machine already
+      running the service should not need one. `AgentCommander` is the seam, and it wants
+      both halves of what the hub gives it today, since it publishes a command to the
+      agent's topic *and* reads the subscriber count back as "is it online".
+      Two things the design has to respect. `service` cannot import `agent` without
+      reversing the one-way dependency the packages are built on, so the CLI composes the
+      two and hands the service a local dispatcher. And the control plane's daemon unit is
+      written for a process that launches nothing: `launchesTasks: false` in
+      `cli/src/service/units.ts` is what withholds `AbandonProcessGroup` and
+      `KillMode=process` and leaves it `ProcessType=Background`, so tasks under it would be
+      throttled, and killed by a `daemon restart`. Still to settle: what the built-in
+      agent's id is, and whether it is on by default.
+
 ## macOS distribution
 
 - [ ] **An organization Apple Developer account, if signing is ever wanted.** Not a
