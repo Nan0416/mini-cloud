@@ -454,8 +454,14 @@ git tag sdk-v1.0.1 && git push origin main --tags
 git tag cli-v1.0.1 && git push origin cli-v1.0.1
 ```
 
+The published version is whatever `package.json` says — `npm publish` reads it, and the
+tag neither sets nor derives it. The tag triggers the run and is checked against both
+manifests, so a disagreement fails the job instead of publishing a version nobody asked
+for. (`cli-v*` is the other way round: that version *is* taken from the tag.)
+
 `release-sdk.yml` builds, re-runs the tests against that exact commit, checks the tag
-agrees with both `package.json` versions, and publishes `shared` before `reporter` —
+agrees with both `package.json` versions and with reporter's pin on shared, and
+publishes `shared` before `reporter` —
 npm does not verify a dependency resolves at publish time, so the reverse order leaves a
 window where `npm install @mini-cloud/reporter` fails. Both packages move in lockstep,
 because `reporter` pins `shared` exactly.

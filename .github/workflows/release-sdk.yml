@@ -72,6 +72,18 @@ jobs:
               STATUS=1
             fi
           done
+
+          # And the pin, which the version check above does not cover.
+          # `npm version --workspace` bumps a package but leaves every dependant's
+          # reference to it alone, so it is easy to publish a reporter that asks for
+          # the *previous* shared. That resolves — the old version exists — and then
+          # fails on the first import of anything added since, which is exactly the
+          # release you cannot take back.
+          PIN="$(node -p "require('./packages/reporter/package.json').dependencies['@mini-cloud/shared']")"
+          if [ "$PIN" != "$TAG_VERSION" ]; then
+            echo "::error::packages/reporter pins @mini-cloud/shared at ${PIN}, but the tag says ${TAG_VERSION}. They move in lockstep."
+            STATUS=1
+          fi
           exit $STATUS
 
       - name: Build

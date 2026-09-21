@@ -1,6 +1,6 @@
 {
   "name": "@mini-cloud/cli",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "description": "The mini-cloud command line: start the service, run an agent, manage tasks.",
   "main": "./dist/index.js",
@@ -16,10 +16,10 @@
     "build:sea:mac:signed": "bash scripts/build-mac-sea-signed.sh"
   },
   "dependencies": {
-    "@mini-cloud/agent": "1.0.0",
-    "@mini-cloud/client": "1.0.0",
-    "@mini-cloud/service": "1.0.0",
-    "@mini-cloud/shared": "1.0.0",
+    "@mini-cloud/agent": "1.1.0",
+    "@mini-cloud/client": "1.1.0",
+    "@mini-cloud/service": "1.1.0",
+    "@mini-cloud/shared": "1.1.0",
     "commander": "^15.0.0"
   },
   "devDependencies": {

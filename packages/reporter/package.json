@@ -1,6 +1,6 @@
 {
   "name": "@mini-cloud/reporter",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Imported by programs mini-cloud launches, to report pid, exit, termination and log events back to the local agent.",
   "keywords": [
     "mini-cloud",
@@ -32,7 +32,7 @@
     "clean": "rm -rf dist tsconfig.tsbuildinfo"
   },
   "dependencies": {
-    "@mini-cloud/shared": "1.0.0"
+    "@mini-cloud/shared": "1.1.0"
   },
   "devDependencies": {
     "@types/node": "^22.10.5"
