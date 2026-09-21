@@ -342,6 +342,56 @@ describe('MetricLogger boundary timer', () => {
   });
 });
 
+describe('MetricLogger sink failures', () => {
+  /** A sink that fails a set number of times before behaving. */
+  class FailingSink implements MetricSink {
+    readonly documents: EmfDocument[] = [];
+    constructor(private failures: number) {}
+
+    async write(document: EmfDocument): Promise<void> {
+      if (this.failures > 0) {
+        this.failures -= 1;
+        throw new Error('disk on fire');
+      }
+      this.documents.push(document);
+    }
+  }
+
+  it('does not reject when the sink does', async () => {
+    // Three call sites invoke flush as `void this.flush()`, so a rejection here
+    // becomes an unhandled rejection that kills the process being monitored.
+    const metrics = new MetricLogger({ sink: new FailingSink(1), namespace: 'MyApp' });
+    metrics.putMetric('Count', 1, 'Count');
+
+    await expect(metrics.flush()).resolves.toBeUndefined();
+  });
+
+  it('keeps writing after a failed write', async () => {
+    // `rejected.then(fn)` never runs `fn`, so a rejected pending chain would drop
+    // every later document silently and for good.
+    const sink = new FailingSink(1);
+    const metrics = new MetricLogger({ sink, namespace: 'MyApp' });
+
+    metrics.putMetric('Count', 1, 'Count');
+    await metrics.flush();
+    metrics.putMetric('Count', 2, 'Count');
+    await metrics.flush();
+    metrics.putMetric('Count', 3, 'Count');
+    await metrics.flush();
+
+    expect(sink.documents.map((document) => document['Count'])).toEqual([2, 3]);
+  });
+
+  it('survives a sink that never works', async () => {
+    const metrics = new MetricLogger({ sink: new FailingSink(Number.MAX_SAFE_INTEGER), namespace: 'MyApp' });
+
+    for (let index = 0; index < 5; index += 1) {
+      metrics.putMetric('Count', index, 'Count');
+      await expect(metrics.flush()).resolves.toBeUndefined();
+    }
+  });
+});
+
 describe('MetricLogger validation', () => {
   it('drops a non-finite value instead of throwing', async () => {
     // A metrics library that can crash the program it measures is worse than no

@@ -60,8 +60,9 @@ export class MetricsCollector {
       documents.push(...(await this.props.hostMetrics.sample(now)));
     }
 
-    const fresh = aggregate(documents, { maxHistogramBuckets: this.props.maxHistogramBuckets });
-    const { sealed, open } = sealBuckets(mergeData(this.carried, fresh), now);
+    const options = { maxHistogramBuckets: this.props.maxHistogramBuckets };
+    const fresh = aggregate(documents, options);
+    const { sealed, open } = sealBuckets(mergeData(this.carried, fresh, options), now);
     this.carried = open;
 
     if (sealed.length === 0) {
@@ -132,10 +133,14 @@ export class MetricsCollector {
           batches.push(parsed);
           continue;
         }
-        logger.warn(`Discarding the unreadable pending metric batch ${file}.`);
+        logger.warn(`Discarding the unreadable pending metric batch ${file}: it is not a batch.`);
         await rm(full, { force: true });
       } catch (err) {
-        logger.warn(`Could not read the pending metric batch ${file}: ${err instanceof Error ? err.message : String(err)}`);
+        // Also discarded, for the same reason: a file that will not parse will not
+        // parse on the next tick either, and leaving it re-reads and re-logs it
+        // every minute for as long as the agent runs.
+        logger.warn(`Discarding the unreadable pending metric batch ${file}: ${err instanceof Error ? err.message : String(err)}`);
+        await rm(full, { force: true }).catch(() => undefined);
       }
     }
     return batches;

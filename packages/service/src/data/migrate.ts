@@ -109,7 +109,29 @@ export function defaultMigrationSource(): MigrationSource {
  * Applies every migration not yet applied, in order, each in its own transaction. Safe
  * to run on every service start.
  */
+/**
+ * Names this database's migration lock. An arbitrary constant; all that matters is
+ * that every migrator agrees on it.
+ */
+const MIGRATION_LOCK_KEY = 8_215_041_337;
+
 export async function migrate(pool: Pool, source: MigrationSource | string = defaultMigrationSource()): Promise<ReadonlyArray<string>> {
+  // One migrator at a time, across processes. Two control planes starting together —
+  // or two test suites — otherwise race on the same `CREATE TABLE` and one fails with
+  // a duplicate key on a system catalogue, which reads as nothing to do with
+  // migrations. The lock is held on one connection for the whole run and released in
+  // `finally`, and Postgres drops it anyway if the connection goes.
+  const lock = await pool.connect();
+  try {
+    await lock.query('SELECT pg_advisory_lock($1)', [MIGRATION_LOCK_KEY]);
+    return await applyMigrations(pool, source);
+  } finally {
+    await lock.query('SELECT pg_advisory_unlock($1)', [MIGRATION_LOCK_KEY]).catch(() => undefined);
+    lock.release();
+  }
+}
+
+async function applyMigrations(pool: Pool, source: MigrationSource | string): Promise<ReadonlyArray<string>> {
   const migrations = typeof source === 'string' ? directoryMigrations(source) : source;
   await pool.query('CREATE TABLE IF NOT EXISTS schema_migration (id TEXT PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT now())');
 

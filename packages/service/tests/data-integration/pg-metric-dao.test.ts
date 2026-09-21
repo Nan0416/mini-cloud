@@ -193,6 +193,18 @@ describeIfDatabase('PgMetricDao', () => {
     expect((await rowAt('1h', floorToResolution(MINUTE, '1h'))).histogram).toBeNull();
   });
 
+  it('leaves the rollups without a distribution even after a second write', async () => {
+    // The merge function has to return NULL for two NULLs, or a conflicting write
+    // flips an hour row from "no distribution" to an empty object — which is what
+    // readers test for before trying to take a percentile from one.
+    await report('agent-a', [aDatum()]);
+    await report('agent-b', [aDatum()]);
+
+    expect((await rowAt('1h', floorToResolution(MINUTE, '1h'))).histogram).toBeNull();
+    expect((await rowAt('1d', floorToResolution(MINUTE, '1d'))).histogram).toBeNull();
+    expect((await rowAt('1m', MINUTE)).histogram).toEqual({ '10': 2 });
+  });
+
   it('keeps two dimension sets of one metric as two series', async () => {
     await report('agent-a', [aDatum({ dimensions: { Operation: 'Ingest' } }), aDatum({ dimensions: { Operation: 'Query' } })]);
 
@@ -321,5 +333,34 @@ describeIfDatabase('PgMetricDao', () => {
     await report('agent-a', [aDatum({ bucketStart: lastWeek })]);
 
     expect((await rowAt('1m', lastWeek)).sample_count).toBe(1);
+  });
+});
+
+describeIfDatabase('migrate', () => {
+  let pool: Pool;
+
+  beforeAll(() => {
+    pool = createPool({ connectionString: DATABASE_URL ?? '' });
+  });
+
+  afterAll(async () => {
+    await pool.end();
+  });
+
+  it('lets only one migrator run at a time', async () => {
+    // Two control planes starting together — or two test suites — otherwise race on
+    // the same CREATE TABLE and one fails with a duplicate key on a system
+    // catalogue, which reads as nothing to do with migrations.
+    const migrations = path.resolve(__dirname, '..', '..', 'migrations');
+
+    await expect(Promise.all(Array.from({ length: 4 }, () => migrate(pool, migrations)))).resolves.toBeDefined();
+  });
+
+  it('releases the lock, so a later run is not blocked by an earlier one', async () => {
+    const migrations = path.resolve(__dirname, '..', '..', 'migrations');
+    await migrate(pool, migrations);
+
+    // Nothing left to apply, and — more to the point — it returns at all.
+    await expect(migrate(pool, migrations)).resolves.toEqual([]);
   });
 });

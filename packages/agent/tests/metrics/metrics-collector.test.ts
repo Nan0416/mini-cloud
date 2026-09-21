@@ -188,4 +188,15 @@ describe('MetricsCollector', () => {
     expect(publisher.sent).toEqual([]);
     expect(readdirSync(pendingDir())).toEqual([]);
   });
+
+  it('discards a pending file that will not parse, for the same reason', async () => {
+    // It will not parse on the next tick either, so keeping it re-reads and re-logs
+    // the same file every minute for as long as the agent runs.
+    await mkdir(pendingDir(), { recursive: true });
+    await writeFile(path.join(pendingDir(), 'batch-0.json'), '{"batchId": "b0", "data": [');
+
+    await collector.collect(MINUTE + 61_000);
+
+    expect(readdirSync(pendingDir())).toEqual([]);
+  });
 });

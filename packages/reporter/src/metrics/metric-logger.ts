@@ -279,8 +279,22 @@ export class MetricLogger {
       return;
     }
 
-    this.pending = this.pending.then(() => this.sink.write(document));
+    // `writeSafely` never rejects, which matters twice over. Three call sites invoke
+    // flush as `void this.flush()`, and an unhandled rejection would terminate the
+    // very process this logger exists to monitor. And a rejected `pending` would
+    // poison the chain permanently: `rejected.then(fn)` never runs `fn`, so every
+    // later flush would silently write nothing and reject in turn.
+    this.pending = this.pending.then(() => this.writeSafely(document));
     await this.pending;
+  }
+
+  private async writeSafely(document: EmfDocument): Promise<void> {
+    try {
+      await this.sink.write(document);
+    } catch (err) {
+      // A sink is documented as never throwing, but a caller can supply their own.
+      logger.warn(`A metric sink rejected a document; dropping it. ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 
   /**

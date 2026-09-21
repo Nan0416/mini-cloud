@@ -86,15 +86,25 @@ CREATE INDEX IF NOT EXISTS metric_ingest_batch_accepted_idx ON metric_ingest_bat
 -- In SQL rather than in the DAO so that the whole upsert stays one statement: reading
 -- a histogram, merging it in TypeScript and writing it back would open a window for a
 -- concurrent agent's write to be lost.
+--
+-- Two NULLs merge to NULL rather than to '{}'. The hour and day rows carry no
+-- distribution, so every conflicting write to one would otherwise flip its histogram
+-- from NULL to an empty object — and "no distribution" is exactly what readers test
+-- for before trying to take a percentile from one.
 CREATE OR REPLACE FUNCTION metric_histogram_merge(a JSONB, b JSONB) RETURNS JSONB AS $$
-  SELECT COALESCE(jsonb_object_agg(key, total), '{}'::jsonb)
-  FROM (
-    SELECT key, SUM(value::numeric) AS total
-    FROM (
-      SELECT * FROM jsonb_each_text(COALESCE(a, '{}'::jsonb))
-      UNION ALL
-      SELECT * FROM jsonb_each_text(COALESCE(b, '{}'::jsonb))
-    ) pairs
-    GROUP BY key
-  ) merged;
+  SELECT CASE
+    WHEN a IS NULL AND b IS NULL THEN NULL
+    ELSE (
+      SELECT COALESCE(jsonb_object_agg(key, total), '{}'::jsonb)
+      FROM (
+        SELECT key, SUM(value::numeric) AS total
+        FROM (
+          SELECT * FROM jsonb_each_text(COALESCE(a, '{}'::jsonb))
+          UNION ALL
+          SELECT * FROM jsonb_each_text(COALESCE(b, '{}'::jsonb))
+        ) pairs
+        GROUP BY key
+      ) merged
+    )
+  END;
 $$ LANGUAGE SQL IMMUTABLE;

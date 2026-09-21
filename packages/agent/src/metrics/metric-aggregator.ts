@@ -145,8 +145,14 @@ export function sealBuckets(data: ReadonlyArray<MetricDatum>, now: number): Seal
   return { sealed, open };
 }
 
-/** Combines carried-over open buckets with newly read ones. */
-export function mergeData(left: ReadonlyArray<MetricDatum>, right: ReadonlyArray<MetricDatum>): ReadonlyArray<MetricDatum> {
+/**
+ * Combines carried-over open buckets with newly read ones.
+ *
+ * Compaction is re-applied, because merging two already-compacted distributions
+ * yields the union of their buckets. A minute carried across several ticks would
+ * otherwise accumulate well past `maxHistogramBuckets` before it was ever sealed.
+ */
+export function mergeData(left: ReadonlyArray<MetricDatum>, right: ReadonlyArray<MetricDatum>, options: AggregateOptions): ReadonlyArray<MetricDatum> {
   const merged = new Map<string, MetricDatum>();
 
   for (const datum of [...left, ...right]) {
@@ -162,7 +168,7 @@ export function mergeData(left: ReadonlyArray<MetricDatum>, right: ReadonlyArray
       sum: existing.sum + datum.sum,
       min: Math.min(existing.min, datum.min),
       max: Math.max(existing.max, datum.max),
-      histogram: mergeHistograms(existing.histogram, datum.histogram),
+      histogram: compactHistogram(mergeHistograms(existing.histogram, datum.histogram), options.maxHistogramBuckets),
     });
   }
 

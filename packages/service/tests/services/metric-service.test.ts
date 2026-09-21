@@ -203,11 +203,24 @@ describe('MetricService.getMetricData', () => {
   it('reads the coarsest resolution the period lines up with', async () => {
     const { metricDao, service } = build();
 
-    await service.getMetricData(aQuery({ periodMs: 86_400_000 }), NOW);
-    await service.getMetricData(aQuery({ periodMs: 3_600_000 }), NOW);
-    await service.getMetricData(aQuery({ periodMs: 300_000 }), NOW);
+    // Each range has to be long enough to hold a whole period, since partial ones
+    // are no longer returned.
+    await service.getMetricData(aQuery({ periodMs: 86_400_000, from: NOW - 30 * DAY }), NOW);
+    await service.getMetricData(aQuery({ periodMs: 3_600_000, from: NOW - 12 * 3_600_000 }), NOW);
+    await service.getMetricData(aQuery({ periodMs: 300_000, from: NOW - 3_600_000 }), NOW);
 
     expect(metricDao.reads.map((read) => read.resolution)).toEqual<MetricResolution[]>(['1d', '1h', '1m']);
+  });
+
+  it('returns nothing when the range does not contain one whole period', async () => {
+    // An hour of data cannot make a daily datapoint, and half a day of one is the
+    // partial bucket this deliberately withholds.
+    const { metricDao, service } = build();
+
+    const response = await service.getMetricData(aQuery({ periodMs: 86_400_000, from: NOW - 3_600_000 }), NOW);
+
+    expect(response.datapoints).toEqual([]);
+    expect(metricDao.reads).toEqual([]);
   });
 
   it('reads the minute rows for a percentile, whatever the period', async () => {
@@ -231,6 +244,24 @@ describe('MetricService.getMetricData', () => {
     const { service } = build();
 
     await expect(service.getMetricData(aQuery({ statistic: 'avg', periodMs: 86_400_000, from: NOW - 30 * DAY }), NOW)).resolves.toMatchObject({ resolution: '1d' });
+  });
+
+  it('returns only whole periods, so the newest bucket is never a partial one', async () => {
+    // An unaligned end returns a final bucket covering part of its period, which is
+    // the dipping last datapoint the watermark exists to prevent.
+    const { metricDao, service } = build();
+
+    await service.getMetricData(aQuery({ periodMs: 3_600_000, from: NOW - 6 * 3_600_000 }), NOW);
+
+    expect(metricDao.reads[0].to % 3_600_000).toBe(0);
+    expect(metricDao.reads[0].to).toBeLessThanOrEqual(NOW - CONFIG.queryLagMs);
+  });
+
+  it('rejects a time outside what a Date can represent, rather than failing inside one', async () => {
+    // `new Date(x).toISOString()` throws a bare RangeError past this, which would
+    // surface as a 500 for what is plainly a bad request.
+    await expect(build().service.getMetricData(aQuery({ from: -1e18 }), NOW)).rejects.toThrow(/milliseconds since the epoch/);
+    await expect(build().service.getMetricData(aQuery({ to: 1e18 }), NOW)).rejects.toThrow(/milliseconds since the epoch/);
   });
 
   it('rejects a period that is not a whole number of minutes', async () => {

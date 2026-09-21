@@ -135,7 +135,7 @@ describe('mergeData', () => {
     const first = aggregate([aDocument({ timestamp: MINUTE + 10_000, values: 10 })], OPTIONS);
     const second = aggregate([aDocument({ timestamp: MINUTE + 20_000, values: 30 })], OPTIONS);
 
-    const merged = mergeData(first, second);
+    const merged = mergeData(first, second, OPTIONS);
 
     expect(merged).toHaveLength(1);
     expect(merged[0]).toMatchObject({ sampleCount: 2, sum: 40, min: 10, max: 30 });
@@ -145,13 +145,27 @@ describe('mergeData', () => {
     const first = aggregate([aDocument({ dimensions: { Operation: 'Ingest' } })], OPTIONS);
     const second = aggregate([aDocument({ dimensions: { Operation: 'Query' } })], OPTIONS);
 
-    expect(mergeData(first, second)).toHaveLength(2);
+    expect(mergeData(first, second, OPTIONS)).toHaveLength(2);
+  });
+
+  it('re-compacts, so a bucket carried across many ticks stays bounded', () => {
+    // Merging two already-compacted distributions yields the union of their buckets,
+    // so without this a long-carried minute grows past the cap it was compacted to.
+    const options = { maxHistogramBuckets: 10 };
+    let carried = aggregate([aDocument({ values: [1000] })], options);
+
+    for (let tick = 0; tick < 40; tick += 1) {
+      carried = mergeData(carried, aggregate([aDocument({ values: [1000 + tick * 7] })], options), options);
+    }
+
+    expect(Object.keys(carried[0].histogram).length).toBeLessThanOrEqual(10);
+    expect(carried[0].sampleCount).toBe(41);
   });
 
   it('gives the same result whichever side a bucket arrives on', () => {
     const first = aggregate([aDocument({ timestamp: MINUTE + 10_000, values: 10 })], OPTIONS);
     const second = aggregate([aDocument({ timestamp: MINUTE + 20_000, values: 30 })], OPTIONS);
 
-    expect(mergeData(first, second)).toEqual(mergeData(second, first));
+    expect(mergeData(first, second, OPTIONS)).toEqual(mergeData(second, first, OPTIONS));
   });
 });

@@ -102,6 +102,9 @@ function seriesKey(datum: { namespace: string; metricName: string; dimensionsHas
  * the normal case, since sixty minutes of one series collapse into one hour.
  */
 function mergeByBucket(data: ReadonlyArray<MetricDatum & { dimensionsHash: string }>, resolution: MetricResolution): ReadonlyArray<MergedDatum> {
+  // Only the minute stores a distribution, so merging them for the hour and the day
+  // is work whose result `upsertResolution` writes away as NULL.
+  const keepHistogram = resolution === '1m';
   const merged = new Map<string, MergedDatum>();
 
   for (const datum of data) {
@@ -120,7 +123,7 @@ function mergeByBucket(data: ReadonlyArray<MetricDatum & { dimensionsHash: strin
         sum: datum.sum,
         min: datum.min,
         max: datum.max,
-        histogram: datum.histogram,
+        histogram: keepHistogram ? datum.histogram : {},
       });
       continue;
     }
@@ -128,7 +131,9 @@ function mergeByBucket(data: ReadonlyArray<MetricDatum & { dimensionsHash: strin
     existing.sum += datum.sum;
     existing.min = Math.min(existing.min, datum.min);
     existing.max = Math.max(existing.max, datum.max);
-    existing.histogram = mergeHistograms(existing.histogram, datum.histogram);
+    if (keepHistogram) {
+      existing.histogram = mergeHistograms(existing.histogram, datum.histogram);
+    }
   }
 
   return Array.from(merged.values());

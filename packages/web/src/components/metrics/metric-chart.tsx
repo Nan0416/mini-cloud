@@ -94,7 +94,12 @@ export function MetricChart(props: MetricChartProps) {
   const area = `${line} L ${x(last).toFixed(2)} ${(PADDING.top + PLOT_HEIGHT).toFixed(2)} L ${x(first).toFixed(2)} ${(PADDING.top + PLOT_HEIGHT).toFixed(2)} Z`;
 
   const gridValues = [lowest, lowest + range / 2, top];
-  const timeLabels = points.length === 1 ? [points[0]] : [points[0], points[Math.floor(points.length / 2)], points[points.length - 1]];
+  // Deduplicated by timestamp: with exactly two datapoints the midpoint and the last
+  // are the same element, which renders twice under the same React key.
+  const labelled = new Map(
+    (points.length === 1 ? [points[0]] : [points[0], points[Math.floor(points.length / 2)], points[points.length - 1]]).map((point) => [point.timestamp, point]),
+  );
+  const timeLabels = Array.from(labelled.values());
   const active = hovered === undefined ? undefined : points[hovered];
 
   return (

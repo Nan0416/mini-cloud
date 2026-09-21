@@ -31,6 +31,18 @@ const MAX_FUTURE_MS = 2 * 3600_000;
 
 const DAY_MS = 86_400_000;
 
+/**
+ * What `new Date(...).toISOString()` can represent. Beyond it that call throws a bare
+ * `RangeError`, which would surface as a 500 for what is plainly a bad request.
+ */
+const MAX_TIMESTAMP_MS = 8_640_000_000_000_000;
+
+function assertQueryable(timestamp: number, field: string): void {
+  if (!Number.isFinite(timestamp) || Math.abs(timestamp) > MAX_TIMESTAMP_MS) {
+    throw new InvalidRequestError(`${field} must be a time in milliseconds since the epoch, between -${MAX_TIMESTAMP_MS} and ${MAX_TIMESTAMP_MS}`);
+  }
+}
+
 export interface MetricConfig {
   /**
    * How long 1m rows live. The same number bounds three things on purpose: raw
@@ -135,10 +147,18 @@ export class MetricService {
       throw new InvalidRequestError(`periodMs must be a whole number of minutes, because metrics are stored by the minute. Round ${periodMs} to a multiple of 60000.`);
     }
 
+    assertQueryable(request.from, 'from');
+    if (request.to !== undefined) {
+      assertQueryable(request.to, 'to');
+    }
+
     // Clamped before anything else: a bucket only some agents have reported yet is
-    // not a datapoint, it is a partial one.
+    // not a datapoint, it is a partial one. Both ends are then floored to the period
+    // for the same reason — an unaligned end returns a final bucket covering only
+    // part of its period, which is the dipping last datapoint `queryLagMs` exists to
+    // prevent. The period in progress is therefore not returned until it closes.
     const watermark = now - this.config.queryLagMs;
-    const to = Math.min(request.to ?? now, watermark);
+    const to = floorToPeriod(Math.min(request.to ?? now, watermark), periodMs);
     const from = floorToPeriod(request.from, periodMs);
     if (from >= to) {
       return { unit: 'None', periodMs, resolution: coarsestResolutionFor(periodMs), datapoints: [] };
