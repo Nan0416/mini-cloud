@@ -44,6 +44,20 @@
   --info-foreground: oklch(0.99 0.005 240);
   --pending: oklch(0.6 0.01 265);
   --pending-foreground: oklch(0.99 0 0);
+
+  /*
+   * Series colours, assigned in this order and never cycled. The order is what keeps
+   * neighbours apart under colour-blindness, so it is not cosmetic. Aqua, yellow and
+   * magenta sit below 3:1 on the white card, which is why every chart has a table view.
+   */
+  --chart-1: #2a78d6;
+  --chart-2: #eb6834;
+  --chart-3: #1baf7a;
+  --chart-4: #eda100;
+  --chart-5: #e87ba4;
+  --chart-6: #008300;
+  --chart-7: #4a3aa7;
+  --chart-8: #e34948;
 }
 
 .dark {
@@ -75,6 +89,16 @@
   --info-foreground: oklch(0.18 0.03 240);
   --pending: oklch(0.55 0.012 265);
   --pending-foreground: oklch(0.95 0 0);
+
+  /* The same eight hues, stepped for the dark card rather than flipped. */
+  --chart-1: #3987e5;
+  --chart-2: #d95926;
+  --chart-3: #199e70;
+  --chart-4: #c98500;
+  --chart-5: #d55181;
+  --chart-6: #008300;
+  --chart-7: #9085e9;
+  --chart-8: #e66767;
 }
 
 /* Exposes the tokens above to Tailwind as `bg-card`, `text-muted-foreground`, etc. */

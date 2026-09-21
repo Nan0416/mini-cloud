@@ -9,6 +9,7 @@ import {
   ListMetricNamespacesRequest,
   ListMetricNamespacesResponse,
   LoggerFactory,
+  METRIC_MAX_DATAPOINTS,
   METRIC_RESOLUTIONS,
   METRIC_RESOLUTION_MS,
   MetricDatum,
@@ -158,13 +159,27 @@ export class MetricService {
     // part of its period, which is the dipping last datapoint `queryLagMs` exists to
     // prevent. The period in progress is therefore not returned until it closes.
     const watermark = now - this.config.queryLagMs;
-    const to = floorToPeriod(Math.min(request.to ?? now, watermark), periodMs);
+    const end = Math.min(request.to ?? now, watermark);
+    const to = floorToPeriod(end, periodMs);
     const from = floorToPeriod(request.from, periodMs);
     if (from >= to) {
-      return { unit: 'None', periodMs, resolution: coarsestResolutionFor(periodMs), datapoints: [] };
+      // An empty window at `from`, rather than one that ends before it starts.
+      return { unit: 'None', periodMs, resolution: coarsestResolutionFor(periodMs), from, to: from, datapoints: [] };
     }
 
     const resolution = this.resolutionFor(request, periodMs, from, now);
+
+    // After the percentile check, because no period can fix that refusal.
+    const buckets = (to - from) / periodMs;
+    if (buckets > METRIC_MAX_DATAPOINTS) {
+      // Sized from the unfloored span, so a read at the suggested period is known to fit.
+      const minutes = Math.ceil((end - request.from) / METRIC_MAX_DATAPOINTS / METRIC_RESOLUTION_MS['1m']);
+      throw new InvalidRequestError(
+        `A ${periodMs / METRIC_RESOLUTION_MS['1m']}-minute period over this range is ${buckets} datapoints, more than the ${METRIC_MAX_DATAPOINTS} one read may return. ` +
+          `Use a period of at least ${minutes} minutes (${minutes * METRIC_RESOLUTION_MS['1m']} ms), or a shorter range.`,
+      );
+    }
+
     const dimensionsHash = hashDimensions(request.dimensions ?? {});
 
     const { unit, datapoints } = await this.metricDao.readSeries({
@@ -178,7 +193,7 @@ export class MetricService {
       to,
     });
 
-    return { unit: unit ?? 'None', periodMs, resolution, datapoints };
+    return { unit: unit ?? 'None', periodMs, resolution, from, to, datapoints };
   }
 
   /**

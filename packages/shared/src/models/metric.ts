@@ -192,6 +192,15 @@ export interface MetricDatum extends MetricStatisticSet {
  */
 export const METRIC_PAGE_SIZE = { default: 100, max: 1000 } as const;
 
+/**
+ * The most datapoints one series read may return: a day at one-minute resolution.
+ *
+ * A cap because the caller chooses the period. A minute over four weeks is forty
+ * thousand points and, for a percentile, forty thousand histograms merged in memory,
+ * which is far more than a chart can draw.
+ */
+export const METRIC_MAX_DATAPOINTS = 1440;
+
 /** A metric the service has seen, for the console's pickers. */
 export interface MetricSummary {
   readonly namespace: string;

@@ -198,6 +198,36 @@ describe('MetricService.getMetricData', () => {
 
     expect(response.datapoints).toEqual([]);
     expect(metricDao.reads).toEqual([]);
+    // An empty window, not one that ends before it starts, which a chart would draw backwards.
+    expect(response.to).toBe(response.from);
+  });
+
+  it('returns the window it read, so a chart can span that rather than its datapoints', async () => {
+    const { metricDao, service } = build();
+
+    const response = await service.getMetricData(aQuery({ periodMs: 300_000, from: NOW - 3600_000 + 12_345 }), NOW);
+
+    expect(response.from).toBe(metricDao.reads[0].from);
+    expect(response.to).toBe(metricDao.reads[0].to);
+  });
+
+  it('refuses more datapoints than one read may return, and names a period that fits', async () => {
+    // A minute over two days is 2877 buckets once the watermark is taken off.
+    const { service } = build();
+    const query = aQuery({ periodMs: 60_000, from: NOW - 2 * DAY });
+
+    await expect(service.getMetricData(query, NOW)).rejects.toThrow(/2877 datapoints, more than the 1440/);
+    await expect(service.getMetricData(query, NOW)).rejects.toThrow(/at least 2 minutes \(120000 ms\)/);
+    await expect(service.getMetricData({ ...query, periodMs: 120_000 }, NOW)).resolves.toMatchObject({ periodMs: 120_000 });
+  });
+
+  it('answers exactly as many datapoints as the cap', async () => {
+    const { metricDao, service } = build();
+    const end = NOW - CONFIG.queryLagMs;
+
+    await service.getMetricData(aQuery({ periodMs: 60_000, from: end - 1440 * 60_000 }), NOW);
+
+    expect((metricDao.reads[0].to - metricDao.reads[0].from) / 60_000).toBe(1440);
   });
 
   it('reads the coarsest resolution the period lines up with', async () => {
