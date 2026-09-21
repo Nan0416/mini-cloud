@@ -21,7 +21,11 @@ export interface HttpClientProps {
   readonly timeoutMs?: number;
 }
 
-export type Query = Record<string, string | number | boolean | undefined>;
+/**
+ * An array value becomes repeated parameters rather than one comma-joined string,
+ * which is what a set of dimensions needs: `?dimension=A:1&dimension=B:2`.
+ */
+export type Query = Record<string, string | number | boolean | ReadonlyArray<string> | undefined>;
 
 function toAppError(status: number, message: string, errorCode: ErrorCode | undefined): AppError {
   switch (errorCode) {
@@ -61,9 +65,16 @@ export class HttpClient {
   async request<T>(method: 'GET' | 'POST' | 'PUT' | 'DELETE', path: string, options: { query?: Query; body?: unknown } = {}): Promise<T> {
     const url = new URL(`${this.baseUrl}${path}`);
     for (const [key, value] of Object.entries(options.query ?? {})) {
-      if (value !== undefined) {
-        url.searchParams.set(key, String(value));
+      if (value === undefined) {
+        continue;
       }
+      if (Array.isArray(value)) {
+        for (const entry of value) {
+          url.searchParams.append(key, entry);
+        }
+        continue;
+      }
+      url.searchParams.set(key, String(value));
     }
 
     const headers: Record<string, string> = { accept: 'application/json' };

@@ -1,4 +1,4 @@
-import { Activity, Cloud, ListTree, Radio, Server, Variable } from 'lucide-react';
+import { Activity, ChartLine, Cloud, ListTree, Radio, Server, Variable } from 'lucide-react';
 import { urls } from '@/lib/urls';
 
 export interface NavItem {
@@ -21,6 +21,7 @@ export const NAV_SECTIONS: ReadonlyArray<NavSection> = [
       { to: urls.overview(), label: 'Overview', icon: Cloud },
       { to: urls.tasks(), label: 'Tasks', icon: ListTree, matchPrefix: '/tasks' },
       { to: urls.instances(), label: 'Instances', icon: Activity, matchPrefix: '/instances' },
+      { to: urls.metrics(), label: 'Metrics', icon: ChartLine },
     ],
   },
   {

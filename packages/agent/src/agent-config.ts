@@ -17,6 +17,14 @@ export interface AgentConfig {
   readonly passiveToleranceMs: number;
   /** Consecutive failed pings before an instance is reported unhealthy. */
   readonly pingFailureThreshold: number;
+  /** How often the metrics spool is drained and reported. */
+  readonly metricsTickMs: number;
+  /** Where launched programs write EMF documents for this agent to pick up. */
+  readonly metricsSpoolDir: string;
+  /** Report this machine's own CPU, memory and disk usage. */
+  readonly hostMetrics: boolean;
+  /** Distinct values one minute of one series may keep before they are rounded. */
+  readonly maxHistogramBuckets: number;
 }
 
 /**
@@ -72,6 +80,16 @@ export function resolveAgentConfig(settings: AgentSettings = {}): AgentConfig {
     healthCheckTickMs: settings.healthCheckTickMs ?? 5_000,
     passiveToleranceMs: settings.passiveToleranceMs ?? 2_000,
     pingFailureThreshold: settings.pingFailureThreshold ?? 3,
+    // One minute, because a minute is the bucket everything downstream is keyed on.
+    // A shorter tick would send the same bucket repeatedly; a longer one would delay
+    // every metric by the difference.
+    metricsTickMs: settings.metricsTickMs ?? 60_000,
+    // Outside workDir on purpose: programs write here, and workDir holds the agent's
+    // own state.
+    metricsSpoolDir: settings.metricsSpoolDir ?? path.join(os.homedir(), '.mini-cloud', 'metrics'),
+    hostMetrics: settings.hostMetrics ?? true,
+    // The format's own cap on values per metric, so a minute never needs more.
+    maxHistogramBuckets: settings.maxHistogramBuckets ?? 100,
   };
 }
 
@@ -85,4 +103,14 @@ export function stderrDir(config: AgentConfig): string {
 
 export function offlineReportPath(config: AgentConfig): string {
   return path.join(config.workDir, 'offline-reports.jsonl');
+}
+
+/** Where the spool reader remembers how far it has read into each file. */
+export function metricsOffsetsPath(config: AgentConfig): string {
+  return path.join(config.workDir, 'metrics-offsets.json');
+}
+
+/** Sealed batches waiting to be delivered, one file each. */
+export function metricsPendingDir(config: AgentConfig): string {
+  return path.join(config.workDir, 'metrics-pending');
 }

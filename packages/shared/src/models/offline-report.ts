@@ -12,6 +12,7 @@ export const REPORTER_ENV = {
   agentUrl: 'MINI_CLOUD_AGENT_URL',
   offlineReportPath: 'MINI_CLOUD_OFFLINE_REPORT_PATH',
   healthCheckPeriodMs: 'MINI_CLOUD_HEALTH_CHECK_PERIOD_MS',
+  metricsSpoolDir: 'MINI_CLOUD_METRICS_SPOOL_DIR',
 } as const;
 
 export type OfflineReportType = 'pid' | 'exit' | 'termination' | 'event';

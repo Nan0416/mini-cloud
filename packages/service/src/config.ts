@@ -2,6 +2,7 @@ import { AgentSettings, LoggerFactory } from '@mini-cloud/shared';
 import { dirname, join } from 'node:path';
 import { configPath, readConfigObject, secretPath, Section } from './config-file';
 import { SchedulerConfig } from './facades/scheduler';
+import { MetricConfig } from './services/metric-service';
 
 const logger = LoggerFactory.getLogger('Config');
 
@@ -49,6 +50,12 @@ export interface CliConfig {
   readonly internalUrl: string;
 }
 
+/** The metrics section: what is kept, for how long, and how far behind reads run. */
+export interface MetricsConfig extends MetricConfig {
+  /** How often partitions are created and expired ones dropped. */
+  readonly retentionTickMs: number;
+}
+
 export interface ServiceConfig {
   readonly databaseUrl: string;
   readonly internal: InternalListenerConfig;
@@ -56,6 +63,7 @@ export interface ServiceConfig {
   /** For the link printed at startup. Empty suppresses that line. */
   readonly consoleUrl: string;
   readonly scheduler: SchedulerConfig;
+  readonly metrics: MetricsConfig;
   readonly cli: CliConfig;
   /** Read on a worker machine; the control plane ignores it. */
   readonly agent: AgentSettings;
@@ -100,6 +108,7 @@ export function loadConfig(options: LoadConfigOptions = {}): ServiceConfig {
   const internal = root.section('internal');
   const publicSection = root.section('public');
   const scheduler = root.section('scheduler');
+  const metrics = root.section('metrics');
   const cli = root.section('cli');
   const agent = root.section('agent');
 
@@ -131,6 +140,21 @@ export function loadConfig(options: LoadConfigOptions = {}): ServiceConfig {
       retentionDays: scheduler.positiveInteger('retentionDays', 365),
       retentionTickMs: scheduler.positiveInteger('retentionTickMs', 3600_000),
     },
+    metrics: {
+      // One number bounds three things: raw storage, how far back percentiles can
+      // be answered, and how late an agent may report — so anything accepted always
+      // has a partition to land in. Four weeks, so a month-on-month comparison is
+      // still answerable at full resolution.
+      rawRetentionDays: metrics.positiveInteger('rawRetentionDays', 28),
+      // A little over a year, so this week can be compared with the same week last year.
+      rollupRetentionDays: metrics.positiveInteger('rollupRetentionDays', 400),
+      // Three agent ticks: a machine that misses one still lands inside the window,
+      // so a chart never shows a bucket only some of the fleet has reported.
+      queryLagMs: metrics.positiveInteger('queryLagMs', 180_000),
+      // Far longer than an agent will retry, which is all this has to outlast.
+      ingestBatchRetentionMs: metrics.positiveInteger('ingestBatchRetentionMs', 86_400_000),
+      retentionTickMs: metrics.positiveInteger('retentionTickMs', 3600_000),
+    },
     cli: {
       serviceUrl: cli.string('serviceUrl', 'http://127.0.0.1:3001'),
       internalUrl: cli.string('internalUrl', 'http://127.0.0.1:3000'),
@@ -147,10 +171,14 @@ export function loadConfig(options: LoadConfigOptions = {}): ServiceConfig {
       healthCheckTickMs: agent.optionalPositiveInteger('healthCheckTickMs'),
       passiveToleranceMs: agent.optionalPositiveInteger('passiveToleranceMs'),
       pingFailureThreshold: agent.optionalPositiveInteger('pingFailureThreshold'),
+      metricsTickMs: agent.optionalPositiveInteger('metricsTickMs'),
+      metricsSpoolDir: agent.optionalString('metricsSpoolDir'),
+      hostMetrics: agent.optionalBoolean('hostMetrics'),
+      maxHistogramBuckets: agent.optionalPositiveInteger('maxHistogramBuckets'),
     },
   };
 
-  for (const section of [internal, publicSection, scheduler, cli, agent, root]) {
+  for (const section of [internal, publicSection, scheduler, metrics, cli, agent, root]) {
     section.reportUnknownKeys();
   }
   return config;

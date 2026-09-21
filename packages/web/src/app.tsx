@@ -11,6 +11,7 @@ import { InternalServiceError, ServiceUnreachableError } from '@mini-cloud/share
 import { AgentsPage } from '@/pages/agents-page';
 import { InstancePage } from '@/pages/instance-page';
 import { InstancesPage } from '@/pages/instances-page';
+import { MetricsPage } from '@/pages/metrics-page';
 import { NotFoundPage } from '@/pages/not-found-page';
 import { OverviewPage } from '@/pages/overview-page';
 import { PubSubPage } from '@/pages/pubsub-page';
@@ -78,6 +79,7 @@ function ConnectedApp() {
           <Route path="tasks/:taskId/edit" element={<TaskEditPage />} />
           <Route path="instances" element={<InstancesPage />} />
           <Route path="instances/:instanceId" element={<InstancePage />} />
+          <Route path="metrics" element={<MetricsPage />} />
           <Route path="agents" element={<AgentsPage />} />
           <Route path="variables" element={<VariablesPage />} />
           <Route path="pubsub" element={<PubSubPage />} />

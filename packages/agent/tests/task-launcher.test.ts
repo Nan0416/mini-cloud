@@ -5,6 +5,7 @@ import path from 'node:path';
 import { LaunchOptions, TaskLauncher } from '../src/task-launcher';
 
 const OPTIONS: LaunchOptions = {
+  metricsSpoolDir: '/tmp/mini-cloud-test-metrics',
   agentId: 'mac-mini',
   agentUrl: 'http://127.0.0.1:4200',
   offlineReportPath: '/var/lib/mini-cloud/offline.jsonl',

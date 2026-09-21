@@ -25,6 +25,7 @@ export const urls = {
   instance: (instanceId: string): string => `/instances/${encodeURIComponent(instanceId)}`,
 
   agents: (): string => '/agents',
+  metrics: (): string => '/metrics',
   variables: (): string => '/variables',
   pubsub: (): string => '/pubsub',
 };

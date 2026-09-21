@@ -13,11 +13,15 @@ import {
   agentTopic,
   substituteLaunchFields,
 } from '@mini-cloud/shared';
+import { randomUUID } from 'node:crypto';
 import { mkdir } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
-import { AgentConfig, offlineReportPath, stderrDir, stdoutDir } from './agent-config';
+import { AgentConfig, metricsOffsetsPath, metricsPendingDir, offlineReportPath, stderrDir, stdoutDir } from './agent-config';
 import { HealthMonitor, healthCheckPeriodMs } from './health/health-monitor';
+import { HostMetrics } from './metrics/host-metrics';
+import { MetricsCollector } from './metrics/metrics-collector';
+import { SpoolReader } from './metrics/spool-reader';
 import { OfflineReportReplayer } from './offline-report-replayer';
 import { ReporterServer } from './reporter-endpoints';
 import { TaskLauncher } from './task-launcher';
@@ -40,6 +44,7 @@ export class MiniCloudAgent {
   private readonly reporterServer: ReporterServer;
   private readonly replayer: OfflineReportReplayer;
   private readonly commandQueue: AsyncQueue<AgentCommand>;
+  private readonly metricsCollector: MetricsCollector;
 
   /** Health checks for instances that have launched but not yet reported a pid. */
   private readonly pendingHealthChecks = new Map<string, HealthCheck>();
@@ -47,6 +52,7 @@ export class MiniCloudAgent {
   private agentUrl = '';
   private heartbeatTimer?: NodeJS.Timeout;
   private healthTimer?: NodeJS.Timeout;
+  private metricsTimer?: NodeJS.Timeout;
   private stopping = false;
   private onShutdownRequest?: () => void;
 
@@ -67,6 +73,16 @@ export class MiniCloudAgent {
       onHealthCheck: async (instanceId) => this.healthMonitor.recordHeartbeat(instanceId),
     });
     this.replayer = new OfflineReportReplayer(offlineReportPath(config));
+
+    this.metricsCollector = new MetricsCollector({
+      agentId: config.agentId,
+      reader: new SpoolReader({ spoolDir: config.metricsSpoolDir, offsetsPath: metricsOffsetsPath(config) }),
+      publisher: this.client,
+      pendingDir: metricsPendingDir(config),
+      maxHistogramBuckets: config.maxHistogramBuckets,
+      hostMetrics: config.hostMetrics ? new HostMetrics({ agentId: config.agentId, workDir: config.workDir }) : undefined,
+      newBatchId: () => randomUUID(),
+    });
 
     // Commands are applied one at a time and in order: a terminate that overtook its
     // own launch would try to signal a pid that did not exist yet.
@@ -121,6 +137,7 @@ export class MiniCloudAgent {
 
     this.heartbeatTimer = setInterval(() => void this.sendHeartbeat(), config.heartbeatIntervalMs);
     this.healthTimer = setInterval(() => void this.runHealthChecks(), config.healthCheckTickMs);
+    this.metricsTimer = setInterval(() => void this.collectMetrics(), config.metricsTickMs);
 
     logger.info(`Agent ${config.agentId} is ready.`);
   }
@@ -132,7 +149,7 @@ export class MiniCloudAgent {
     this.stopping = true;
     logger.info('Stopping agent.');
 
-    for (const timer of [this.heartbeatTimer, this.healthTimer]) {
+    for (const timer of [this.heartbeatTimer, this.healthTimer, this.metricsTimer]) {
       if (timer !== undefined) {
         clearInterval(timer);
       }
@@ -142,6 +159,17 @@ export class MiniCloudAgent {
     await this.subscriber.close();
     await this.reporterServer.stop();
     logger.info('Agent stopped. Tasks it launched keep running.');
+  }
+
+  /**
+   * Drains the metrics spool and reports what it finds.
+   *
+   * Through `safely` like every other periodic report: the service being unreachable
+   * costs a tick's delivery, which the next tick retries from the pending batch, and
+   * must never take the agent down.
+   */
+  private async collectMetrics(): Promise<void> {
+    await this.safely('collect metrics', () => this.metricsCollector.collect());
   }
 
   // ---- commands from the service ----
@@ -195,6 +223,7 @@ export class MiniCloudAgent {
         agentId: this.config.agentId,
         agentUrl: this.agentUrl,
         offlineReportPath: offlineReportPath(this.config),
+        metricsSpoolDir: this.config.metricsSpoolDir,
         healthCheckPeriodMs: resolved.healthCheck?.type === 'passive' ? healthCheckPeriodMs(resolved.healthCheck) : undefined,
       });
 

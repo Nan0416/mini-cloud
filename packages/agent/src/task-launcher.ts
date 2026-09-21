@@ -20,6 +20,8 @@ export interface LaunchOptions {
   readonly agentId: string;
   readonly agentUrl: string;
   readonly offlineReportPath: string;
+  /** Where the task's metrics logger spools EMF documents for this agent to collect. */
+  readonly metricsSpoolDir: string;
   /** Set when the task has a passive health check, so the reporter knows the cadence. */
   readonly healthCheckPeriodMs?: number;
 }
@@ -59,6 +61,7 @@ export class TaskLauncher {
     env[REPORTER_ENV.agentId] = options.agentId;
     env[REPORTER_ENV.agentUrl] = options.agentUrl;
     env[REPORTER_ENV.offlineReportPath] = options.offlineReportPath;
+    env[REPORTER_ENV.metricsSpoolDir] = options.metricsSpoolDir;
     if (options.healthCheckPeriodMs !== undefined) {
       env[REPORTER_ENV.healthCheckPeriodMs] = String(options.healthCheckPeriodMs);
     }

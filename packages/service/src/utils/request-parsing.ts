@@ -2,6 +2,7 @@ import {
   AGENT_REPORTED_STATUSES,
   BroadcastRequest,
   CreateTaskRequest,
+  GetMetricDataRequest,
   EXTERNAL_TASK_EVENT_SOURCES,
   HealthCheck,
   HeartbeatRequest,
@@ -9,7 +10,16 @@ import {
   LaunchTaskRequest,
   ListAgentInstancesRequest,
   ListHealthChecksRequest,
+  ListMetricDimensionsRequest,
+  ListMetricNamesRequest,
+  ListMetricNamespacesRequest,
   ListTaskInstancesRequest,
+  METRIC_PAGE_SIZE,
+  METRIC_STATISTICS,
+  METRIC_UNITS,
+  MetricDatum,
+  MetricDimensions,
+  PutMetricDataRequest,
   ReportInstancePidRequest,
   ReportInstanceStatusRequest,
   ReportTaskEventRequest,
@@ -26,6 +36,7 @@ import {
   assertDefined,
   assertInteger,
   assertNonEmptyString,
+  assertNumber,
   assertOneOf,
   assertOptionalInteger,
   assertOptionalString,
@@ -302,3 +313,116 @@ export function requireStringField(body: unknown, field: string): string {
 }
 
 export { assertString };
+
+// ---------------------------------------------------------------------------
+// Metrics
+// ---------------------------------------------------------------------------
+
+function parseMetricDatum(value: unknown, index: number): MetricDatum {
+  const record = assertRecord(value, `data[${index}]`);
+  const histogram = assertRecord(record['histogram'] ?? {}, `data[${index}].histogram`);
+  const counts: Record<string, number> = {};
+  for (const [bucket, count] of Object.entries(histogram)) {
+    // Keys are stringified numbers; a key that is not one would silently become a
+    // bucket nothing could ever read back.
+    if (!Number.isFinite(Number(bucket))) {
+      throw new InvalidRequestError(`data[${index}].histogram has a non-numeric key "${bucket}"`);
+    }
+    counts[bucket] = assertInteger(count, `data[${index}].histogram.${bucket}`);
+  }
+
+  return {
+    namespace: assertNonEmptyString(record['namespace'], `data[${index}].namespace`),
+    metricName: assertNonEmptyString(record['metricName'], `data[${index}].metricName`),
+    dimensions: assertStringMap(record['dimensions'] ?? {}, `data[${index}].dimensions`),
+    unit: assertOneOf(record['unit'], `data[${index}].unit`, METRIC_UNITS),
+    bucketStart: assertInteger(record['bucketStart'], `data[${index}].bucketStart`),
+    sampleCount: assertInteger(record['sampleCount'], `data[${index}].sampleCount`),
+    sum: assertNumber(record['sum'], `data[${index}].sum`),
+    min: assertNumber(record['min'], `data[${index}].min`),
+    max: assertNumber(record['max'], `data[${index}].max`),
+    histogram: counts,
+  };
+}
+
+export function parsePutMetricDataRequest(body: unknown): PutMetricDataRequest {
+  const record = assertRecord(body, 'body');
+  return {
+    agentId: assertNonEmptyString(record['agentId'], 'agentId'),
+    // Without an id a retry cannot be told from new data, and the merge is additive.
+    batchId: assertNonEmptyString(record['batchId'], 'batchId'),
+    data: assertArray(record['data'], 'data').map((entry, index) => parseMetricDatum(entry, index)),
+  };
+}
+
+/** Shared by both listings: a positive limit no larger than the cap, and a cursor. */
+function parseMetricPaging(record: Record<string, unknown>): { limit?: number; after?: string } {
+  const limit = parseOptionalIntegerParam(record['limit'], 'limit');
+  if (limit !== undefined && (limit < 1 || limit > METRIC_PAGE_SIZE.max)) {
+    throw new InvalidRequestError(`limit must be between 1 and ${METRIC_PAGE_SIZE.max}`);
+  }
+  return { limit, after: assertOptionalString(record['after'], 'after') };
+}
+
+export function parseListMetricNamespacesRequest(query: unknown): ListMetricNamespacesRequest {
+  return parseMetricPaging(assertRecord(query, 'query'));
+}
+
+export function parseListMetricNamesRequest(query: unknown): ListMetricNamesRequest {
+  const record = assertRecord(query, 'query');
+  return { namespace: assertNonEmptyString(record['namespace'], 'namespace'), ...parseMetricPaging(record) };
+}
+
+export function parseListMetricDimensionsRequest(query: unknown): ListMetricDimensionsRequest {
+  const record = assertRecord(query, 'query');
+  return {
+    namespace: assertNonEmptyString(record['namespace'], 'namespace'),
+    metricName: assertNonEmptyString(record['metricName'], 'metricName'),
+  };
+}
+
+/**
+ * Dimensions travel as repeated `dimension=Name:Value` parameters.
+ *
+ * The whole set is the series identity, so it is one parameter per dimension rather
+ * than a nested object: a query string has no good way to express the latter, and a
+ * partially parsed set would silently read a different series than the caller meant.
+ */
+function parseDimensionParams(value: unknown): MetricDimensions | undefined {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+  const entries = Array.isArray(value) ? value : [value];
+  const dimensions: Record<string, string> = {};
+  for (const [index, entry] of entries.entries()) {
+    const pair = assertNonEmptyString(entry, `dimension[${index}]`);
+    const separator = pair.indexOf(':');
+    if (separator <= 0) {
+      throw new InvalidRequestError(`dimension[${index}] must be "Name:Value", for example "Operation:Ingest"`);
+    }
+    dimensions[pair.slice(0, separator)] = pair.slice(separator + 1);
+  }
+  return dimensions;
+}
+
+export function parseGetMetricDataRequest(query: unknown): GetMetricDataRequest {
+  const record = assertRecord(query, 'query');
+  const from = parseOptionalIntegerParam(record['from'], 'from');
+  if (from === undefined) {
+    throw new InvalidRequestError('from is required, as milliseconds since the epoch');
+  }
+  const periodMs = parseOptionalIntegerParam(record['periodMs'], 'periodMs') ?? 60_000;
+  if (periodMs <= 0) {
+    throw new InvalidRequestError('periodMs must be positive');
+  }
+
+  return {
+    namespace: assertNonEmptyString(record['namespace'], 'namespace'),
+    metricName: assertNonEmptyString(record['metricName'], 'metricName'),
+    statistic: assertOneOf(record['statistic'] ?? 'avg', 'statistic', METRIC_STATISTICS),
+    periodMs,
+    from,
+    to: parseOptionalIntegerParam(record['to'], 'to'),
+    dimensions: parseDimensionParams(record['dimension']),
+  };
+}

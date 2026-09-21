@@ -1,6 +1,8 @@
 import {
   AgentStatus,
   InternalServiceError,
+  METRIC_UNITS,
+  MetricUnit,
   TASK_EVENT_LEVELS,
   TASK_EVENT_SOURCES,
   TASK_INSTANCE_STATUSES,
@@ -38,4 +40,8 @@ export function toTaskEventLevel(value: string, eventId: string): TaskEventLevel
 
 export function toAgentStatus(value: string, agentId: string): AgentStatus {
   return narrow(value, ['online', 'offline'], 'status', agentId);
+}
+
+export function toMetricUnit(value: string): MetricUnit {
+  return narrow(value, METRIC_UNITS, 'unit', value);
 }
