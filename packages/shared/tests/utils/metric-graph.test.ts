@@ -69,8 +69,8 @@ describe('parseMetricGraph', () => {
   });
 
   it('refuses two queries with one id', () => {
-    // The id is the React key, the colour and, later, an expression's name for it.
-    expect(() => parseMetricGraph(aGraph({ queries: [aQuery(), aQuery()] }))).toThrow(/"m1" is already used/);
+    // The id is the React key and, later, an expression's name for it.
+    expect(() => parseMetricGraph(aGraph({ queries: [aQuery(), aQuery({ statistic: 'max' })] }))).toThrow(/"m1" is already used/);
   });
 
   it('refuses an id an expression could not name', () => {
@@ -80,10 +80,20 @@ describe('parseMetricGraph', () => {
   });
 
   it('refuses more queries than one graph may plot', () => {
-    const queries = (length: number) => Array.from({ length }, (_, index) => aQuery({ id: `m${index}` }));
+    const queries = (length: number) => Array.from({ length }, (_, index) => aQuery({ id: `m${index}`, dimensions: { AgentId: `agent-${index}` } }));
 
     expect(parseMetricGraph(aGraph({ queries: queries(8) })).queries).toHaveLength(8);
     expect(() => parseMetricGraph(aGraph({ queries: queries(9) }))).toThrow(/more than the 8/);
+  });
+
+  it('refuses two queries in one colour, which would read as one series', () => {
+    expect(() => parseMetricGraph(aGraph({ queries: [aQuery({ color: 2 }), aQuery({ id: 'm2', statistic: 'max', color: 2 })] }))).toThrow(/color 2 is already used/);
+    expect(parseMetricGraph(aGraph({ queries: [aQuery({ color: 1 }), aQuery({ id: 'm2', statistic: 'max' })] })).queries).toHaveLength(2);
+  });
+
+  it('refuses two queries that read the same series, which would draw one line twice', () => {
+    expect(() => parseMetricGraph(aGraph({ queries: [aQuery(), aQuery({ id: 'm2', label: 'again' })] }))).toThrow(/queries\[1\] reads the same series as graph.queries\[0\]/);
+    expect(parseMetricGraph(aGraph({ queries: [aQuery(), aQuery({ id: 'm2', statistic: 'p99' })] })).queries).toHaveLength(2);
   });
 
   it('refuses a colour the console does not have', () => {

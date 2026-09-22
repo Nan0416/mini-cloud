@@ -3,8 +3,10 @@ import {
   METRIC_GRAPH_LIMITS,
   METRIC_GRAPH_VERSION,
   METRIC_MAX_DATAPOINTS,
+  seriesIdentity,
   spanOf,
   type MetricAxis,
+  type MetricDimensions,
   type MetricGraph,
   type MetricQuery,
   type MetricTimeRange,
@@ -29,33 +31,45 @@ export function nextQueryId(queries: ReadonlyArray<MetricQuery>): string {
   return `m${candidate}`;
 }
 
-/**
- * Each query's colour: its own when it has one, otherwise the first nobody holds.
- * Never cycled, because a graph has no more queries than there are colours.
- */
+/** The first colour not in `taken`. Never cycled, because a graph has no more queries than colours. */
+function firstFreeColor(taken: ReadonlySet<number>): number {
+  let candidate = 1;
+  while (taken.has(candidate) && candidate < METRIC_GRAPH_LIMITS.colors) {
+    candidate += 1;
+  }
+  return candidate;
+}
+
+/** Each query's colour: its own when it has one, otherwise the first nobody holds. */
 export function colorsOf(queries: ReadonlyArray<MetricQuery>): ReadonlyArray<number> {
   const taken = new Set(queries.flatMap((query) => (query.color === undefined ? [] : [query.color])));
   return queries.map((query) => {
     if (query.color !== undefined) {
       return query.color;
     }
-    let candidate = 1;
-    while (taken.has(candidate) && candidate < METRIC_GRAPH_LIMITS.colors) {
-      candidate += 1;
-    }
-    taken.add(candidate);
-    return candidate;
+    const color = firstFreeColor(taken);
+    taken.add(color);
+    return color;
   });
 }
 
 /** The colour a new query is given, written into it so it keeps that colour. */
 export function nextColor(queries: ReadonlyArray<MetricQuery>): number {
-  const taken = new Set(colorsOf(queries));
-  let candidate = 1;
-  while (taken.has(candidate) && candidate < METRIC_GRAPH_LIMITS.colors) {
-    candidate += 1;
+  return firstFreeColor(new Set(colorsOf(queries)));
+}
+
+/** How a dimension set reads in a picker or a row. The empty set is a series too. */
+export function describeDimensions(dimensions: MetricDimensions): string {
+  const entries = Object.entries(dimensions);
+  if (entries.length === 0) {
+    return 'No dimensions';
   }
-  return candidate;
+  return entries.map(([name, value]) => `${name}=${value}`).join(', ');
+}
+
+/** Whether `candidate` would read a series the graph already has, and draw one line twice. */
+export function isOnGraph(queries: ReadonlyArray<MetricQuery>, candidate: MetricQuery): boolean {
+  return queries.some((query) => seriesIdentity(query) === seriesIdentity(candidate));
 }
 
 /** "CpuUtilization · nas · p99": the metric, its dimension values, and the statistic. */
@@ -95,9 +109,22 @@ export function axisFor(unit: MetricUnit, units: AxisUnits): MetricAxis | undefi
   return METRIC_AXES.find((axis) => units[axis].length > 0 && axisAccepts(unit, axis, units)) ?? METRIC_AXES.find((axis) => units[axis].length === 0);
 }
 
-/** Whether `periodMs` keeps a span within what one read may return. */
+/**
+ * Why a period cannot be read over a span, or `undefined` when it can. Too fine is more
+ * datapoints than one read may return; too coarse is not one whole bucket in the range.
+ */
+export function periodProblem(spanMs: number, periodMs: number): 'too many points' | 'longer than the range' | undefined {
+  if (periodMs > spanMs) {
+    return 'longer than the range';
+  }
+  if (Math.ceil(spanMs / periodMs) > METRIC_MAX_DATAPOINTS) {
+    return 'too many points';
+  }
+  return undefined;
+}
+
 export function periodFits(spanMs: number, periodMs: number): boolean {
-  return Math.ceil(spanMs / periodMs) <= METRIC_MAX_DATAPOINTS;
+  return periodProblem(spanMs, periodMs) === undefined;
 }
 
 /**

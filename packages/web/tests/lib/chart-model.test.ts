@@ -18,7 +18,7 @@ const on = (axis: MetricAxis, unit: MetricUnit, id: string, values: ReadonlyArra
 
 describe('buildChartModel', () => {
   it('spans the window, not the data, so a series that started late is drawn late', () => {
-    // Plotting against the data's own extent stretched ten minutes across a whole day.
+    // Spanning the data instead would stretch ten minutes across a whole day's chart.
     const model = build([aSeries([undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, 5, 6])]);
 
     expect(model.buckets).toHaveLength(10);
@@ -34,7 +34,7 @@ describe('buildChartModel', () => {
   });
 
   it('breaks the line where a series reported nothing, rather than drawing across the gap', () => {
-    // An agent down for two hours used to look like a smooth line through the outage.
+    // Otherwise an agent down for two hours looks like a smooth line through the outage.
     const model = build([aSeries([1, 2, undefined, undefined, 5, 6])]);
 
     expect(model.series[0].line.match(/M/g)).toHaveLength(2);
@@ -139,6 +139,21 @@ describe('buildChartModel', () => {
     expect(Math.min(...gaps)).toBeGreaterThanOrEqual(60);
   });
 
+  it('leaves out datapoints outside the window, so they cannot stretch the axis', () => {
+    // A stand-in read over an earlier, longer window carries values from before this one.
+    const model = build([
+      aSeries([1, 2], {
+        datapoints: [
+          { timestamp: FROM - 60 * MINUTE, value: 1_000_000 },
+          { timestamp: FROM, value: 5 },
+        ],
+      }),
+    ]);
+
+    expect(model.axes[0].ticks[model.axes[0].ticks.length - 1].label).toBe('5');
+    expect(model.series[0].values[0]).toBe(5);
+  });
+
   it('has nothing to draw for an empty window, and does not fail on one', () => {
     const model = build([aSeries([])], { to: FROM });
 
@@ -175,6 +190,11 @@ describe('formatTimeTick', () => {
 });
 
 describe('formatBucket', () => {
+  it('shows a placeholder for a time no Date can hold, rather than throwing mid-render', () => {
+    expect(formatBucket(Number.NaN)).toBe('—');
+    expect(formatBucket(1e300)).toBe('—');
+  });
+
   it('gives the date and time a bucket starts', () => {
     expect(formatBucket(new Date(2026, 8, 20, 14, 5).getTime(), 'en-US')).toBe('Sep 20, 2026, 14:05');
   });

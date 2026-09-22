@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { axisAccepts, labelOf, type AxisUnits } from '@/lib/metric-graph-editor';
+import { axisAccepts, describeDimensions, labelOf, type AxisUnits } from '@/lib/metric-graph-editor';
 
 export interface QueryListProps {
   readonly queries: ReadonlyArray<MetricQuery>;
@@ -13,8 +13,9 @@ export interface QueryListProps {
   /** Each query's unit, once its data has said; `undefined` until then. */
   readonly units: ReadonlyArray<MetricUnit | undefined>;
   readonly axisUnits: AxisUnits;
-  readonly onChange: (index: number, query: MetricQuery) => void;
-  readonly onRemove: (index: number) => void;
+  /** By id, which stays put while positions shift under an edit. */
+  readonly onChange: (query: MetricQuery) => void;
+  readonly onRemove: (id: string) => void;
 }
 
 /**
@@ -43,8 +44,8 @@ export function QueryList(props: QueryListProps) {
               color={props.colors[index]}
               unit={props.units[index]}
               axisUnits={props.axisUnits}
-              onChange={(next) => props.onChange(index, next)}
-              onRemove={() => props.onRemove(index)}
+              onChange={props.onChange}
+              onRemove={() => props.onRemove(query.id)}
             />
           ))}
         </TableBody>
@@ -65,7 +66,6 @@ interface QueryRowProps {
 function QueryRow(props: QueryRowProps) {
   const { query } = props;
   const axis = query.yAxis ?? 'left';
-  const dimensions = Object.entries(query.dimensions);
   // An axis already reading another kind of unit is not offered: the series would have no scale.
   const accepts = (candidate: MetricAxis): boolean => candidate === axis || props.unit === undefined || axisAccepts(props.unit, candidate, props.axisUnits);
 
@@ -77,8 +77,7 @@ function QueryRow(props: QueryRowProps) {
       <TableCell className="min-w-56">
         <div className="font-medium">{query.metricName}</div>
         <div className="text-xs text-muted-foreground">
-          {query.namespace}
-          {dimensions.length === 0 ? ' · no dimensions' : ` · ${dimensions.map(([name, value]) => `${name}=${value}`).join(', ')}`}
+          {query.namespace} · {describeDimensions(query.dimensions)}
           {props.unit === undefined ? null : ` · ${props.unit}`}
         </div>
       </TableCell>

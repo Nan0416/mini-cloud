@@ -17,6 +17,8 @@ export interface ChartSeriesLoading {
 export interface ChartSeriesFailed {
   readonly kind: 'error';
   readonly message: string;
+  /** Asks again. Absent when asking again cannot help, as with a refused percentile. */
+  readonly retry?: () => void;
 }
 
 export interface ChartSeriesReady {
@@ -124,7 +126,9 @@ function Legend(props: { readonly series: ReadonlyArray<ChartSeriesView>; readon
 }
 
 function Failures(props: { readonly series: ReadonlyArray<ChartSeriesView> }) {
-  const failed = props.series.flatMap((series) => (series.state.kind === 'error' ? [{ id: series.id, label: series.label, message: series.state.message }] : []));
+  const failed = props.series.flatMap((series) =>
+    series.state.kind === 'error' ? [{ id: series.id, label: series.label, message: series.state.message, retry: series.state.retry }] : [],
+  );
   if (failed.length === 0) {
     return null;
   }
@@ -135,6 +139,11 @@ function Failures(props: { readonly series: ReadonlyArray<ChartSeriesView> }) {
           <AlertTriangle aria-hidden className="mt-px size-3.5 shrink-0 text-destructive" />
           <span>
             <span className="font-medium">{failure.label}</span> <span className="text-muted-foreground">{failure.message}</span>
+            {failure.retry === undefined ? null : (
+              <Button variant="link" size="sm" className="ml-1 h-auto p-0 text-xs" onClick={failure.retry}>
+                Try again
+              </Button>
+            )}
           </span>
         </li>
       ))}
@@ -235,8 +244,11 @@ const Plot = memo(function Plot({ model, series, from, to }: PlotProps) {
  * lists every series there, so the pointer never has to land on a line.
  */
 function Readout({ model, series }: { readonly model: ChartModel; readonly series: ReadonlyArray<ReadySeries> }) {
-  const [index, setIndex] = useState<number | undefined>(undefined);
+  const [hovered, setHovered] = useState<number | undefined>(undefined);
   const last = model.buckets.length - 1;
+  // A poll can return one bucket fewer than the one hovered, so the position is held
+  // within the chart rather than trusted: past the end it would name no time at all.
+  const index = hovered === undefined || last < 0 ? undefined : Math.min(hovered, last);
 
   const onKeyDown = (event: KeyboardEvent<SVGSVGElement>) => {
     const current = index ?? last;
@@ -247,12 +259,12 @@ function Readout({ model, series }: { readonly model: ChartModel; readonly serie
       End: last,
     };
     if (event.key === 'Escape') {
-      setIndex(undefined);
+      setHovered(undefined);
       return;
     }
     if (event.key in moves) {
       event.preventDefault();
-      setIndex(moves[event.key]);
+      setHovered(moves[event.key]);
     }
   };
 
@@ -268,10 +280,10 @@ function Readout({ model, series }: { readonly model: ChartModel; readonly serie
         className="absolute inset-0 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
         tabIndex={0}
         aria-label="Chart readout. Arrow keys move between times."
-        onPointerMove={(event) => setIndex(nearestBucket(model, event.clientX - event.currentTarget.getBoundingClientRect().left))}
-        onPointerLeave={() => setIndex(undefined)}
-        onFocus={() => setIndex((current) => current ?? last)}
-        onBlur={() => setIndex(undefined)}
+        onPointerMove={(event) => setHovered(nearestBucket(model, event.clientX - event.currentTarget.getBoundingClientRect().left))}
+        onPointerLeave={() => setHovered(undefined)}
+        onFocus={() => setHovered((current) => current ?? last)}
+        onBlur={() => setHovered(undefined)}
         onKeyDown={onKeyDown}
       >
         {index === undefined || x === undefined ? null : (

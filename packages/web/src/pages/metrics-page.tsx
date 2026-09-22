@@ -1,8 +1,8 @@
-import { periodOf, type GetMetricDataResponse, type MetricGraph, type MetricQuery } from '@mini-cloud/shared';
+import { METRIC_GRAPH_LIMITS, periodOf, type MetricGraph, type MetricQuery } from '@mini-cloud/shared';
 import { useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { PageHeader } from '@/components/common/page-header';
-import { EmptyState, ErrorState, LoadingRows } from '@/components/common/states';
+import { EmptyState, ErrorState, LoadingRows, isRetryable } from '@/components/common/states';
 import { AddMetricForm } from '@/components/metrics/add-metric-form';
 import { QueryList } from '@/components/metrics/query-list';
 import { TimeRangeControls } from '@/components/metrics/time-range-controls';
@@ -10,63 +10,58 @@ import { TimeSeriesChart, type ChartSeriesState, type ChartSeriesView } from '@/
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useMetricGraphParam } from '@/hooks/use-metric-graph';
-import { useMetricGraphData, useMetricNamespaces, type GraphSeries } from '@/hooks/use-metrics';
-import { EMPTY_GRAPH, axisUnitsOf, colorsOf, labelOf, withRange } from '@/lib/metric-graph-editor';
+import { useListedUnits, useMetricGraphData, useMetricNamespaces, type GraphSeries } from '@/hooks/use-metrics';
+import { frameOf, isDrawableIn, type GraphFrame } from '@/lib/metric-graph-data';
+import { EMPTY_GRAPH, axisUnitsOf, colorsOf, isOnGraph, labelOf, nextColor, nextQueryId, withRange } from '@/lib/metric-graph-editor';
 import { urls } from '@/lib/urls';
 
 const DESCRIPTION = 'Published by your programs and by the agents themselves. The graph lives in the address, so a link shows exactly what you see.';
 
-interface Frame {
-  readonly from: number;
-  readonly to: number;
-  readonly periodMs: number;
-}
-
-/**
- * The window the chart spans: every current answer's, or while all of them are still
- * loading, the stand-ins'. The two can differ in period, and one grid cannot hold both.
- */
-function frameOf(series: ReadonlyArray<GraphSeries>): Frame | undefined {
-  const answered = series.flatMap((entry) => (entry.data === undefined ? [] : [{ data: entry.data, placeholder: entry.placeholder }]));
-  const current = answered.filter((entry) => !entry.placeholder);
-  const chosen: ReadonlyArray<GetMetricDataResponse> = (current.length > 0 ? current : answered).map((entry) => entry.data);
-  if (chosen.length === 0) {
-    return undefined;
-  }
-  return {
-    from: Math.min(...chosen.map((data) => data.from)),
-    to: Math.max(...chosen.map((data) => data.to)),
-    periodMs: chosen[0].periodMs,
-  };
-}
-
-function stateOf(series: GraphSeries): ChartSeriesState {
+function stateOf(series: GraphSeries, frame: GraphFrame | undefined): ChartSeriesState {
   if (series.error !== null) {
-    return { kind: 'error', message: series.error.message };
+    return { kind: 'error', message: series.error.message, retry: isRetryable(series.error) ? series.refetch : undefined };
   }
-  if (series.data === undefined) {
+  // A stand-in read at another period would land on the wrong buckets, so it waits.
+  if (series.data === undefined || !isDrawableIn(series, frame)) {
     return { kind: 'loading' };
   }
   return { kind: 'ready', unit: series.data.unit, datapoints: series.data.datapoints };
 }
 
+/** Adds a query to the graph as it stands, unless it is already there or the graph is full. */
+function withQuery(graph: MetricGraph, query: MetricQuery): MetricGraph {
+  if (graph.queries.length >= METRIC_GRAPH_LIMITS.queries || isOnGraph(graph.queries, query)) {
+    return graph;
+  }
+  // Given afresh, since the form chose them from the graph as it last rendered.
+  return { ...graph, queries: [...graph.queries, { ...query, id: nextQueryId(graph.queries), color: nextColor(graph.queries) }] };
+}
+
 export function MetricsPage() {
-  const { graph, error, setGraph } = useMetricGraphParam();
+  const { graph, error, editGraph } = useMetricGraphParam();
   const namespaces = useMetricNamespaces();
 
   // A link that cannot be read fetches nothing: the empty graph has no series.
   const shown: MetricGraph = graph ?? EMPTY_GRAPH;
   const series = useMetricGraphData(shown);
+  const listedUnits = useListedUnits(shown.queries);
   const colors = useMemo(() => colorsOf(shown.queries), [shown.queries]);
+  const frame = useMemo(() => frameOf(series), [series]);
 
   const chartSeries = useMemo(
     (): ReadonlyArray<ChartSeriesView> =>
-      series.map((entry, index) => ({ id: entry.query.id, label: labelOf(entry.query), colorSlot: colors[index], axis: entry.query.yAxis ?? 'left', state: stateOf(entry) })),
-    [series, colors],
+      series.map((entry, index) => ({
+        id: entry.query.id,
+        label: labelOf(entry.query),
+        colorSlot: colors[index],
+        axis: entry.query.yAxis ?? 'left',
+        state: stateOf(entry, frame),
+      })),
+    [series, colors, frame],
   );
-  const frame = frameOf(series);
-  // Units as the chart groups them: only a series with data has said what its unit is.
-  const units = series.map((entry) => (entry.data !== undefined && entry.data.datapoints.length > 0 ? entry.data.unit : undefined));
+  // The unit its data reports where it has any, which is what the chart draws; the
+  // listing's before then, so a series still loading still holds its axis.
+  const units = series.map((entry, index) => (entry.data !== undefined && entry.data.datapoints.length > 0 ? entry.data.unit : listedUnits[index]));
   const axisUnits = axisUnitsOf(
     series.flatMap((entry, index) => {
       const unit = units[index];
@@ -74,8 +69,9 @@ export function MetricsPage() {
     }),
   );
 
-  const update = (next: Partial<MetricGraph>) => setGraph({ ...shown, ...next });
-  const replaceQuery = (index: number, query: MetricQuery) => update({ queries: shown.queries.map((candidate, position) => (position === index ? query : candidate)) });
+  const replaceQuery = (query: MetricQuery) =>
+    editGraph((current) => ({ ...current, queries: current.queries.map((candidate) => (candidate.id === query.id ? query : candidate)) }));
+  const removeQuery = (id: string) => editGraph((current) => ({ ...current, queries: current.queries.filter((candidate) => candidate.id !== id) }));
 
   if (namespaces.isLoading) {
     return <LoadingRows rows={6} />;
@@ -126,8 +122,8 @@ export function MetricsPage() {
           <TimeRangeControls
             range={graph.range}
             periodMs={graph.periodMs}
-            onRangeChange={(range) => setGraph(withRange(graph, range))}
-            onPeriodChange={(periodMs) => update({ periodMs })}
+            onRangeChange={(range) => editGraph((current) => withRange(current, range))}
+            onPeriodChange={(periodMs) => editGraph((current) => ({ ...current, periodMs }))}
           />
         </CardHeader>
         <CardContent className="space-y-3 pt-4">
@@ -162,16 +158,9 @@ export function MetricsPage() {
         </CardHeader>
         <CardContent className="space-y-5 pt-4">
           {graph.queries.length === 0 ? null : (
-            <QueryList
-              queries={graph.queries}
-              colors={colors}
-              units={units}
-              axisUnits={axisUnits}
-              onChange={replaceQuery}
-              onRemove={(index) => update({ queries: graph.queries.filter((_, position) => position !== index) })}
-            />
+            <QueryList queries={graph.queries} colors={colors} units={units} axisUnits={axisUnits} onChange={replaceQuery} onRemove={removeQuery} />
           )}
-          <AddMetricForm queries={graph.queries} axisUnits={axisUnits} onAdd={(query) => update({ queries: [...graph.queries, query] })} />
+          <AddMetricForm queries={graph.queries} axisUnits={axisUnits} onAdd={(query) => editGraph((current) => withQuery(current, query))} />
         </CardContent>
       </Card>
     </div>

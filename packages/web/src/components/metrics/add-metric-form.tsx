@@ -1,20 +1,11 @@
-import { METRIC_GRAPH_LIMITS, METRIC_STATISTICS, hashDimensions, type MetricDimensions, type MetricQuery, type MetricStatistic } from '@mini-cloud/shared';
+import { METRIC_GRAPH_LIMITS, METRIC_STATISTICS, hashDimensions, type MetricQuery, type MetricStatistic } from '@mini-cloud/shared';
 import { Plus } from 'lucide-react';
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useMetricDimensions, useMetricNames, useMetricNamespaces } from '@/hooks/use-metrics';
-import { axisFor, nextColor, nextQueryId, type AxisUnits } from '@/lib/metric-graph-editor';
-
-/** How a dimension set reads in a picker. The empty set is a series too. */
-function describeDimensions(dimensions: MetricDimensions): string {
-  const entries = Object.entries(dimensions);
-  if (entries.length === 0) {
-    return 'No dimensions';
-  }
-  return entries.map(([name, value]) => `${name}=${value}`).join(', ');
-}
+import { axisFor, describeDimensions, isOnGraph, nextColor, nextQueryId, type AxisUnits } from '@/lib/metric-graph-editor';
 
 export interface AddMetricFormProps {
   readonly queries: ReadonlyArray<MetricQuery>;
@@ -45,27 +36,29 @@ export function AddMetricForm(props: AddMetricFormProps) {
   const selectedSet = dimensionSets.find((set) => hashDimensions(set) === dimensionsHash) ?? dimensionSets[0];
 
   const axis = summary === undefined ? undefined : axisFor(summary.unit, props.axisUnits);
+  const candidate: MetricQuery | undefined =
+    selectedNamespace === undefined || selectedMetric === undefined || selectedSet === undefined || axis === undefined
+      ? undefined
+      : {
+          id: nextQueryId(props.queries),
+          namespace: selectedNamespace,
+          metricName: selectedMetric,
+          dimensions: selectedSet,
+          statistic,
+          color: nextColor(props.queries),
+          yAxis: axis === 'right' ? 'right' : undefined,
+        };
+
   const full = props.queries.length >= METRIC_GRAPH_LIMITS.queries;
+  const duplicate = candidate !== undefined && isOnGraph(props.queries, candidate);
   const refusal = full
     ? `A graph holds ${METRIC_GRAPH_LIMITS.queries} series, one per colour. Remove one, or start another graph.`
     : summary !== undefined && axis === undefined
       ? `This graph reads ${props.axisUnits.left.join(', ')} on the left and ${props.axisUnits.right.join(', ')} on the right, and ${summary.unit} can share neither scale. Start another graph for it.`
-      : undefined;
-
-  const add = () => {
-    if (selectedNamespace === undefined || selectedMetric === undefined || selectedSet === undefined || axis === undefined || full) {
-      return;
-    }
-    props.onAdd({
-      id: nextQueryId(props.queries),
-      namespace: selectedNamespace,
-      metricName: selectedMetric,
-      dimensions: selectedSet,
-      statistic,
-      color: nextColor(props.queries),
-      yAxis: axis === 'right' ? 'right' : undefined,
-    });
-  };
+      : duplicate
+        ? 'This series is already on the graph. Choose another statistic or dimension set.'
+        : undefined;
+  const addable = candidate !== undefined && !full && !duplicate;
 
   return (
     <div className="space-y-2">
@@ -149,7 +142,14 @@ export function AddMetricForm(props: AddMetricFormProps) {
           </Select>
         </div>
 
-        <Button onClick={add} disabled={selectedSet === undefined || axis === undefined || full}>
+        <Button
+          onClick={() => {
+            if (candidate !== undefined && addable) {
+              props.onAdd(candidate);
+            }
+          }}
+          disabled={!addable}
+        >
           <Plus />
           Add
         </Button>

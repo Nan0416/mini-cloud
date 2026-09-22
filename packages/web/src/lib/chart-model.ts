@@ -1,8 +1,9 @@
-import type { MetricAxis, MetricDatapoint, MetricUnit } from '@mini-cloud/shared';
+import { MAX_TIMESTAMP_MS, type MetricAxis, type MetricDatapoint, type MetricUnit } from '@mini-cloud/shared';
 import { bisectCenter } from 'd3-array';
 import { scaleLinear, scaleTime, type ScaleLinear } from 'd3-scale';
 import { area, line } from 'd3-shape';
 import { timeDay, timeMonth, timeYear } from 'd3-time';
+import { NA } from '@/lib/format';
 import { conversionFactor, displayUnitFor, formatTick, fractionDigitsForStep } from '@/lib/metric-units';
 
 /**
@@ -184,12 +185,25 @@ export function formatTimeTick(date: Date, locale?: string): string {
   return new Intl.DateTimeFormat(locale, { year: 'numeric' }).format(date);
 }
 
+/** Built once per locale: the table view formats a row's time for every bucket. */
+const bucketFormats = new Map<string, Intl.DateTimeFormat>();
+
 /**
  * When a bucket starts, always with the time: daily buckets start at midnight UTC,
  * which is the evening before west of Greenwich, so a bare date would name the wrong day.
  */
 export function formatBucket(timestamp: number, locale?: string): string {
-  return new Intl.DateTimeFormat(locale, { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(timestamp));
+  // `Intl` throws on an invalid date, and a throw while rendering takes the page down.
+  if (!Number.isFinite(timestamp) || Math.abs(timestamp) > MAX_TIMESTAMP_MS) {
+    return NA;
+  }
+  const key = locale ?? '';
+  let format = bucketFormats.get(key);
+  if (format === undefined) {
+    format = new Intl.DateTimeFormat(locale, { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false });
+    bucketFormats.set(key, format);
+  }
+  return format.format(new Date(timestamp));
 }
 
 export function buildChartModel(input: ChartModelInput): ChartModel {
@@ -200,7 +214,14 @@ export function buildChartModel(input: ChartModelInput): ChartModel {
   const count = Math.max(0, Math.round((input.to - input.from) / periodMs));
   const buckets = Array.from({ length: count }, (_, index) => input.from + index * periodMs);
 
-  const onSide = (side: MetricAxis) => input.series.filter((candidate) => candidate.axis === side);
+  // Only what falls inside the window. A stand-in read over an earlier window would
+  // otherwise stretch the axis to fit values the chart has nowhere to place.
+  const shown = input.series.map((candidate) => ({
+    ...candidate,
+    datapoints: candidate.datapoints.filter((point) => point.timestamp >= input.from && point.timestamp < input.to),
+  }));
+
+  const onSide = (side: MetricAxis) => shown.filter((candidate) => candidate.axis === side);
   // A left axis even with nothing on it, so an empty chart still has a frame.
   const left = onSide('left').length > 0 || onSide('right').length === 0 ? buildAxis('left', onSide('left'), plotTop, plotBottom, locale) : undefined;
   const right = onSide('right').length > 0 ? buildAxis('right', onSide('right'), plotTop, plotBottom, locale) : undefined;
@@ -236,9 +257,9 @@ export function buildChartModel(input: ChartModelInput): ChartModel {
   }
 
   const axes = [left, right].filter((axis): axis is AxisScale => axis !== undefined);
-  const lone = input.series.length === 1;
+  const lone = shown.length === 1;
 
-  const series = input.series.map((candidate): SeriesModel => {
+  const series = shown.map((candidate): SeriesModel => {
     const axis = candidate.axis === 'right' && right !== undefined ? right : (left ?? right);
     const factor = axis?.factors.get(candidate.id) ?? 1;
 

@@ -1,4 +1,5 @@
 import { InvalidRequestError } from '../errors';
+import { MAX_TIMESTAMP_MS } from '../models/common';
 import { METRIC_STATISTICS } from '../models/metric';
 import { METRIC_AXES, METRIC_GRAPH_LIMITS, METRIC_GRAPH_VERSION, METRIC_TIME_RANGE_KINDS, MetricGraph, MetricQuery, MetricTimeRange } from '../models/metric-graph';
 import {
@@ -12,12 +13,10 @@ import {
   assertRecord,
   assertStringMap,
 } from './assertions';
+import { hashDimensions } from './dimensions';
 
 const MINUTE_MS = 60_000;
 const DAY_MS = 86_400_000;
-
-/** The furthest `new Date(...)` reaches. Past it, `toISOString()` throws a bare `RangeError`. */
-const MAX_DATE_MS = 8_640_000_000_000_000;
 
 /** CloudWatch's rule for a query `Id`: something an expression can name. */
 const QUERY_ID = /^[a-z][a-zA-Z0-9_]*$/;
@@ -41,8 +40,8 @@ function assertKnownKeys(record: Record<string, unknown>, field: string, known: 
 
 function assertMilliseconds(value: unknown, field: string): number {
   const ms = assertInteger(value, field);
-  if (Math.abs(ms) > MAX_DATE_MS) {
-    throw new InvalidRequestError(`${field} must be between -${MAX_DATE_MS} and ${MAX_DATE_MS} milliseconds`);
+  if (Math.abs(ms) > MAX_TIMESTAMP_MS) {
+    throw new InvalidRequestError(`${field} must be between -${MAX_TIMESTAMP_MS} and ${MAX_TIMESTAMP_MS} milliseconds`);
   }
   return ms;
 }
@@ -114,6 +113,14 @@ function parsePeriod(value: unknown, field: string): number | undefined {
 }
 
 /**
+ * What a query reads, apart from how it is drawn: two queries with the same identity are
+ * the same request and would plot the same line twice.
+ */
+export function seriesIdentity(query: MetricQuery): string {
+  return JSON.stringify([query.namespace, query.metricName, hashDimensions(query.dimensions), query.statistic]);
+}
+
+/**
  * Checks a graph that arrived from anywhere — a link, a file, a request body — and
  * returns it with nothing but the fields the format defines.
  *
@@ -135,12 +142,26 @@ export function parseMetricGraph(value: unknown): MetricGraph {
   }
 
   const ids = new Set<string>();
+  const colors = new Set<number>();
+  const series = new Map<string, number>();
   const queries = entries.map((entry, index) => {
     const query = parseQuery(entry, `graph.queries[${index}]`);
     if (ids.has(query.id)) {
       throw new InvalidRequestError(`graph.queries[${index}].id "${query.id}" is already used by an earlier query; each needs its own`);
     }
     ids.add(query.id);
+    // Two lines in one colour read as one series.
+    if (query.color !== undefined && colors.has(query.color)) {
+      throw new InvalidRequestError(`graph.queries[${index}].color ${query.color} is already used by an earlier query; each needs its own, or leave it out to be given a free one`);
+    }
+    if (query.color !== undefined) {
+      colors.add(query.color);
+    }
+    const earlier = series.get(seriesIdentity(query));
+    if (earlier !== undefined) {
+      throw new InvalidRequestError(`graph.queries[${index}] reads the same series as graph.queries[${earlier}]; change its statistic or dimensions, or remove it`);
+    }
+    series.set(seriesIdentity(query), index);
     return query;
   });
 

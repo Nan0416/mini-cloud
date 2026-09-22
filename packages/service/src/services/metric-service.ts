@@ -9,6 +9,7 @@ import {
   ListMetricNamespacesRequest,
   ListMetricNamespacesResponse,
   LoggerFactory,
+  MAX_TIMESTAMP_MS,
   METRIC_MAX_DATAPOINTS,
   METRIC_RESOLUTIONS,
   METRIC_RESOLUTION_MS,
@@ -31,12 +32,6 @@ const logger = LoggerFactory.getLogger('MetricService');
 const MAX_FUTURE_MS = 2 * 3600_000;
 
 const DAY_MS = 86_400_000;
-
-/**
- * What `new Date(...).toISOString()` can represent. Beyond it that call throws a bare
- * `RangeError`, which would surface as a 500 for what is plainly a bad request.
- */
-const MAX_TIMESTAMP_MS = 8_640_000_000_000_000;
 
 function assertQueryable(timestamp: number, field: string): void {
   if (!Number.isFinite(timestamp) || Math.abs(timestamp) > MAX_TIMESTAMP_MS) {

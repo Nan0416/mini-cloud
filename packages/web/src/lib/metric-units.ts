@@ -137,15 +137,26 @@ function withoutNegativeZero(value: number, fractionDigits: number): number {
   return Number(value.toFixed(fractionDigits)) === 0 ? 0 : value;
 }
 
+/** Built once per set of options: a table of a day by the minute would otherwise build thousands. */
+const numberFormats = new Map<string, Intl.NumberFormat>();
+
+function numberFormat(locale: string | undefined, minimumFractionDigits: number, maximumFractionDigits: number): Intl.NumberFormat {
+  const key = `${locale ?? ''}|${minimumFractionDigits}|${maximumFractionDigits}`;
+  let format = numberFormats.get(key);
+  if (format === undefined) {
+    format = new Intl.NumberFormat(locale, { minimumFractionDigits, maximumFractionDigits });
+    numberFormats.set(key, format);
+  }
+  return format;
+}
+
 function withSymbol(number: string, display: DisplayUnit): string {
   return display.symbol === '' ? number : `${number}${display.separator}${display.symbol}`;
 }
 
 /** An axis label: every tick on an axis gets the same unit and the same decimal places. */
 export function formatTick(value: number, display: DisplayUnit, fractionDigits: number, locale?: string): string {
-  const number = new Intl.NumberFormat(locale, { minimumFractionDigits: fractionDigits, maximumFractionDigits: fractionDigits }).format(
-    withoutNegativeZero(value / display.divisor, fractionDigits),
-  );
+  const number = numberFormat(locale, fractionDigits, fractionDigits).format(withoutNegativeZero(value / display.divisor, fractionDigits));
   return withSymbol(number, display);
 }
 
@@ -154,6 +165,6 @@ export function formatMetricValue(value: number, unit: MetricUnit, locale?: stri
   const display = displayUnitFor(unit, value);
   const scaled = value / display.divisor;
   const fractionDigits = Math.abs(scaled) >= 100 ? 0 : Math.abs(scaled) >= 10 ? 1 : 2;
-  const number = new Intl.NumberFormat(locale, { maximumFractionDigits: fractionDigits }).format(withoutNegativeZero(scaled, fractionDigits));
+  const number = numberFormat(locale, 0, fractionDigits).format(withoutNegativeZero(scaled, fractionDigits));
   return withSymbol(number, display);
 }

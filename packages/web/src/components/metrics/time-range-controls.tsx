@@ -6,7 +6,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { formatBucket } from '@/lib/chart-model';
 import { formatDuration, localDateTimeToTimestamp, timestampToLocalDateTime } from '@/lib/format';
-import { periodFits } from '@/lib/metric-graph-editor';
+import { periodProblem } from '@/lib/metric-graph-editor';
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
@@ -45,6 +45,8 @@ export function TimeRangeControls(props: TimeRangeControlsProps) {
   const [custom, setCustom] = useState<TimeWindow | undefined>(undefined);
   const { range } = props;
   const span = spanOf(range);
+  // A link's period need not be one of the offered ones, and a picker without it shows blank.
+  const periods = props.periodMs === undefined || PERIODS.includes(props.periodMs) ? PERIODS : [...PERIODS, props.periodMs].sort((left, right) => left - right);
 
   const openCustom = () => {
     if (range.kind === 'absolute') {
@@ -97,13 +99,13 @@ export function TimeRangeControls(props: TimeRangeControlsProps) {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={AUTO}>Auto ({formatDuration(autoPeriodFor(span), 1)})</SelectItem>
-              {PERIODS.map((periodMs) => {
-                const fits = periodFits(span, periodMs);
+              <SelectItem value={AUTO}>Auto ({formatDuration(autoPeriodFor(span))})</SelectItem>
+              {periods.map((periodMs) => {
+                const problem = periodProblem(span, periodMs);
                 return (
-                  <SelectItem key={periodMs} value={String(periodMs)} disabled={!fits}>
-                    {formatDuration(periodMs, 1)}
-                    {fits ? '' : ' (too many points)'}
+                  <SelectItem key={periodMs} value={String(periodMs)} disabled={problem !== undefined}>
+                    {formatDuration(periodMs)}
+                    {problem === undefined ? '' : ` (${problem})`}
                   </SelectItem>
                 );
               })}

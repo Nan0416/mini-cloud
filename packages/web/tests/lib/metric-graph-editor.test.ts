@@ -1,5 +1,18 @@
 import type { MetricQuery } from '@mini-cloud/shared';
-import { EMPTY_GRAPH, axisFor, axisUnitsOf, colorsOf, labelOf, nextColor, nextQueryId, periodFits, withRange } from '@/lib/metric-graph-editor';
+import {
+  EMPTY_GRAPH,
+  axisFor,
+  axisUnitsOf,
+  colorsOf,
+  describeDimensions,
+  isOnGraph,
+  labelOf,
+  nextColor,
+  nextQueryId,
+  periodFits,
+  periodProblem,
+  withRange,
+} from '@/lib/metric-graph-editor';
 
 const HOUR = 3_600_000;
 const DAY = 86_400_000;
@@ -100,11 +113,37 @@ describe('withRange', () => {
 
     expect(withRange(graph, { kind: 'relative', durationMs: 28 * DAY }).periodMs).toBeUndefined();
   });
+
+  it('drops a chosen period longer than the new range, which would read nothing', () => {
+    expect(withRange({ ...EMPTY_GRAPH, periodMs: DAY }, { kind: 'relative', durationMs: HOUR }).periodMs).toBeUndefined();
+  });
 });
 
-describe('periodFits', () => {
+describe('periodProblem', () => {
   it('allows exactly as many datapoints as one read may return', () => {
     expect(periodFits(DAY, 60_000)).toBe(true);
-    expect(periodFits(DAY + 60_000, 60_000)).toBe(false);
+    expect(periodProblem(DAY + 60_000, 60_000)).toBe('too many points');
+  });
+
+  it('refuses a period longer than the range, which holds no whole bucket', () => {
+    expect(periodProblem(HOUR, DAY)).toBe('longer than the range');
+    expect(periodFits(DAY, DAY)).toBe(true);
+  });
+});
+
+describe('isOnGraph', () => {
+  it('knows a series the graph already reads, whatever it is called or wherever it is drawn', () => {
+    const queries = [aQuery()];
+
+    expect(isOnGraph(queries, aQuery({ id: 'm2', label: 'again', yAxis: 'right' }))).toBe(true);
+    expect(isOnGraph(queries, aQuery({ id: 'm2', statistic: 'p99' }))).toBe(false);
+    expect(isOnGraph(queries, aQuery({ id: 'm2', dimensions: { AgentId: 'pi' } }))).toBe(false);
+  });
+});
+
+describe('describeDimensions', () => {
+  it('names each dimension, and says so when there are none', () => {
+    expect(describeDimensions({ AgentId: 'nas', Disk: '/' })).toBe('AgentId=nas, Disk=/');
+    expect(describeDimensions({})).toBe('No dimensions');
   });
 });

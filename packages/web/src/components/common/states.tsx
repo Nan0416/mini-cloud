@@ -73,6 +73,11 @@ function explain(error: unknown): Explanation {
   return { title: 'Could not load this', detail, retryable: false };
 }
 
+/** Whether asking again could plausibly succeed, which is what earns a retry button. */
+export function isRetryable(error: unknown): boolean {
+  return explain(error).retryable;
+}
+
 export function ErrorState(props: { readonly error: unknown; readonly onRetry?: () => void; readonly className?: string }) {
   const { title, detail, retryable } = explain(props.error);
 
