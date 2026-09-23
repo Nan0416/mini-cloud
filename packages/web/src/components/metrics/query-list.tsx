@@ -104,7 +104,8 @@ function QueryRow(props: QueryRowProps) {
         </Select>
       </TableCell>
       <TableCell>
-        <LabelInput query={query} onCommit={(label) => props.onChange({ label })} />
+        {/* Keyed on the saved label, so Back, Forward and a shared link all reseed it. */}
+        <LabelInput key={query.label ?? ''} query={query} onCommit={(label) => props.onChange({ label })} />
       </TableCell>
       <TableCell>
         <Select value={axis} onValueChange={(value) => props.onChange({ yAxis: value === 'right' ? 'right' : undefined })}>
@@ -131,12 +132,12 @@ function QueryRow(props: QueryRowProps) {
 }
 
 /**
- * Held locally and written to the link on blur or Enter. Written a keystroke at a time,
- * each one would be a navigation, and a navigation runs as a transition that can land
- * after the next keystroke and put back what was just typed.
+ * Held locally and written to the link when the field is left. Written a keystroke at a
+ * time, each one would be a navigation, and a navigation runs as a transition that can
+ * land after the next keystroke and put back what was just typed.
  *
- * Seeded again when it is focused rather than remounted when it saves: remounting on
- * save takes the focus away mid-edit and loses anything typed since.
+ * Enter leaves the field rather than saving under the cursor, so the remount that the
+ * new label brings with it cannot take the focus away mid-edit.
  */
 function LabelInput(props: { readonly query: MetricQuery; readonly onCommit: (label: string | undefined) => void }) {
   const [value, setValue] = useState(props.query.label ?? '');
@@ -154,11 +155,10 @@ function LabelInput(props: { readonly query: MetricQuery; readonly onCommit: (la
       placeholder={labelOf({ ...props.query, label: undefined })}
       aria-label={`Label for ${labelOf(props.query)}`}
       onChange={(event) => setValue(event.target.value)}
-      onFocus={() => setValue(props.query.label ?? '')}
       onBlur={commit}
       onKeyDown={(event) => {
         if (event.key === 'Enter') {
-          commit();
+          event.currentTarget.blur();
         }
       }}
     />

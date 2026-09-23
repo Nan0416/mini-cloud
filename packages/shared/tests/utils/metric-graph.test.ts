@@ -118,11 +118,15 @@ describe('parseMetricGraph', () => {
 
   it('refuses a time no Date can hold, because formatting it would throw', () => {
     expect(() => parseMetricGraph(aGraph({ range: { kind: 'absolute', from: 0, to: 1e300 } }))).toThrow(/graph.range.to must be a time in milliseconds/);
-    expect(() => parseMetricGraph(aGraph({ range: { kind: 'relative', durationMs: 1e300 } }))).toThrow(/durationMs must be a time in milliseconds/);
+    expect(() => parseMetricGraph(aGraph({ range: { kind: 'relative', durationMs: 1e300 } }))).toThrow(/durationMs must be a span in milliseconds/);
   });
 
-  it('refuses a relative range that is not a positive span', () => {
-    expect(() => parseMetricGraph(aGraph({ range: { kind: 'relative', durationMs: 0 } }))).toThrow(/durationMs must be positive/);
+  it('refuses a relative range that is not a span worth asking for', () => {
+    // A span, not an instant: neither a negative one nor one of several millennia.
+    expect(() => parseMetricGraph(aGraph({ range: { kind: 'relative', durationMs: 0 } }))).toThrow(/must be a span in milliseconds, between 1 and/);
+    expect(() => parseMetricGraph(aGraph({ range: { kind: 'relative', durationMs: -HOUR } }))).toThrow(/must be a span in milliseconds/);
+    expect(() => parseMetricGraph(aGraph({ range: { kind: 'relative', durationMs: 100 * 365 * DAY } }))).toThrow(/must be a span in milliseconds/);
+    expect(parseMetricGraph(aGraph({ range: { kind: 'relative', durationMs: 365 * DAY } })).range).toEqual({ kind: 'relative', durationMs: 365 * DAY });
   });
 
   it('refuses a period that is not a whole number of minutes, as the service would', () => {

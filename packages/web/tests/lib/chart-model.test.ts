@@ -82,7 +82,8 @@ describe('buildChartModel', () => {
     const model = build([on('left', 'Percent', 'm1', [50]), on('left', 'Bytes', 'm2', [GB])]);
 
     expect(model.axes[0].units).toEqual(['Percent', 'Bytes']);
-    expect(model.axes[0].ticks.some((tick) => tick.label.includes('%') || tick.label.includes('B'))).toBe(false);
+    // Bare numbers, not a ladder of K and G that would read as the sizes being warned about.
+    expect(model.axes[0].ticks.every((tick) => /^[\d,]+$/.test(tick.label))).toBe(true);
   });
 
   it('scales a series on the right against the right axis alone', () => {

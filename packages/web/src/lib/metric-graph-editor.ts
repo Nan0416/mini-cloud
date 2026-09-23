@@ -31,13 +31,14 @@ export function nextQueryId(queries: ReadonlyArray<MetricQuery>): string {
   return `m${candidate}`;
 }
 
-/** The first colour not in `taken`. Never cycled, because a graph has no more queries than colours. */
-function firstFreeColor(taken: ReadonlySet<number>): number {
-  let candidate = 1;
-  while (taken.has(candidate) && candidate < METRIC_GRAPH_LIMITS.colors) {
-    candidate += 1;
+/** The first colour nobody holds, or `undefined` when all of them are taken. Never cycled. */
+function firstFreeColor(taken: ReadonlySet<number>): number | undefined {
+  for (let candidate = 1; candidate <= METRIC_GRAPH_LIMITS.colors; candidate += 1) {
+    if (!taken.has(candidate)) {
+      return candidate;
+    }
   }
-  return candidate;
+  return undefined;
 }
 
 /** Each query's colour: its own when it has one, otherwise the first nobody holds. */
@@ -47,14 +48,16 @@ export function colorsOf(queries: ReadonlyArray<MetricQuery>): ReadonlyArray<num
     if (query.color !== undefined) {
       return query.color;
     }
-    const color = firstFreeColor(taken);
+    // A graph with no colour left is one the validator refuses, so it can only be a
+    // graph being built: the last colour draws it rather than nothing drawing it.
+    const color = firstFreeColor(taken) ?? METRIC_GRAPH_LIMITS.colors;
     taken.add(color);
     return color;
   });
 }
 
 /** The colour a new query is given, written into it so it keeps that colour. */
-export function nextColor(queries: ReadonlyArray<MetricQuery>): number {
+export function nextColor(queries: ReadonlyArray<MetricQuery>): number | undefined {
   return firstFreeColor(new Set(colorsOf(queries)));
 }
 

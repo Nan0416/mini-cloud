@@ -82,6 +82,13 @@ describe('nextGraphParam', () => {
     expect(nextGraphParam(twoStatistics, (graph) => ({ ...graph, queries: [graph.queries[0]] }))).toBeDefined();
   });
 
+  it('leaves a link it cannot read alone, rather than throwing out of the click that edited it', () => {
+    // Back to a truncated link, or a second tab's history entry, reaches an edit before
+    // the page has re-rendered around it. The page's error card cannot catch a throw there.
+    expect(nextGraphParam('not base64!', (graph) => ({ ...graph, periodMs: 60_000 }))).toBeUndefined();
+    expect(nextGraphParam(toBase64Url('{"version":'), (graph) => graph)).toBeUndefined();
+  });
+
   it('leaves the link alone when an edit changes nothing, so Back is never a no-op', () => {
     expect(nextGraphParam(link, (graph) => graph)).toBeUndefined();
     expect(nextGraphParam(link, (graph) => ({ ...graph, queries: [...graph.queries] }))).toBeUndefined();

@@ -45,8 +45,17 @@ describe('shouldPoll', () => {
     expect(shouldPoll(range, 5 * MINUTE, answer(NOW - HOUR, NOW, 5 * MINUTE), null)).toBe(false);
   });
 
-  it('leaves a failed read of a filled window to be retried by hand', () => {
-    expect(shouldPoll({ kind: 'absolute', from: NOW - HOUR, to: NOW }, MINUTE, undefined, null)).toBe(false);
+  it('keeps polling an absolute window nothing has answered yet', () => {
+    expect(shouldPoll({ kind: 'absolute', from: NOW - HOUR, to: NOW }, MINUTE, undefined, null)).toBe(true);
+  });
+
+  it('heals an absolute window after an outage, as it does a relative one', () => {
+    // A first read that failed on the way to the service left the series stuck on its
+    // retry button, while the same graph over a relative range healed itself.
+    const range = { kind: 'absolute' as const, from: NOW - HOUR, to: NOW };
+
+    expect(shouldPoll(range, MINUTE, undefined, new ServiceUnreachableError('could not reach it'))).toBe(true);
+    expect(shouldPoll(range, MINUTE, undefined, new InvalidRequestError('p99 is only available for the last 28 days'))).toBe(false);
   });
 });
 

@@ -121,6 +121,7 @@ export function MetricsPage() {
   }
 
   const lone = graph.queries.length === 1 ? series[0] : undefined;
+  const loneState = graph.queries.length === 1 ? chartSeries[0].state : undefined;
 
   return (
     <div className="space-y-6">
@@ -143,7 +144,8 @@ export function MetricsPage() {
               {/* One series has no legend, so the title names it. */}
               {lone === undefined ? null : (
                 <CardTitle className="text-base">
-                  {labelOf(lone.query)} {lone.data === undefined ? null : <span className="font-normal text-muted-foreground">({lone.data.unit})</span>}
+                  {labelOf(lone.query)} {/* Named only for a series the chart is drawing: a stand-in it rejected would have the heading name a unit beside a spinner. */}
+                  {loneState?.kind === 'ready' ? <span className="font-normal text-muted-foreground">({loneState.unit})</span> : null}
                 </CardTitle>
               )}
               <TimeSeriesChart

@@ -21,6 +21,9 @@ const DAY_MS = METRIC_RESOLUTION_MS['1d'];
 /** CloudWatch's rule for a query `Id`: something an expression can name. */
 const QUERY_ID = /^[a-z][a-zA-Z0-9_]*$/;
 
+/** The longest window worth asking for. Past ten years a duration says more about a typo than a range. */
+const MAX_DURATION_MS = 10 * 365 * DAY_MS;
+
 const GRAPH_KEYS = ['version', 'queries', 'range', 'periodMs'];
 const QUERY_KEYS = ['id', 'namespace', 'metricName', 'dimensions', 'statistic', 'label', 'color', 'yAxis'];
 const RELATIVE_KEYS = ['kind', 'durationMs'];
@@ -44,9 +47,9 @@ function parseTimeRange(value: unknown, field: string): MetricTimeRange {
 
   if (kind === 'relative') {
     assertKnownKeys(record, field, RELATIVE_KEYS);
-    const durationMs = assertTimestamp(record['durationMs'], `${field}.durationMs`);
-    if (durationMs <= 0) {
-      throw new InvalidRequestError(`${field}.durationMs must be positive`);
+    const durationMs = assertInteger(record['durationMs'], `${field}.durationMs`);
+    if (durationMs <= 0 || durationMs > MAX_DURATION_MS) {
+      throw new InvalidRequestError(`${field}.durationMs must be a span in milliseconds, between 1 and ${MAX_DURATION_MS} — ten years`);
     }
     return { kind, durationMs };
   }

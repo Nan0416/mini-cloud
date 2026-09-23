@@ -11,6 +11,8 @@ export type ElementWidth<T extends Element> = readonly [RefCallback<T>, number];
 export function useElementWidth<T extends Element>(): ElementWidth<T> {
   const [width, setWidth] = useState(0);
   const ref = useCallback((element: T | null) => {
+    // React 19 runs the cleanup below instead of calling this with null; the branch is
+    // here because the type allows a null, not as somewhere to put teardown.
     if (element === null) {
       return undefined;
     }

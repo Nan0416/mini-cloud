@@ -107,6 +107,9 @@ const X_TICK_SPACING = 110;
 /** The closest two time labels may sit before the second is dropped. */
 const MIN_X_TICK_GAP = 60;
 
+/** No unit, no scaling: what an axis of several units is labelled in. */
+const BARE_NUMBERS = { divisor: 1, symbol: '', separator: '' };
+
 interface AxisScale {
   readonly model: AxisModel;
   readonly scale: ScaleLinear<number, number>;
@@ -142,8 +145,10 @@ function buildAxis(side: MetricAxis, series: ReadonlyArray<ChartSeries>, plotTop
   }
 
   // Ticks are made nice in the unit they are read in, so a memory axis steps by a
-  // round number of GB rather than a round number of bytes that lands on 0.466 GB.
-  const display = displayUnitFor(unit ?? 'None', Math.max(Math.abs(low), Math.abs(high)));
+  // round number of GB rather than a round number of bytes that lands on 0.466 GB. An
+  // axis of several units has none to read in, and is labelled in bare numbers rather
+  // than in a ladder of K and G that would read as the sizes it is warning about.
+  const display = unit === undefined ? BARE_NUMBERS : displayUnitFor(unit, Math.max(Math.abs(low), Math.abs(high)));
   const count = Math.max(2, Math.round((plotBottom - plotTop) / Y_TICK_SPACING));
   const readable = scaleLinear()
     .domain([low / display.divisor, high / display.divisor])
@@ -213,6 +218,11 @@ export function formatBucket(timestamp: number, locale?: string): string {
   return dateFormat(locale, 'bucket', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(timestamp));
 }
 
+/** The datapoints a window holds; `to` is exclusive, as everywhere else. */
+export function pointsWithin(datapoints: ReadonlyArray<MetricDatapoint>, from: number, to: number): ReadonlyArray<MetricDatapoint> {
+  return datapoints.filter((point) => point.timestamp >= from && point.timestamp < to);
+}
+
 export function buildChartModel(input: ChartModelInput): ChartModel {
   const { width, height, periodMs, locale } = input;
   const plotTop = MARGIN_TOP;
@@ -225,7 +235,7 @@ export function buildChartModel(input: ChartModelInput): ChartModel {
   // otherwise stretch the axis to fit values the chart has nowhere to place.
   const shown = input.series.map((candidate) => ({
     ...candidate,
-    datapoints: candidate.datapoints.filter((point) => point.timestamp >= input.from && point.timestamp < input.to),
+    datapoints: pointsWithin(candidate.datapoints, input.from, input.to),
   }));
 
   const onSide = (side: MetricAxis) => shown.filter((candidate) => candidate.axis === side);

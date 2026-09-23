@@ -28,10 +28,12 @@ export function encodeMetricGraph(graph: MetricGraph): string {
  * rather than by each control, so no control can write a link the page cannot open.
  */
 export function nextGraphParam(encoded: string | null, edit: (graph: MetricGraph) => MetricGraph): string | undefined {
-  const base = encoded === null ? EMPTY_GRAPH : decodeMetricGraph(encoded);
   let next: string;
   try {
-    next = encodeMetricGraph(parseMetricGraph(edit(base)));
+    // The link is read inside, not outside: an edit is applied to the address as it
+    // stands, and Back to a broken link would otherwise throw out of a click handler,
+    // where the page's own error card cannot catch it.
+    next = encodeMetricGraph(parseMetricGraph(edit(encoded === null ? EMPTY_GRAPH : decodeMetricGraph(encoded))));
   } catch {
     return undefined;
   }

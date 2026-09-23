@@ -7,19 +7,21 @@ import { isRetryable } from '@/lib/errors';
 /**
  * Whether a series is worth asking for again.
  *
- * A relative window always has newer buckets. An absolute one has until the service has
- * answered up to its end, which trails now by `queryLagMs`, so a window ending now is
- * still short of its end when it ends. A read the service refused would be refused the
- * same way every minute, so only a failure that could pass next time keeps polling.
+ * A failure decides on its own: a read the service refused would be refused the same way
+ * every minute, while one that failed on the way there could pass next time, so an
+ * outage heals itself whichever kind of window is on screen. Otherwise a relative window
+ * always has newer buckets, and an absolute one has until the service has answered up to
+ * its end — which trails now by `queryLagMs`, so a window ending now is still short of
+ * its end when it ends.
  */
 export function shouldPoll(range: MetricTimeRange, periodMs: number, data: GetMetricDataResponse | undefined, error: Error | null): boolean {
-  if (error !== null && !isRetryable(error)) {
-    return false;
+  if (error !== null) {
+    return isRetryable(error);
   }
   if (range.kind === 'relative') {
     return true;
   }
-  return data !== undefined && data.to < floorToPeriod(range.to, periodMs);
+  return data === undefined || data.to < floorToPeriod(range.to, periodMs);
 }
 
 /** The window a chart is drawn over, and the width of its buckets. */

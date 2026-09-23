@@ -135,17 +135,26 @@ interface CustomRangeProps {
 
 /** Seeded once, on mount, so a poll landing mid-edit cannot overwrite what is being typed. */
 function CustomRange(props: CustomRangeProps) {
+  // Read once, when the form opens: the clock is not something to read while rendering.
+  const [openedAt] = useState(() => Date.now());
   // Whole minutes, which is what the inputs step by: a seed with seconds would fail their validation.
   const [from, setFrom] = useState(() => timestampToLocalDateTime(Math.floor(props.initial.from / MINUTE) * MINUTE));
   const [to, setTo] = useState(() => timestampToLocalDateTime(Math.floor(props.initial.to / MINUTE) * MINUTE));
 
   const fromMs = localDateTimeToTimestamp(from);
   const toMs = localDateTimeToTimestamp(to);
-  const problem = fromMs === undefined || toMs === undefined ? 'Enter both a start and an end.' : fromMs >= toMs ? 'The start must be before the end.' : undefined;
+  const problem =
+    fromMs === undefined || toMs === undefined
+      ? 'Enter both a start and an end.'
+      : fromMs >= toMs
+        ? 'The start must be before the end.'
+        : toMs > openedAt
+          ? 'The end cannot be in the future: the service answers only up to a few minutes ago, so the window would never fill.'
+          : undefined;
 
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (fromMs !== undefined && toMs !== undefined && fromMs < toMs) {
+    if (fromMs !== undefined && toMs !== undefined && fromMs < toMs && toMs <= Date.now()) {
       props.onApply({ from: fromMs, to: toMs });
     }
   };

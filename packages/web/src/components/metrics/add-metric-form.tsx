@@ -1,4 +1,4 @@
-import { METRIC_GRAPH_LIMITS, METRIC_STATISTICS, hashDimensions, type MetricQuery, type MetricStatistic } from '@mini-cloud/shared';
+import { METRIC_GRAPH_LIMITS, METRIC_STATISTICS, hashDimensions, unitForStatistic, type MetricQuery, type MetricStatistic } from '@mini-cloud/shared';
 import { Plus } from 'lucide-react';
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
@@ -35,7 +35,10 @@ export function AddMetricForm(props: AddMetricFormProps) {
   const dimensionSets = dimensions.data?.dimensionSets ?? [];
   const selectedSet = dimensionSets.find((set) => hashDimensions(set) === dimensionsHash) ?? dimensionSets[0];
 
-  const axis = summary === undefined ? undefined : axisFor(summary.unit, props.axisUnits);
+  // The unit the series will be drawn in, which for a count is a count whatever the
+  // metric measures — and so which axis it can share.
+  const unit = summary === undefined ? undefined : unitForStatistic(statistic, summary.unit);
+  const axis = unit === undefined ? undefined : axisFor(unit, props.axisUnits);
   const candidate: MetricQuery | undefined =
     selectedNamespace === undefined || selectedMetric === undefined || selectedSet === undefined || axis === undefined
       ? undefined
@@ -53,8 +56,8 @@ export function AddMetricForm(props: AddMetricFormProps) {
   const duplicate = candidate !== undefined && isOnGraph(props.queries, candidate);
   const refusal = full
     ? `A graph holds ${METRIC_GRAPH_LIMITS.queries} series, one per colour. Remove one, or start another graph.`
-    : summary !== undefined && axis === undefined
-      ? `This graph reads ${props.axisUnits.left.join(', ')} on the left and ${props.axisUnits.right.join(', ')} on the right, and ${summary.unit} can share neither scale. Start another graph for it.`
+    : unit !== undefined && axis === undefined
+      ? `This graph reads ${props.axisUnits.left.join(', ')} on the left and ${props.axisUnits.right.join(', ')} on the right, and ${unit} can share neither scale. Start another graph for it.`
       : duplicate
         ? 'This series is already on the graph. Choose another statistic or dimension set.'
         : undefined;

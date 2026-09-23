@@ -50,12 +50,14 @@ interface Explanation {
  */
 function explain(error: unknown): Explanation {
   const detail = error instanceof Error ? error.message : 'An unexpected error occurred.';
+  // One question, asked where the button is decided and where a poll decides to carry on.
+  const retryable = isRetryable(error);
 
   if (error instanceof ServiceUnreachableError) {
-    return { title: 'The service is not answering', detail, retryable: isRetryable(error) };
+    return { title: 'The service is not answering', detail, retryable };
   }
   if (error instanceof NotFoundError) {
-    return { title: 'Not found', detail, retryable: false };
+    return { title: 'Not found', detail, retryable };
   }
   if (error instanceof UnauthenticatedError) {
     return {
@@ -65,13 +67,13 @@ function explain(error: unknown): Explanation {
       // "without a token" to suggest: the public listener always requires one.
       detail:
         'The publicToken in its ~/.mini-cloud/secret.json does not match the token this console is sending. Reconnect and paste the current value, or rebuild with VITE_MINI_CLOUD_TOKEN set to it.',
-      retryable: false,
+      retryable,
     };
   }
   if (error instanceof InternalServiceError) {
-    return { title: 'The service failed', detail, retryable: isRetryable(error) };
+    return { title: 'The service failed', detail, retryable };
   }
-  return { title: 'Could not load this', detail, retryable: false };
+  return { title: 'Could not load this', detail, retryable };
 }
 
 export function ErrorState(props: { readonly error: unknown; readonly onRetry?: () => void; readonly className?: string }) {

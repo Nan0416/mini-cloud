@@ -5,7 +5,7 @@ import { Spinner } from '@/components/common/states';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useElementWidth } from '@/hooks/use-element-width';
-import { buildChartModel, formatBucket, nearestBucket, type ChartModel } from '@/lib/chart-model';
+import { buildChartModel, formatBucket, nearestBucket, pointsWithin, type ChartModel } from '@/lib/chart-model';
 import { NA } from '@/lib/format';
 import { formatMetricValue } from '@/lib/metric-units';
 import { cn } from '@/lib/utils';
@@ -85,7 +85,7 @@ export function TimeSeriesChart(props: TimeSeriesChartProps) {
                 colorSlot: series.colorSlot,
                 axis: series.axis,
                 unit: series.state.unit,
-                datapoints: series.state.datapoints.filter((point) => point.timestamp >= props.from && point.timestamp < props.to),
+                datapoints: pointsWithin(series.state.datapoints, props.from, props.to),
               },
             ]
           : [],

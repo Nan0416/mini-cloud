@@ -90,7 +90,8 @@
   --pending: oklch(0.55 0.012 265);
   --pending-foreground: oklch(0.95 0 0);
 
-  /* The same eight hues, stepped for the dark card rather than flipped. */
+  /* The same eight hues, stepped for the dark card rather than flipped. Green is the
+   * one the palette leaves where it is: that step clears 3:1 on both cards. */
   --chart-1: #3987e5;
   --chart-2: #d95926;
   --chart-3: #199e70;
