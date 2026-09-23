@@ -2,7 +2,7 @@ import type { MetricGraph } from '@mini-cloud/shared';
 import { useCallback, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { EMPTY_GRAPH } from '@/lib/metric-graph-editor';
-import { GRAPH_PARAM, decodeMetricGraph, encodeMetricGraph } from '@/lib/metric-graph-url';
+import { GRAPH_PARAM, decodeMetricGraph, nextGraphParam } from '@/lib/metric-graph-url';
 
 export interface MetricGraphParam {
   /** The link's graph, the empty one when it has none, or `undefined` when it cannot be read. */
@@ -11,7 +11,8 @@ export interface MetricGraphParam {
   readonly error: unknown;
   /**
    * Applies an edit to the graph as it stands now, not as it stood when the page last
-   * rendered. Every edit is its own history entry, so Back undoes it.
+   * rendered, and only if the result is a graph this console can read back. Every edit
+   * that changes something is its own history entry, so Back undoes it.
    */
   readonly editGraph: (edit: (graph: MetricGraph) => MetricGraph) => void;
 }
@@ -48,14 +49,11 @@ export function useMetricGraphParam(): MetricGraphParam {
       // graph, and the label would be lost. `BrowserRouter` writes the address as it
       // navigates, so it always holds the latest edit.
       const current = new URLSearchParams(window.location.search);
-      const encodedNow = current.get(GRAPH_PARAM);
-      const base = encodedNow === null ? EMPTY_GRAPH : decodeMetricGraph(encodedNow);
-      const next = edit(base);
-      // An edit with nothing to do leaves history alone, so Back is never a no-op.
-      if (next === base) {
+      const next = nextGraphParam(current.get(GRAPH_PARAM), edit);
+      if (next === undefined) {
         return;
       }
-      current.set(GRAPH_PARAM, encodeMetricGraph(next));
+      current.set(GRAPH_PARAM, next);
       setParams(current);
     },
     [setParams],

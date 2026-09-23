@@ -117,8 +117,8 @@ describe('parseMetricGraph', () => {
   });
 
   it('refuses a time no Date can hold, because formatting it would throw', () => {
-    expect(() => parseMetricGraph(aGraph({ range: { kind: 'absolute', from: 0, to: 1e300 } }))).toThrow(/graph.range.to must be between/);
-    expect(() => parseMetricGraph(aGraph({ range: { kind: 'relative', durationMs: 1e300 } }))).toThrow(/durationMs must be between/);
+    expect(() => parseMetricGraph(aGraph({ range: { kind: 'absolute', from: 0, to: 1e300 } }))).toThrow(/graph.range.to must be a time in milliseconds/);
+    expect(() => parseMetricGraph(aGraph({ range: { kind: 'relative', durationMs: 1e300 } }))).toThrow(/durationMs must be a time in milliseconds/);
   });
 
   it('refuses a relative range that is not a positive span', () => {

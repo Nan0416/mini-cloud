@@ -2,6 +2,7 @@ import { AlertTriangle, Inbox, Loader2 } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { InternalServiceError, NotFoundError, ServiceUnreachableError, UnauthenticatedError } from '@mini-cloud/shared';
 import { Button } from '@/components/ui/button';
+import { isRetryable } from '@/lib/errors';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
 
@@ -51,7 +52,7 @@ function explain(error: unknown): Explanation {
   const detail = error instanceof Error ? error.message : 'An unexpected error occurred.';
 
   if (error instanceof ServiceUnreachableError) {
-    return { title: 'The service is not answering', detail, retryable: true };
+    return { title: 'The service is not answering', detail, retryable: isRetryable(error) };
   }
   if (error instanceof NotFoundError) {
     return { title: 'Not found', detail, retryable: false };
@@ -68,14 +69,9 @@ function explain(error: unknown): Explanation {
     };
   }
   if (error instanceof InternalServiceError) {
-    return { title: 'The service failed', detail, retryable: true };
+    return { title: 'The service failed', detail, retryable: isRetryable(error) };
   }
   return { title: 'Could not load this', detail, retryable: false };
-}
-
-/** Whether asking again could plausibly succeed, which is what earns a retry button. */
-export function isRetryable(error: unknown): boolean {
-  return explain(error).retryable;
 }
 
 export function ErrorState(props: { readonly error: unknown; readonly onRetry?: () => void; readonly className?: string }) {

@@ -1,4 +1,5 @@
 import { InvalidRequestError, parseMetricGraph, type MetricGraph } from '@mini-cloud/shared';
+import { EMPTY_GRAPH } from '@/lib/metric-graph-editor';
 
 /** The query parameter the metrics page keeps its graph in. */
 export const GRAPH_PARAM = 'graph';
@@ -17,6 +18,25 @@ export function encodeMetricGraph(graph: MetricGraph): string {
     binary += String.fromCharCode(byte);
   }
   return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+/**
+ * The link's graph after an edit, or `undefined` when the link should stay as it is.
+ *
+ * An edit is applied to the graph the link holds now, and dropped when it would leave a
+ * graph this console cannot read back — two rows reading one series, say. Checked here
+ * rather than by each control, so no control can write a link the page cannot open.
+ */
+export function nextGraphParam(encoded: string | null, edit: (graph: MetricGraph) => MetricGraph): string | undefined {
+  const base = encoded === null ? EMPTY_GRAPH : decodeMetricGraph(encoded);
+  let next: string;
+  try {
+    next = encodeMetricGraph(parseMetricGraph(edit(base)));
+  } catch {
+    return undefined;
+  }
+  // An edit that changes nothing leaves history alone, so Back is never a no-op.
+  return next === encoded ? undefined : next;
 }
 
 /** Reads a graph back out of a link, refusing anything `parseMetricGraph` would. */

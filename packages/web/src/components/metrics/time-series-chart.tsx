@@ -72,14 +72,25 @@ const color = (slot: number): string => `var(--chart-${slot})`;
 export function TimeSeriesChart(props: TimeSeriesChartProps) {
   const [view, setView] = useState<'chart' | 'table'>('chart');
 
+  // Only what falls inside the window, so a stand-in read over an earlier one does not
+  // leave the table listing times the chart does not show.
   const ready = useMemo(
     () =>
       props.series.flatMap((series): ReadySeries[] =>
         series.state.kind === 'ready'
-          ? [{ id: series.id, label: series.label, colorSlot: series.colorSlot, axis: series.axis, unit: series.state.unit, datapoints: series.state.datapoints }]
+          ? [
+              {
+                id: series.id,
+                label: series.label,
+                colorSlot: series.colorSlot,
+                axis: series.axis,
+                unit: series.state.unit,
+                datapoints: series.state.datapoints.filter((point) => point.timestamp >= props.from && point.timestamp < props.to),
+              },
+            ]
           : [],
       ),
-    [props.series],
+    [props.series, props.from, props.to],
   );
   const bothAxes = props.series.some((series) => series.axis === 'left') && props.series.some((series) => series.axis === 'right');
 

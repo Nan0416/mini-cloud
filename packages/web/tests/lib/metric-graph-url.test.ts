@@ -1,5 +1,5 @@
 import type { MetricGraph } from '@mini-cloud/shared';
-import { decodeMetricGraph, encodeMetricGraph } from '@/lib/metric-graph-url';
+import { decodeMetricGraph, encodeMetricGraph, nextGraphParam } from '@/lib/metric-graph-url';
 
 const GRAPH: MetricGraph = {
   version: 1,
@@ -54,5 +54,36 @@ describe('encodeMetricGraph / decodeMetricGraph', () => {
 
   it('refuses JSON that is not a graph, with the reason the validator gives', () => {
     expect(() => decodeMetricGraph(toBase64Url(JSON.stringify({ ...GRAPH, version: 2 })))).toThrow(/graph.version must be 1/);
+  });
+});
+
+describe('nextGraphParam', () => {
+  const link = encodeMetricGraph(GRAPH);
+
+  it('applies an edit to the graph the link holds', () => {
+    const next = nextGraphParam(link, (graph) => ({ ...graph, periodMs: 60_000 }));
+
+    expect(decodeMetricGraph(next ?? '').periodMs).toBe(60_000);
+  });
+
+  it('starts a graph from nothing when the link has none', () => {
+    const next = nextGraphParam(null, (graph) => ({ ...graph, periodMs: 60_000 }));
+
+    expect(decodeMetricGraph(next ?? '').queries).toEqual([]);
+  });
+
+  it('drops an edit that would leave a graph the page could not read back', () => {
+    // One metric read two ways. Switching the second row to the first's statistic leaves
+    // two rows on one series, which the next read would refuse — and every later edit with it.
+    const twoStatistics = encodeMetricGraph({ ...GRAPH, queries: [GRAPH.queries[0], { ...GRAPH.queries[0], id: 'm2', statistic: 'p99' }] });
+    const clash = (graph: MetricGraph): MetricGraph => ({ ...graph, queries: graph.queries.map((query) => ({ ...query, statistic: 'avg' as const })) });
+
+    expect(nextGraphParam(twoStatistics, clash)).toBeUndefined();
+    expect(nextGraphParam(twoStatistics, (graph) => ({ ...graph, queries: [graph.queries[0]] }))).toBeDefined();
+  });
+
+  it('leaves the link alone when an edit changes nothing, so Back is never a no-op', () => {
+    expect(nextGraphParam(link, (graph) => graph)).toBeUndefined();
+    expect(nextGraphParam(link, (graph) => ({ ...graph, queries: [...graph.queries] }))).toBeUndefined();
   });
 });

@@ -6,6 +6,7 @@ import {
   colorsOf,
   describeDimensions,
   isOnGraph,
+  isSameMetric,
   labelOf,
   nextColor,
   nextQueryId,
@@ -128,6 +129,14 @@ describe('periodProblem', () => {
   it('refuses a period longer than the range, which holds no whole bucket', () => {
     expect(periodProblem(HOUR, DAY)).toBe('longer than the range');
     expect(periodFits(DAY, DAY)).toBe(true);
+  });
+});
+
+describe('isSameMetric', () => {
+  it('sees past the statistic, which is what tells a row which statistics are left', () => {
+    expect(isSameMetric(aQuery({ statistic: 'avg' }), aQuery({ id: 'm2', statistic: 'p99' }))).toBe(true);
+    expect(isSameMetric(aQuery(), aQuery({ id: 'm2', dimensions: { AgentId: 'pi' } }))).toBe(false);
+    expect(isSameMetric(aQuery(), aQuery({ id: 'm2', metricName: 'MemoryUsed' }))).toBe(false);
   });
 });
 

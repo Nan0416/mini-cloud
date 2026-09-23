@@ -1,4 +1,4 @@
-import { autoPeriodFor, spanOf, type MetricTimeRange } from '@mini-cloud/shared';
+import { METRIC_RESOLUTION_MS, autoPeriodFor, spanOf, type MetricTimeRange } from '@mini-cloud/shared';
 import { useState, type FormEvent } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -8,9 +8,7 @@ import { formatBucket } from '@/lib/chart-model';
 import { formatDuration, localDateTimeToTimestamp, timestampToLocalDateTime } from '@/lib/format';
 import { periodProblem } from '@/lib/metric-graph-editor';
 
-const MINUTE = 60_000;
-const HOUR = 60 * MINUTE;
-const DAY = 24 * HOUR;
+const { '1m': MINUTE, '1h': HOUR, '1d': DAY } = METRIC_RESOLUTION_MS;
 
 const PRESETS = [
   { label: '1h', durationMs: HOUR },

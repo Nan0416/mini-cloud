@@ -1,6 +1,5 @@
 import { InvalidRequestError } from '../errors';
-import { MAX_TIMESTAMP_MS } from '../models/common';
-import { METRIC_STATISTICS } from '../models/metric';
+import { METRIC_RESOLUTION_MS, METRIC_STATISTICS } from '../models/metric';
 import { METRIC_AXES, METRIC_GRAPH_LIMITS, METRIC_GRAPH_VERSION, METRIC_TIME_RANGE_KINDS, MetricGraph, MetricQuery, MetricTimeRange } from '../models/metric-graph';
 import {
   assertArray,
@@ -12,11 +11,12 @@ import {
   assertOptionalString,
   assertRecord,
   assertStringMap,
+  assertTimestamp,
 } from './assertions';
 import { hashDimensions } from './dimensions';
 
-const MINUTE_MS = 60_000;
-const DAY_MS = 86_400_000;
+const MINUTE_MS = METRIC_RESOLUTION_MS['1m'];
+const DAY_MS = METRIC_RESOLUTION_MS['1d'];
 
 /** CloudWatch's rule for a query `Id`: something an expression can name. */
 const QUERY_ID = /^[a-z][a-zA-Z0-9_]*$/;
@@ -38,21 +38,13 @@ function assertKnownKeys(record: Record<string, unknown>, field: string, known: 
   }
 }
 
-function assertMilliseconds(value: unknown, field: string): number {
-  const ms = assertInteger(value, field);
-  if (Math.abs(ms) > MAX_TIMESTAMP_MS) {
-    throw new InvalidRequestError(`${field} must be between -${MAX_TIMESTAMP_MS} and ${MAX_TIMESTAMP_MS} milliseconds`);
-  }
-  return ms;
-}
-
 function parseTimeRange(value: unknown, field: string): MetricTimeRange {
   const record = assertRecord(value, field);
   const kind = assertOneOf(record['kind'], `${field}.kind`, METRIC_TIME_RANGE_KINDS);
 
   if (kind === 'relative') {
     assertKnownKeys(record, field, RELATIVE_KEYS);
-    const durationMs = assertMilliseconds(record['durationMs'], `${field}.durationMs`);
+    const durationMs = assertTimestamp(record['durationMs'], `${field}.durationMs`);
     if (durationMs <= 0) {
       throw new InvalidRequestError(`${field}.durationMs must be positive`);
     }
@@ -60,8 +52,8 @@ function parseTimeRange(value: unknown, field: string): MetricTimeRange {
   }
 
   assertKnownKeys(record, field, ABSOLUTE_KEYS);
-  const from = assertMilliseconds(record['from'], `${field}.from`);
-  const to = assertMilliseconds(record['to'], `${field}.to`);
+  const from = assertTimestamp(record['from'], `${field}.from`);
+  const to = assertTimestamp(record['to'], `${field}.to`);
   if (from >= to) {
     throw new InvalidRequestError(`${field}.from must be before ${field}.to`);
   }
@@ -112,12 +104,17 @@ function parsePeriod(value: unknown, field: string): number | undefined {
   return periodMs;
 }
 
+/** Which metric and dimension set a query reads, whatever statistic it takes of them. */
+export function metricIdentity(query: MetricQuery): string {
+  return JSON.stringify([query.namespace, query.metricName, hashDimensions(query.dimensions)]);
+}
+
 /**
  * What a query reads, apart from how it is drawn: two queries with the same identity are
  * the same request and would plot the same line twice.
  */
 export function seriesIdentity(query: MetricQuery): string {
-  return JSON.stringify([query.namespace, query.metricName, hashDimensions(query.dimensions), query.statistic]);
+  return JSON.stringify([metricIdentity(query), query.statistic]);
 }
 
 /**

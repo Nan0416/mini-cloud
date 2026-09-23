@@ -1,8 +1,10 @@
 import {
   METRIC_AXES,
+  METRIC_RESOLUTION_MS,
   METRIC_GRAPH_LIMITS,
   METRIC_GRAPH_VERSION,
   METRIC_MAX_DATAPOINTS,
+  metricIdentity,
   seriesIdentity,
   spanOf,
   type MetricAxis,
@@ -16,10 +18,8 @@ import { conversionFactor } from '@/lib/metric-units';
 
 /** The rules the metrics page edits a graph by, kept apart from the page so they can be tested. */
 
-const HOUR_MS = 3_600_000;
-
 /** Where a new graph starts: no series, and CloudWatch's default window. */
-export const EMPTY_GRAPH: MetricGraph = { version: METRIC_GRAPH_VERSION, queries: [], range: { kind: 'relative', durationMs: 3 * HOUR_MS } };
+export const EMPTY_GRAPH: MetricGraph = { version: METRIC_GRAPH_VERSION, queries: [], range: { kind: 'relative', durationMs: 3 * METRIC_RESOLUTION_MS['1h'] } };
 
 /** The first `m<n>` no query has, so ids stay short and read in the order they were added. */
 export function nextQueryId(queries: ReadonlyArray<MetricQuery>): string {
@@ -67,9 +67,19 @@ export function describeDimensions(dimensions: MetricDimensions): string {
   return entries.map(([name, value]) => `${name}=${value}`).join(', ');
 }
 
-/** Whether `candidate` would read a series the graph already has, and draw one line twice. */
+/** Whether two queries read the same metric and dimension set, whatever statistic each takes. */
+export function isSameMetric(left: MetricQuery, right: MetricQuery): boolean {
+  return metricIdentity(left) === metricIdentity(right);
+}
+
+/** Whether two queries read the same series, and so would draw one line twice. */
+export function isSameSeries(left: MetricQuery, right: MetricQuery): boolean {
+  return seriesIdentity(left) === seriesIdentity(right);
+}
+
+/** Whether `candidate` would read a series the graph already has. */
 export function isOnGraph(queries: ReadonlyArray<MetricQuery>, candidate: MetricQuery): boolean {
-  return queries.some((query) => seriesIdentity(query) === seriesIdentity(candidate));
+  return queries.some((query) => isSameSeries(query, candidate));
 }
 
 /** "CpuUtilization · nas · p99": the metric, its dimension values, and the statistic. */

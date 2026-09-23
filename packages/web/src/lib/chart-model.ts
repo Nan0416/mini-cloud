@@ -174,19 +174,32 @@ function labelWidth(axis: AxisScale | undefined): number {
  */
 export function formatTimeTick(date: Date, locale?: string): string {
   if (timeDay.floor(date) < date) {
-    return new Intl.DateTimeFormat(locale, { hour: '2-digit', minute: '2-digit', hour12: false }).format(date);
+    return dateFormat(locale, 'time', { hour: '2-digit', minute: '2-digit', hour12: false }).format(date);
   }
   if (timeMonth.floor(date) < date) {
-    return new Intl.DateTimeFormat(locale, { month: 'short', day: 'numeric' }).format(date);
+    return dateFormat(locale, 'day', { month: 'short', day: 'numeric' }).format(date);
   }
   if (timeYear.floor(date) < date) {
-    return new Intl.DateTimeFormat(locale, { month: 'short' }).format(date);
+    return dateFormat(locale, 'month', { month: 'short' }).format(date);
   }
-  return new Intl.DateTimeFormat(locale, { year: 'numeric' }).format(date);
+  return dateFormat(locale, 'year', { year: 'numeric' }).format(date);
 }
 
-/** Built once per locale: the table view formats a row's time for every bucket. */
-const bucketFormats = new Map<string, Intl.DateTimeFormat>();
+/**
+ * Built once per locale and shape. A resize rebuilds the model for every pixel, and the
+ * table view formats a time for every bucket.
+ */
+const dateFormats = new Map<string, Intl.DateTimeFormat>();
+
+function dateFormat(locale: string | undefined, shape: string, options: Intl.DateTimeFormatOptions): Intl.DateTimeFormat {
+  const key = `${locale ?? ''}|${shape}`;
+  let format = dateFormats.get(key);
+  if (format === undefined) {
+    format = new Intl.DateTimeFormat(locale, options);
+    dateFormats.set(key, format);
+  }
+  return format;
+}
 
 /**
  * When a bucket starts, always with the time: daily buckets start at midnight UTC,
@@ -197,13 +210,7 @@ export function formatBucket(timestamp: number, locale?: string): string {
   if (!Number.isFinite(timestamp) || Math.abs(timestamp) > MAX_TIMESTAMP_MS) {
     return NA;
   }
-  const key = locale ?? '';
-  let format = bucketFormats.get(key);
-  if (format === undefined) {
-    format = new Intl.DateTimeFormat(locale, { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false });
-    bucketFormats.set(key, format);
-  }
-  return format.format(new Date(timestamp));
+  return dateFormat(locale, 'bucket', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(timestamp));
 }
 
 export function buildChartModel(input: ChartModelInput): ChartModel {

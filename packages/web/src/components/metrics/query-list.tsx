@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { axisAccepts, describeDimensions, labelOf, type AxisUnits } from '@/lib/metric-graph-editor';
+import { axisAccepts, describeDimensions, isSameMetric, labelOf, type AxisUnits } from '@/lib/metric-graph-editor';
 
 export interface QueryListProps {
   readonly queries: ReadonlyArray<MetricQuery>;
@@ -13,8 +13,8 @@ export interface QueryListProps {
   /** Each query's unit, once its data has said; `undefined` until then. */
   readonly units: ReadonlyArray<MetricUnit | undefined>;
   readonly axisUnits: AxisUnits;
-  /** By id, which stays put while positions shift under an edit. */
-  readonly onChange: (query: MetricQuery) => void;
+  /** By id and by what changed, so an edit made since the last render is not undone. */
+  readonly onChange: (id: string, change: Partial<MetricQuery>) => void;
   readonly onRemove: (id: string) => void;
 }
 
@@ -41,10 +41,11 @@ export function QueryList(props: QueryListProps) {
             <QueryRow
               key={query.id}
               query={query}
+              queries={props.queries}
               color={props.colors[index]}
               unit={props.units[index]}
               axisUnits={props.axisUnits}
-              onChange={props.onChange}
+              onChange={(change) => props.onChange(query.id, change)}
               onRemove={() => props.onRemove(query.id)}
             />
           ))}
@@ -56,16 +57,21 @@ export function QueryList(props: QueryListProps) {
 
 interface QueryRowProps {
   readonly query: MetricQuery;
+  /** Every row, to tell which statistics another row already reads. */
+  readonly queries: ReadonlyArray<MetricQuery>;
   readonly color: number;
   readonly unit: MetricUnit | undefined;
   readonly axisUnits: AxisUnits;
-  readonly onChange: (query: MetricQuery) => void;
+  readonly onChange: (change: Partial<MetricQuery>) => void;
   readonly onRemove: () => void;
 }
 
 function QueryRow(props: QueryRowProps) {
   const { query } = props;
   const axis = query.yAxis ?? 'left';
+  // Statistics another row already reads of this metric: choosing one would leave two
+  // rows on one series, which the graph cannot hold.
+  const taken = new Set(props.queries.filter((candidate) => candidate.id !== query.id && isSameMetric(candidate, query)).map((candidate) => candidate.statistic));
   // An axis already reading another kind of unit is not offered: the series would have no scale.
   const accepts = (candidate: MetricAxis): boolean => candidate === axis || props.unit === undefined || axisAccepts(props.unit, candidate, props.axisUnits);
 
@@ -82,28 +88,26 @@ function QueryRow(props: QueryRowProps) {
         </div>
       </TableCell>
       <TableCell>
-        <Select
-          value={query.statistic}
-          onValueChange={(value) => props.onChange({ ...query, statistic: METRIC_STATISTICS.find((candidate) => candidate === value) ?? query.statistic })}
-        >
+        <Select value={query.statistic} onValueChange={(value) => props.onChange({ statistic: METRIC_STATISTICS.find((candidate) => candidate === value) ?? query.statistic })}>
           <SelectTrigger aria-label={`Statistic for ${labelOf(query)}`}>
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
             {METRIC_STATISTICS.map((candidate) => (
-              <SelectItem key={candidate} value={candidate}>
+              // A statistic another row already reads would make two rows one series.
+              <SelectItem key={candidate} value={candidate} disabled={taken.has(candidate)}>
                 {candidate}
+                {taken.has(candidate) ? ' (already on the graph)' : ''}
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
       </TableCell>
       <TableCell>
-        {/* Keyed on the stored label, so Back reseeds it rather than leaving stale text. */}
-        <LabelInput key={query.label ?? ''} query={query} onCommit={(label) => props.onChange({ ...query, label })} />
+        <LabelInput query={query} onCommit={(label) => props.onChange({ label })} />
       </TableCell>
       <TableCell>
-        <Select value={axis} onValueChange={(value) => props.onChange({ ...query, yAxis: value === 'right' ? 'right' : undefined })}>
+        <Select value={axis} onValueChange={(value) => props.onChange({ yAxis: value === 'right' ? 'right' : undefined })}>
           <SelectTrigger aria-label={`Axis for ${labelOf(query)}`}>
             <SelectValue />
           </SelectTrigger>
@@ -130,6 +134,9 @@ function QueryRow(props: QueryRowProps) {
  * Held locally and written to the link on blur or Enter. Written a keystroke at a time,
  * each one would be a navigation, and a navigation runs as a transition that can land
  * after the next keystroke and put back what was just typed.
+ *
+ * Seeded again when it is focused rather than remounted when it saves: remounting on
+ * save takes the focus away mid-edit and loses anything typed since.
  */
 function LabelInput(props: { readonly query: MetricQuery; readonly onCommit: (label: string | undefined) => void }) {
   const [value, setValue] = useState(props.query.label ?? '');
@@ -147,6 +154,7 @@ function LabelInput(props: { readonly query: MetricQuery; readonly onCommit: (la
       placeholder={labelOf({ ...props.query, label: undefined })}
       aria-label={`Label for ${labelOf(props.query)}`}
       onChange={(event) => setValue(event.target.value)}
+      onFocus={() => setValue(props.query.label ?? '')}
       onBlur={commit}
       onKeyDown={(event) => {
         if (event.key === 'Enter') {

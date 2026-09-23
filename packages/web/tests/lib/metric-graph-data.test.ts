@@ -1,6 +1,6 @@
-import type { GetMetricDataResponse, MetricQuery } from '@mini-cloud/shared';
+import { InvalidRequestError, ServiceUnreachableError, type GetMetricDataResponse, type MetricQuery } from '@mini-cloud/shared';
 import type { GraphSeries } from '@/hooks/use-metrics';
-import { frameOf, isDrawableIn, isFilling } from '@/lib/metric-graph-data';
+import { frameOf, isDrawableIn, shouldPoll } from '@/lib/metric-graph-data';
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
@@ -16,9 +16,18 @@ function entry(data: GetMetricDataResponse | undefined, placeholder = false): Gr
   return { query: QUERY, data, error: null, placeholder, refetch: () => undefined };
 }
 
-describe('isFilling', () => {
+describe('shouldPoll', () => {
   it('keeps polling a relative window, which moves with the clock', () => {
-    expect(isFilling({ kind: 'relative', durationMs: HOUR }, MINUTE, answer(NOW - HOUR, NOW - 3 * MINUTE, MINUTE))).toBe(true);
+    expect(shouldPoll({ kind: 'relative', durationMs: HOUR }, MINUTE, answer(NOW - HOUR, NOW - 3 * MINUTE, MINUTE), null)).toBe(true);
+  });
+
+  it('stops asking for a read the service refused, which would be refused again', () => {
+    // A percentile past raw retention fails the same way every minute.
+    expect(shouldPoll({ kind: 'relative', durationMs: HOUR }, MINUTE, undefined, new InvalidRequestError('p99 is only available for the last 28 days'))).toBe(false);
+  });
+
+  it('keeps polling through a failure that could pass next time, so an outage heals itself', () => {
+    expect(shouldPoll({ kind: 'relative', durationMs: HOUR }, MINUTE, undefined, new ServiceUnreachableError('could not reach it'))).toBe(true);
   });
 
   it('keeps polling a window ending now until its last minutes have arrived', () => {
@@ -26,18 +35,18 @@ describe('isFilling', () => {
     // ended is still short of its end, and would stay short without another read.
     const range = { kind: 'absolute' as const, from: NOW - HOUR, to: NOW };
 
-    expect(isFilling(range, MINUTE, answer(NOW - HOUR, NOW - 3 * MINUTE, MINUTE))).toBe(true);
-    expect(isFilling(range, MINUTE, answer(NOW - HOUR, NOW, MINUTE))).toBe(false);
+    expect(shouldPoll(range, MINUTE, answer(NOW - HOUR, NOW - 3 * MINUTE, MINUTE), null)).toBe(true);
+    expect(shouldPoll(range, MINUTE, answer(NOW - HOUR, NOW, MINUTE), null)).toBe(false);
   });
 
   it('counts a window as filled when it reaches the last whole bucket, since a part bucket is never returned', () => {
     const range = { kind: 'absolute' as const, from: NOW - HOUR, to: NOW + 2 * MINUTE };
 
-    expect(isFilling(range, 5 * MINUTE, answer(NOW - HOUR, NOW, 5 * MINUTE))).toBe(false);
+    expect(shouldPoll(range, 5 * MINUTE, answer(NOW - HOUR, NOW, 5 * MINUTE), null)).toBe(false);
   });
 
-  it('leaves a failed read to be retried by hand rather than every minute', () => {
-    expect(isFilling({ kind: 'absolute', from: NOW - HOUR, to: NOW }, MINUTE, undefined)).toBe(false);
+  it('leaves a failed read of a filled window to be retried by hand', () => {
+    expect(shouldPoll({ kind: 'absolute', from: NOW - HOUR, to: NOW }, MINUTE, undefined, null)).toBe(false);
   });
 });
 

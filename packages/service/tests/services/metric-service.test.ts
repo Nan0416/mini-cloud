@@ -202,6 +202,14 @@ describe('MetricService.getMetricData', () => {
     expect(response.to).toBe(response.from);
   });
 
+  it('reports a count as a count, whatever the series measures', async () => {
+    // The fake answers in Milliseconds; 1500 of them are 1500 samples, not 25 minutes.
+    const { service } = build();
+
+    await expect(service.getMetricData(aQuery({ statistic: 'count' }), NOW)).resolves.toMatchObject({ unit: 'Count' });
+    await expect(service.getMetricData(aQuery({ statistic: 'avg' }), NOW)).resolves.toMatchObject({ unit: 'Milliseconds' });
+  });
+
   it('returns the window it read, so a chart can span that rather than its datapoints', async () => {
     const { metricDao, service } = build();
 

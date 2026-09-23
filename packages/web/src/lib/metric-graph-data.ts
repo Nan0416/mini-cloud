@@ -1,17 +1,21 @@
 import { floorToPeriod, type GetMetricDataResponse, type MetricTimeRange } from '@mini-cloud/shared';
 import type { GraphSeries } from '@/hooks/use-metrics';
+import { isRetryable } from '@/lib/errors';
 
 /** How a graph's answers are polled and framed, apart from the hook so it can be tested. */
 
 /**
- * Whether a series still has buckets to come, and so is worth polling.
+ * Whether a series is worth asking for again.
  *
- * A relative window always has. An absolute one has until the service has answered up
- * to its end, which trails now by `queryLagMs`: a window ending now is still missing its
- * last few minutes when it ends. A read that failed has nothing to compare, and is
- * retried by hand rather than every minute.
+ * A relative window always has newer buckets. An absolute one has until the service has
+ * answered up to its end, which trails now by `queryLagMs`, so a window ending now is
+ * still short of its end when it ends. A read the service refused would be refused the
+ * same way every minute, so only a failure that could pass next time keeps polling.
  */
-export function isFilling(range: MetricTimeRange, periodMs: number, data: GetMetricDataResponse | undefined): boolean {
+export function shouldPoll(range: MetricTimeRange, periodMs: number, data: GetMetricDataResponse | undefined, error: Error | null): boolean {
+  if (error !== null && !isRetryable(error)) {
+    return false;
+  }
   if (range.kind === 'relative') {
     return true;
   }

@@ -9,7 +9,6 @@ import {
   ListMetricNamespacesRequest,
   ListMetricNamespacesResponse,
   LoggerFactory,
-  MAX_TIMESTAMP_MS,
   METRIC_MAX_DATAPOINTS,
   METRIC_RESOLUTIONS,
   METRIC_RESOLUTION_MS,
@@ -21,8 +20,10 @@ import {
   RejectedMetricDatum,
   coarsestResolutionFor,
   floorToPeriod,
+  assertTimestamp,
   floorToResolution,
   hashDimensions,
+  unitForStatistic,
 } from '@mini-cloud/shared';
 import { MetricDao } from '../data/metric-dao';
 
@@ -32,12 +33,6 @@ const logger = LoggerFactory.getLogger('MetricService');
 const MAX_FUTURE_MS = 2 * 3600_000;
 
 const DAY_MS = 86_400_000;
-
-function assertQueryable(timestamp: number, field: string): void {
-  if (!Number.isFinite(timestamp) || Math.abs(timestamp) > MAX_TIMESTAMP_MS) {
-    throw new InvalidRequestError(`${field} must be a time in milliseconds since the epoch, between -${MAX_TIMESTAMP_MS} and ${MAX_TIMESTAMP_MS}`);
-  }
-}
 
 export interface MetricConfig {
   /**
@@ -143,9 +138,9 @@ export class MetricService {
       throw new InvalidRequestError(`periodMs must be a whole number of minutes, because metrics are stored by the minute. Round ${periodMs} to a multiple of 60000.`);
     }
 
-    assertQueryable(request.from, 'from');
+    assertTimestamp(request.from, 'from');
     if (request.to !== undefined) {
-      assertQueryable(request.to, 'to');
+      assertTimestamp(request.to, 'to');
     }
 
     // Clamped before anything else: a bucket only some agents have reported yet is
@@ -159,7 +154,7 @@ export class MetricService {
     const from = floorToPeriod(request.from, periodMs);
     if (from >= to) {
       // An empty window at `from`, rather than one that ends before it starts.
-      return { unit: 'None', periodMs, resolution: coarsestResolutionFor(periodMs), from, to: from, datapoints: [] };
+      return { unit: unitForStatistic(request.statistic, 'None'), periodMs, resolution: coarsestResolutionFor(periodMs), from, to: from, datapoints: [] };
     }
 
     const resolution = this.resolutionFor(request, periodMs, from, now);
@@ -188,7 +183,8 @@ export class MetricService {
       to,
     });
 
-    return { unit: unit ?? 'None', periodMs, resolution, from, to, datapoints };
+    // A count is a count whatever the series measures, so it is not reported in the metric's unit.
+    return { unit: unitForStatistic(request.statistic, unit ?? 'None'), periodMs, resolution, from, to, datapoints };
   }
 
   /**

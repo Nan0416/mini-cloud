@@ -1,6 +1,6 @@
 import type { MiniCloudClient } from '@mini-cloud/client';
 import { useApi } from '@/hooks/use-connection';
-import { isFilling } from '@/lib/metric-graph-data';
+import { shouldPoll } from '@/lib/metric-graph-data';
 import { queryKeys } from '@/lib/query-keys';
 import {
   floorToPeriod,
@@ -77,9 +77,7 @@ export interface MetricWindowKey {
   readonly periodMs: number;
 }
 
-/** One query of a graph and what reading it has produced so far. */
-export interface GraphSeries {
-  readonly query: MetricQuery;
+interface SeriesResult {
   readonly data: GetMetricDataResponse | undefined;
   readonly error: Error | null;
   /** `data` was read for an earlier range or statistic and stands in while this one loads. */
@@ -88,11 +86,9 @@ export interface GraphSeries {
   readonly refetch: () => void;
 }
 
-interface SeriesResult {
-  readonly data: GetMetricDataResponse | undefined;
-  readonly error: Error | null;
-  readonly placeholder: boolean;
-  readonly refetch: () => void;
+/** One query of a graph and what reading it has produced so far. */
+export interface GraphSeries extends SeriesResult {
+  readonly query: MetricQuery;
 }
 
 /** The service holds reads a few minutes behind now, so polling faster would return the same series. */
@@ -102,11 +98,18 @@ export function seriesKeyOf(query: MetricQuery): MetricSeriesKey {
   return { namespace: query.namespace, metricName: query.metricName, dimensionsHash: hashDimensions(query.dimensions), statistic: query.statistic };
 }
 
-/** Resolved when the request is sent, so the clock is never read while rendering. */
+/**
+ * Resolved when the request is sent, so the clock is never read while rendering.
+ *
+ * A relative window names both ends rather than leaving the end to the service. Its
+ * start comes from this browser's clock and the service's end from the machine's, so a
+ * browser running behind would otherwise ask for a longer window than it chose — and a
+ * day by the minute, which is exactly the most one read may return, would be refused.
+ */
 function requestFor(series: MetricSeriesKey, window: MetricWindowKey, now: number): GetMetricDataRequest {
   const { range, periodMs } = window;
   const base = { namespace: series.namespace, metricName: series.metricName, statistic: series.statistic, periodMs, dimensions: parseDimensionsHash(series.dimensionsHash) };
-  return range.kind === 'relative' ? { ...base, from: floorToPeriod(now - range.durationMs, periodMs) } : { ...base, from: range.from, to: range.to };
+  return range.kind === 'relative' ? { ...base, from: floorToPeriod(now - range.durationMs, periodMs), to: now } : { ...base, from: range.from, to: range.to };
 }
 
 /**
@@ -146,8 +149,8 @@ export function useMetricGraphData(graph: MetricGraph): ReadonlyArray<GraphSerie
   const client = useQueryClient();
   const periodMs = periodOf(graph);
 
-  // Built once per graph rather than on every render: a new `placeholderData` function
-  // is called again each time, and each call scans the cache.
+  // Memoised per graph: `placeholderData` is called afresh whenever its function
+  // identity changes, and each call scans the cache.
   const queries = useMemo(() => {
     const window: MetricWindowKey = { range: graph.range, periodMs };
     return graph.queries.map((query) => {
@@ -156,7 +159,7 @@ export function useMetricGraphData(graph: MetricGraph): ReadonlyArray<GraphSerie
         queryKey: queryKeys.metricData(series, window),
         queryFn: () => api.getMetricData(requestFor(series, window, Date.now())),
         placeholderData: () => newestCached(client, series),
-        refetchInterval: (current) => (isFilling(window.range, window.periodMs, current.state.data) ? POLL_MS : false),
+        refetchInterval: (current) => (shouldPoll(window.range, window.periodMs, current.state.data, current.state.error) ? POLL_MS : false),
       });
     });
   }, [api, client, graph.queries, graph.range, periodMs]);
@@ -173,6 +176,10 @@ function listings(results: ReadonlyArray<UseQueryResult<ListMetricNamesResponse,
 /**
  * Each query's unit as its namespace's listing reports it. Known before any of the
  * query's data arrives, and for a series with no data in the window, known at all.
+ *
+ * The listing is one page, like the pickers', so in a namespace of more than
+ * `PICKER_PAGE_SIZE` metrics a query past that page keeps its unit to itself until its
+ * data says. The chart still says so when an axis ends up mixing units.
  */
 export function useListedUnits(queries: ReadonlyArray<MetricQuery>): ReadonlyArray<MetricUnit | undefined> {
   const api = useApi();
