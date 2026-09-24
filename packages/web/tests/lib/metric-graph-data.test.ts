@@ -1,6 +1,6 @@
-import { InvalidRequestError, ServiceUnreachableError, type GetMetricDataResponse, type MetricQuery } from '@mini-cloud/shared';
+import { InvalidRequestError, ServiceUnreachableError, type GetMetricDataRequest, type GetMetricDataResponse, type MetricQuery } from '@mini-cloud/shared';
 import type { GraphSeries } from '@/hooks/use-metrics';
-import { frameOf, isDrawableIn, shouldPoll } from '@/lib/metric-graph-data';
+import { frameOf, isDrawableIn, readWholeSeries, shouldPoll } from '@/lib/metric-graph-data';
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
@@ -15,6 +15,63 @@ function answer(from: number, to: number, periodMs: number): GetMetricDataRespon
 function entry(data: GetMetricDataResponse | undefined, placeholder = false): GraphSeries {
   return { query: QUERY, data, error: null, placeholder, refetch: () => undefined };
 }
+
+/**
+ * A service holding one datapoint a minute, paged the way the real one pages, whose
+ * watermark moves on by a minute every time it is asked.
+ */
+class FakeSeries {
+  readonly requests: GetMetricDataRequest[] = [];
+  private watermark = NOW;
+
+  constructor(private readonly pageSize: number) {}
+
+  readonly getPage = async (request: GetMetricDataRequest): Promise<GetMetricDataResponse> => {
+    this.requests.push(request);
+    this.watermark += MINUTE;
+    const to = Math.min(request.to ?? this.watermark, this.watermark);
+    const all = [];
+    for (let timestamp = request.from; timestamp < to; timestamp += MINUTE) {
+      if (request.after === undefined || timestamp > request.after) {
+        all.push({ timestamp, value: 1 });
+      }
+    }
+    const datapoints = all.slice(0, this.pageSize);
+    const nextCursor = all.length > this.pageSize ? datapoints[datapoints.length - 1].timestamp : undefined;
+    return { ...answer(request.from, to, MINUTE), datapoints, nextCursor };
+  };
+}
+
+describe('readWholeSeries', () => {
+  const request: GetMetricDataRequest = { namespace: 'MyApp', metricName: 'Latency', statistic: 'avg', periodMs: MINUTE, from: NOW - 5 * MINUTE };
+
+  it('reads every page into one series, with nothing repeated or skipped', async () => {
+    const service = new FakeSeries(2);
+
+    const series = await readWholeSeries(service.getPage, request);
+
+    expect(series.datapoints.map((datapoint) => (datapoint.timestamp - request.from) / MINUTE)).toEqual([0, 1, 2, 3, 4, 5]);
+    expect(series.nextCursor).toBeUndefined();
+    expect(service.requests).toHaveLength(3);
+  });
+
+  it('ends every page where the first did, though the service would have read further', async () => {
+    const service = new FakeSeries(2);
+
+    const series = await readWholeSeries(service.getPage, request);
+
+    expect(series.to).toBe(NOW + MINUTE);
+    expect(service.requests.slice(1).map((page) => page.to)).toEqual([NOW + MINUTE, NOW + MINUTE]);
+  });
+
+  it('asks for the largest page, so a long series takes as few round trips as it can', async () => {
+    const service = new FakeSeries(10);
+
+    await readWholeSeries(service.getPage, request);
+
+    expect(service.requests.map((page) => page.limit)).toEqual([10_080]);
+  });
+});
 
 describe('shouldPoll', () => {
   it('keeps polling a relative window, which moves with the clock', () => {

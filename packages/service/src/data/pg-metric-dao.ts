@@ -1,6 +1,7 @@
 import {
   InternalServiceError,
   LoggerFactory,
+  METRIC_DATAPOINT_PAGE_SIZE,
   METRIC_PAGE_SIZE,
   METRIC_RESOLUTIONS,
   MetricDatapoint,
@@ -53,8 +54,13 @@ interface AggregateRow {
 }
 
 interface HistogramRow {
-  readonly bucket_start: Date;
-  readonly histogram: MetricHistogram | null;
+  readonly bucket_ms: string;
+  readonly histograms: ReadonlyArray<MetricHistogram>;
+}
+
+/** A series read narrowed to one page: `from` is past the cursor and `limit` resolved. */
+interface SeriesPage extends ReadSeriesInput {
+  readonly limit: number;
 }
 
 interface MetricNameRow {
@@ -83,6 +89,11 @@ interface MergedDatum {
 function pageLimit(requested: number | undefined): number {
   const limit = requested ?? METRIC_PAGE_SIZE.default;
   return Math.min(Math.max(1, limit), METRIC_PAGE_SIZE.max);
+}
+
+function datapointLimit(requested: number | undefined): number {
+  const limit = requested ?? METRIC_DATAPOINT_PAGE_SIZE.default;
+  return Math.min(Math.max(1, limit), METRIC_DATAPOINT_PAGE_SIZE.max);
 }
 
 /** A cursor only when the extra row came back, meaning there is more to read. */
@@ -317,9 +328,19 @@ export class PgMetricDao implements MetricDao {
       return { datapoints: [] };
     }
 
+    // The page starts at the bucket after the cursor, so both reads keep their plain
+    // `bucket_start >= from` and a coarser stored row can never straddle the cursor.
+    const from = input.after === undefined ? input.from : Math.max(input.from, floorToPeriod(input.after, input.periodMs) + input.periodMs);
+    if (from >= input.to) {
+      return { unit, datapoints: [] };
+    }
+
+    const limit = datapointLimit(input.limit);
+    const page = { ...input, from, limit };
     const isPercentile = PERCENTILE_STATISTICS.some((statistic) => statistic === input.statistic);
-    const datapoints = isPercentile ? await this.readPercentile(input) : await this.readAggregate(input);
-    return { unit, datapoints };
+    const fetched = isPercentile ? await this.readPercentile(page) : await this.readAggregate(page);
+    const datapoints = fetched.slice(0, limit);
+    return { unit, datapoints, nextCursor: fetched.length > limit ? datapoints[datapoints.length - 1].timestamp : undefined };
   }
 
   private async readUnit(namespace: string, metricName: string, dimensionsHash: string): Promise<MetricUnit | undefined> {
@@ -334,7 +355,8 @@ export class PgMetricDao implements MetricDao {
     return toMetricUnit(result.rows[0].unit);
   }
 
-  private async readAggregate(input: ReadSeriesInput): Promise<ReadonlyArray<MetricDatapoint>> {
+  /** Reads one row past the page, so the caller can tell whether there is another. */
+  private async readAggregate(input: SeriesPage): Promise<ReadonlyArray<MetricDatapoint>> {
     const result = await this.pool.query<AggregateRow>(
       `SELECT (FLOOR(EXTRACT(EPOCH FROM bucket_start) * 1000 / $5) * $5)::bigint AS bucket_ms,
               SUM(sample_count) AS sample_count,
@@ -345,8 +367,18 @@ export class PgMetricDao implements MetricDao {
        WHERE namespace = $1 AND metric_name = $2 AND dimensions_hash = $3 AND resolution = $4
          AND bucket_start >= $6::timestamptz AND bucket_start < $7::timestamptz
        GROUP BY bucket_ms
-       ORDER BY bucket_ms ASC`,
-      [input.namespace, input.metricName, input.dimensionsHash, input.resolution, input.periodMs, new Date(input.from).toISOString(), new Date(input.to).toISOString()],
+       ORDER BY bucket_ms ASC
+       LIMIT $8`,
+      [
+        input.namespace,
+        input.metricName,
+        input.dimensionsHash,
+        input.resolution,
+        input.periodMs,
+        new Date(input.from).toISOString(),
+        new Date(input.to).toISOString(),
+        input.limit + 1,
+      ],
     );
 
     return result.rows.map((row) => ({ timestamp: Number(row.bucket_ms), value: project(input.statistic, row) }));
@@ -359,29 +391,33 @@ export class PgMetricDao implements MetricDao {
    * Merging the distributions and taking one percentile is not the same as averaging
    * sixty percentiles, and only the first is a number worth plotting.
    */
-  private async readPercentile(input: ReadSeriesInput): Promise<ReadonlyArray<MetricDatapoint>> {
+  private async readPercentile(input: SeriesPage): Promise<ReadonlyArray<MetricDatapoint>> {
+    // Grouped in SQL rather than here so the page limit applies to buckets, not to the
+    // minute rows inside them.
     const result = await this.pool.query<HistogramRow>(
-      `SELECT bucket_start, histogram
+      `SELECT (FLOOR(EXTRACT(EPOCH FROM bucket_start) * 1000 / $5) * $5)::bigint AS bucket_ms,
+              jsonb_agg(histogram) AS histograms
        FROM metric_datum
        WHERE namespace = $1 AND metric_name = $2 AND dimensions_hash = $3 AND resolution = $4
-         AND bucket_start >= $5::timestamptz AND bucket_start < $6::timestamptz
-       ORDER BY bucket_start ASC`,
-      [input.namespace, input.metricName, input.dimensionsHash, input.resolution, new Date(input.from).toISOString(), new Date(input.to).toISOString()],
+         AND bucket_start >= $6::timestamptz AND bucket_start < $7::timestamptz
+         AND histogram IS NOT NULL
+       GROUP BY bucket_ms
+       ORDER BY bucket_ms ASC
+       LIMIT $8`,
+      [
+        input.namespace,
+        input.metricName,
+        input.dimensionsHash,
+        input.resolution,
+        input.periodMs,
+        new Date(input.from).toISOString(),
+        new Date(input.to).toISOString(),
+        input.limit + 1,
+      ],
     );
 
-    const buckets = new Map<number, MetricHistogram>();
-    for (const row of result.rows) {
-      if (row.histogram === null) {
-        continue;
-      }
-      const bucket = floorToPeriod(row.bucket_start.getTime(), input.periodMs);
-      buckets.set(bucket, mergeHistograms(buckets.get(bucket) ?? {}, row.histogram));
-    }
-
     const percentile = Number(input.statistic.slice(1)) / 100;
-    return Array.from(buckets.entries())
-      .sort((left, right) => left[0] - right[0])
-      .map(([timestamp, histogram]) => ({ timestamp, value: percentileFrom(histogram, percentile) }));
+    return result.rows.map((row) => ({ timestamp: Number(row.bucket_ms), value: percentileFrom(row.histograms.reduce(mergeHistograms, {}), percentile) }));
   }
 
   async ensurePartitions(input: EnsurePartitionsInput): Promise<EnsurePartitionsOutput> {

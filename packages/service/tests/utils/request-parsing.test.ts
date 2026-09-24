@@ -6,6 +6,7 @@ import {
   parseCreateTaskRequest,
   parseHeartbeatRequest,
   parseLaunchTaskRequest,
+  parseGetMetricDataRequest,
   parseListHealthChecksRequest,
   parseListMetricNamesRequest,
   parseListMetricNamespacesRequest,
@@ -501,5 +502,26 @@ describe('metric listing paging', () => {
 
   it('still requires a namespace', () => {
     expect(() => parseListMetricNamesRequest({ limit: '10' })).toThrow(/namespace/);
+  });
+});
+
+describe('metric data paging', () => {
+  const aQuery = { namespace: 'MyApp', metricName: 'Latency', from: '1000' };
+
+  it('reads a limit and a timestamp cursor off the query string', () => {
+    expect(parseGetMetricDataRequest({ ...aQuery, limit: '5000', after: '120000' })).toMatchObject({ limit: 5000, after: 120_000 });
+  });
+
+  it('leaves both unset for a first page', () => {
+    expect(parseGetMetricDataRequest(aQuery)).toMatchObject({ limit: undefined, after: undefined });
+  });
+
+  it('refuses a limit past a week by the minute', () => {
+    expect(() => parseGetMetricDataRequest({ ...aQuery, limit: '10081' })).toThrow(/between 1 and 10080/);
+    expect(() => parseGetMetricDataRequest({ ...aQuery, limit: '0' })).toThrow(/between 1 and 10080/);
+  });
+
+  it('refuses a cursor that is not a timestamp', () => {
+    expect(() => parseGetMetricDataRequest({ ...aQuery, after: 'm-9' })).toThrow(/after must be an integer/);
   });
 });

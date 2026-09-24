@@ -1,4 +1,3 @@
-import { METRIC_MAX_DATAPOINTS } from '../../src/models/metric';
 import { MetricGraph } from '../../src/models/metric-graph';
 import { coarsestResolutionFor } from '../../src/utils/metric-buckets';
 import { autoPeriodFor, parseMetricGraph, periodOf, spanOf } from '../../src/utils/metric-graph';
@@ -151,12 +150,12 @@ describe('autoPeriodFor', () => {
     expect(autoPeriodFor(7 * DAY)).toBe(HOUR);
   });
 
-  it('gives every range a whole number of minutes, well within what one read may return', () => {
+  it('gives every range a whole number of minutes, at about as many points as a chart can draw', () => {
     for (const span of [60_000, HOUR, 6 * HOUR, DAY, 3 * DAY, 7 * DAY, 30 * DAY, 90 * DAY, 365 * DAY, 5 * 365 * DAY]) {
       const period = autoPeriodFor(span);
 
       expect(period % 60_000).toBe(0);
-      expect(Math.ceil(span / period)).toBeLessThanOrEqual(METRIC_MAX_DATAPOINTS);
+      expect(Math.ceil(span / period)).toBeLessThanOrEqual(500);
     }
   });
 
