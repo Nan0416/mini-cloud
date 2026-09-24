@@ -25,6 +25,22 @@ instead. Delete a line once it has shipped.
       throttled, and killed by a `daemon restart`. Still to settle: what the built-in
       agent's id is, and whether it is on by default.
 
+- [ ] **Drop the cap on a metric read, and page instead.** `METRIC_MAX_DATAPOINTS` refuses
+      more than 1440 points in one read, so three days at a minute is refused although the
+      minute rows are there for the whole of `metrics.rawRetentionDays`. The cap goes, and
+      `/metrics/data` takes a limit and a cursor and answers a `nextCursor`, so one
+      response stays bounded however wide the window. Two things are already settled: the
+      console pages until a series is whole and then draws it, rather than drawing each
+      page as it lands and moving the axis under the pointer; and the period picker offers
+      every period, marking a dense one with the number of points it would draw rather
+      than refusing it — a 900px plot shows about one point per pixel, and four weeks at a
+      minute is 40,320 of them for each of up to eight series.
+      Two things to weigh while doing it. A percentile reads every minute row in its
+      window whatever the period is, so paging bounds what one request merges but not what
+      the window costs altogether. And the service compresses nothing today: a megabyte of
+      datapoints is mostly repeated keys, so gzip on the public listener may buy more than
+      a smaller page does.
+
 - [ ] **A version endpoint, and an agent that reports its own.** The console shows what
       it is talking to: the control plane's version beside the service it is connected
       to, and each agent's version in the fleet table, so a machine left behind by an

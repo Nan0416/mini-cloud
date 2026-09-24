@@ -5,13 +5,13 @@
   "description": "CDK app for the hosted console: one stack holding the bucket, the distribution, the certificate and the DNS records.",
   "scripts": {
     "typecheck": "tsc",
-    "synth": "cdk synth",
-    "diff": "cdk diff",
-    "deploy": "cdk deploy",
-    "destroy": "cdk destroy",
+    "synth": "AWS_PROFILE=mini-cloud cdk synth",
+    "diff": "AWS_PROFILE=mini-cloud cdk diff",
+    "deploy": "AWS_PROFILE=mini-cloud cdk deploy",
+    "destroy": "AWS_PROFILE=mini-cloud cdk destroy",
     "format": "prettier --write \"{bin,lib}/**/*.ts\"",
     "format:lint": "prettier --check \"{bin,lib}/**/*.ts\"",
-    "cdk": "cdk"
+    "cdk": "AWS_PROFILE=mini-cloud cdk"
   },
   "dependencies": {
     "aws-cdk-lib": "^2.266.0",
