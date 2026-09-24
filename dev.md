@@ -417,8 +417,11 @@ Four things are worth knowing about what comes back:
   newest minute would otherwise hold only whichever machines reported first — a
   datapoint that dips and silently corrects itself. The response's `from` and `to` are
   the window actually read, after that and after flooring both ends to the period.
-- **One read returns at most 1440 datapoints**, a day by the minute. A finer period over
-  a longer range is refused, and the message names the smallest period that fits.
+- **`/metrics/data` is paged too**, by datapoint: `limit` (default 1440, a day by the
+  minute; maximum 10080, a week) and `after`, which takes the previous response's
+  `nextCursor` — the timestamp of its last datapoint. Any period over any range is
+  answered, a page at a time. Pass the first page's `to` on every later page, or the
+  moving end of a relative window can run later pages a bucket past the first.
 - **Data that arrives late still counts.** Rollups are updated as data lands rather than
   on a schedule, so an agent that was offline backfills into the hour and day it belongs
   to. Buckets older than `metrics.rawRetentionDays`, or more than two hours ahead, are

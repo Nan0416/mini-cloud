@@ -1,4 +1,5 @@
-import { MetricDatum } from '@mini-cloud/shared';
+import { METRIC_DATAPOINT_PAGE_SIZE, MetricDatum } from '@mini-cloud/shared';
+import { ReadSeriesInput } from '../../src/data/metric-dao';
 import { PgMetricDao } from '../../src/data/pg-metric-dao';
 import { fakePool } from './test-helpers';
 
@@ -15,6 +16,19 @@ const aDatum = (overrides: Partial<MetricDatum> = {}): MetricDatum => ({
   min: 10,
   max: 20,
   histogram: { '10': 1, '20': 1 },
+  ...overrides,
+});
+
+/** Ten minutes of one series by the minute. */
+const aRead = (overrides: Partial<ReadSeriesInput> = {}): ReadSeriesInput => ({
+  namespace: 'MyApp',
+  metricName: 'Latency',
+  dimensionsHash: '_none',
+  resolution: '1m',
+  statistic: 'avg',
+  periodMs: 60_000,
+  from: MINUTE,
+  to: MINUTE + 600_000,
   ...overrides,
 });
 
@@ -279,47 +293,85 @@ describe('PgMetricDao.readSeries', () => {
   it('computes a percentile from the merged distribution of the buckets in the period', async () => {
     const pool = fakePool()
       .on('SELECT unit FROM metric_series', { rows: [{ unit: 'Milliseconds' }] })
-      .on('SELECT bucket_start, histogram', {
+      .on('jsonb_agg(histogram)', {
         rows: [
-          { bucket_start: new Date(MINUTE), histogram: { '1': 9, '100': 1 } },
-          { bucket_start: new Date(MINUTE + 60_000), histogram: { '1': 90, '100': 10 } },
+          {
+            bucket_ms: String(MINUTE),
+            histograms: [
+              { '1': 9, '100': 1 },
+              { '1': 90, '100': 10 },
+            ],
+          },
         ],
       });
 
-    const result = await new PgMetricDao(pool.asPool()).readSeries({
-      namespace: 'MyApp',
-      metricName: 'Latency',
-      dimensionsHash: '_none',
-      resolution: '1m',
-      statistic: 'p90',
-      periodMs: 300_000,
-      from: MINUTE,
-      to: MINUTE + 600_000,
-    });
+    const result = await new PgMetricDao(pool.asPool()).readSeries(aRead({ statistic: 'p90', periodMs: 300_000 }));
 
     // Both minutes fall in one five-minute bucket, so their distributions merge into
     // one before the percentile is taken.
-    expect(result.datapoints).toHaveLength(1);
-    expect(result.datapoints[0].value).toBe(1);
+    expect(result.datapoints).toEqual([{ timestamp: MINUTE, value: 1 }]);
   });
 
-  it('skips buckets with no distribution rather than reporting a zero percentile', async () => {
+  it('leaves out minutes with no distribution rather than reporting a zero percentile', async () => {
+    const pool = fakePool().on('SELECT unit FROM metric_series', { rows: [{ unit: 'Milliseconds' }] });
+
+    await new PgMetricDao(pool.asPool()).readSeries(aRead({ statistic: 'p99' }));
+
+    expect(pool.find('jsonb_agg(histogram)').sql.replace(/\s+/g, ' ')).toContain('AND histogram IS NOT NULL');
+  });
+
+  it.each(['avg', 'p99'] as const)('answers one page of %s and a cursor at its last datapoint when more remain', async (statistic) => {
+    const fragment = statistic === 'avg' ? 'SUM(sample_count)' : 'jsonb_agg(histogram)';
+    const bucket = (index: number) =>
+      statistic === 'avg'
+        ? { bucket_ms: String(MINUTE + index * 60_000), sample_count: '1', sum_value: 1, min_value: 1, max_value: 1 }
+        : { bucket_ms: String(MINUTE + index * 60_000), histograms: [{ '1': 1 }] };
     const pool = fakePool()
       .on('SELECT unit FROM metric_series', { rows: [{ unit: 'Milliseconds' }] })
-      .on('SELECT bucket_start, histogram', { rows: [{ bucket_start: new Date(MINUTE), histogram: null }] });
+      .on(fragment, { rows: [bucket(0), bucket(1), bucket(2)] });
 
-    const result = await new PgMetricDao(pool.asPool()).readSeries({
-      namespace: 'MyApp',
-      metricName: 'Latency',
-      dimensionsHash: '_none',
-      resolution: '1m',
-      statistic: 'p99',
-      periodMs: 60_000,
-      from: MINUTE,
-      to: MINUTE + 600_000,
-    });
+    const result = await new PgMetricDao(pool.asPool()).readSeries(aRead({ statistic, limit: 2 }));
 
-    expect(result.datapoints).toEqual([]);
+    // One row past the page is how the DAO knows there is another.
+    expect(pool.find(fragment).values[7]).toBe(3);
+    expect(result.datapoints.map((datapoint) => datapoint.timestamp)).toEqual([MINUTE, MINUTE + 60_000]);
+    expect(result.nextCursor).toBe(MINUTE + 60_000);
+  });
+
+  it('answers no cursor on the last page', async () => {
+    const pool = fakePool()
+      .on('SELECT unit FROM metric_series', { rows: [{ unit: 'Milliseconds' }] })
+      .on('SUM(sample_count)', { rows: [{ bucket_ms: String(MINUTE), sample_count: '1', sum_value: 1, min_value: 1, max_value: 1 }] });
+
+    const result = await new PgMetricDao(pool.asPool()).readSeries(aRead({ limit: 1 }));
+
+    expect(result.datapoints).toHaveLength(1);
+    expect(result.nextCursor).toBeUndefined();
+  });
+
+  it('starts the next page at the bucket after the cursor, even an unaligned one', async () => {
+    const pool = fakePool().on('SELECT unit FROM metric_series', { rows: [{ unit: 'Milliseconds' }] });
+
+    await new PgMetricDao(pool.asPool()).readSeries(aRead({ periodMs: 300_000, after: MINUTE + 12_345 }));
+
+    expect(pool.find('SUM(sample_count)').values[5]).toBe(new Date(MINUTE + 300_000).toISOString());
+  });
+
+  it('reads nothing past a cursor at the end of the window', async () => {
+    const pool = fakePool().on('SELECT unit FROM metric_series', { rows: [{ unit: 'Milliseconds' }] });
+
+    const result = await new PgMetricDao(pool.asPool()).readSeries(aRead({ after: MINUTE + 540_000 }));
+
+    expect(result).toEqual({ unit: 'Milliseconds', datapoints: [] });
+    expect(pool.statements.some((sql) => sql.includes('SUM(sample_count)'))).toBe(false);
+  });
+
+  it('holds a page to the largest size, even when a caller asks the DAO directly for more', async () => {
+    const pool = fakePool().on('SELECT unit FROM metric_series', { rows: [{ unit: 'Milliseconds' }] });
+
+    await new PgMetricDao(pool.asPool()).readSeries(aRead({ limit: 1_000_000 }));
+
+    expect(pool.find('SUM(sample_count)').values[7]).toBe(METRIC_DATAPOINT_PAGE_SIZE.max + 1);
   });
 });
 

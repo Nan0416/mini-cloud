@@ -72,19 +72,24 @@ export interface GetMetricDataRequest {
   readonly namespace: string;
   readonly metricName: string;
   readonly statistic: MetricStatistic;
-  /**
-   * Bucket width of the returned series. Must be a multiple of a minute, and coarse
-   * enough that the range holds at most `METRIC_MAX_DATAPOINTS` buckets.
-   */
+  /** Bucket width of the returned series. Must be a multiple of a minute. */
   readonly periodMs: number;
   readonly from: number;
-  /** Defaults to now, and is clamped to the point every agent has had time to report. */
+  /**
+   * Defaults to now, and is clamped to the point every agent has had time to report.
+   * Pages after the first pass the first page's `to`, or a window that moved on
+   * between pages would end at a different bucket than the one they started from.
+   */
   readonly to?: number;
   /**
    * The exact dimension set to read, defaulting to the empty set. A subset would sum
    * across sets that each already counted the same observation.
    */
   readonly dimensions?: MetricDimensions;
+  /** Datapoints per page. See `METRIC_DATAPOINT_PAGE_SIZE`. */
+  readonly limit?: number;
+  /** The previous page's `nextCursor`. Omit for the first page. */
+  readonly after?: number;
 }
 
 export interface GetMetricDataResponse {
@@ -99,5 +104,11 @@ export interface GetMetricDataResponse {
    */
   readonly from: number;
   readonly to: number;
+  /** This page's datapoints, oldest first. Empty buckets are omitted rather than zeroed. */
   readonly datapoints: ReadonlyArray<MetricDatapoint>;
+  /**
+   * The timestamp of this page's last datapoint: pass it back as `after`. Absent when
+   * this was the last page.
+   */
+  readonly nextCursor?: number;
 }

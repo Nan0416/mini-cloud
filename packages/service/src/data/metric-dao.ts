@@ -63,12 +63,17 @@ export interface ReadSeriesInput {
   readonly periodMs: number;
   readonly from: number;
   readonly to: number;
+  readonly limit?: number;
+  /** Keyset cursor: return only buckets starting after this timestamp. */
+  readonly after?: number;
 }
 
 export interface ReadSeriesOutput {
   /** Undefined when the series has never been written. */
   readonly unit?: MetricUnit;
   readonly datapoints: ReadonlyArray<MetricDatapoint>;
+  /** Absent when the page reached the end. */
+  readonly nextCursor?: number;
 }
 
 export interface EnsurePartitionsInput {

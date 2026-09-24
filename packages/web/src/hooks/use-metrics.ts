@@ -1,6 +1,6 @@
 import type { MiniCloudClient } from '@mini-cloud/client';
 import { useApi } from '@/hooks/use-connection';
-import { shouldPoll } from '@/lib/metric-graph-data';
+import { readWholeSeries, shouldPoll } from '@/lib/metric-graph-data';
 import { queryKeys } from '@/lib/query-keys';
 import {
   floorToPeriod,
@@ -103,8 +103,7 @@ export function seriesKeyOf(query: MetricQuery): MetricSeriesKey {
  *
  * A relative window names both ends rather than leaving the end to the service. Its
  * start comes from this browser's clock and the service's end from the machine's, so a
- * browser running behind would otherwise ask for a longer window than it chose — and a
- * day by the minute, which is exactly the most one read may return, would be refused.
+ * browser running behind would otherwise ask for a longer window than it chose.
  */
 function requestFor(series: MetricSeriesKey, window: MetricWindowKey, now: number): GetMetricDataRequest {
   const { range, periodMs } = window;
@@ -157,7 +156,7 @@ export function useMetricGraphData(graph: MetricGraph): ReadonlyArray<GraphSerie
       const series = seriesKeyOf(query);
       return queryOptions({
         queryKey: queryKeys.metricData(series, window),
-        queryFn: () => api.getMetricData(requestFor(series, window, Date.now())),
+        queryFn: () => readWholeSeries((request) => api.getMetricData(request), requestFor(series, window, Date.now())),
         placeholderData: () => newestCached(client, series),
         refetchInterval: (current) => (shouldPoll(window.range, window.periodMs, current.state.data, current.state.error) ? POLL_MS : false),
       });

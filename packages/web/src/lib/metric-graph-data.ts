@@ -1,8 +1,28 @@
-import { floorToPeriod, type GetMetricDataResponse, type MetricTimeRange } from '@mini-cloud/shared';
+import { METRIC_DATAPOINT_PAGE_SIZE, floorToPeriod, type GetMetricDataRequest, type GetMetricDataResponse, type MetricTimeRange } from '@mini-cloud/shared';
 import type { GraphSeries } from '@/hooks/use-metrics';
 import { isRetryable } from '@/lib/errors';
 
 /** How a graph's answers are polled and framed, apart from the hook so it can be tested. */
+
+/**
+ * A whole series, read page by page before any of it is drawn: a chart that grew as
+ * pages landed would move its axis under the pointer.
+ *
+ * Every page after the first ends where the first did. The service stops at a
+ * watermark that moves with the clock, so a later page left to find its own end could
+ * run a bucket past the window the chart is framed on.
+ */
+export async function readWholeSeries(getPage: (request: GetMetricDataRequest) => Promise<GetMetricDataResponse>, request: GetMetricDataRequest): Promise<GetMetricDataResponse> {
+  const first = await getPage({ ...request, limit: METRIC_DATAPOINT_PAGE_SIZE.max });
+  const datapoints = [...first.datapoints];
+  let after = first.nextCursor;
+  while (after !== undefined) {
+    const page = await getPage({ ...request, to: first.to, limit: METRIC_DATAPOINT_PAGE_SIZE.max, after });
+    datapoints.push(...page.datapoints);
+    after = page.nextCursor;
+  }
+  return { ...first, datapoints, nextCursor: undefined };
+}
 
 /**
  * Whether a series is worth asking for again.
