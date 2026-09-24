@@ -25,6 +25,19 @@ instead. Delete a line once it has shipped.
       throttled, and killed by a `daemon restart`. Still to settle: what the built-in
       agent's id is, and whether it is on by default.
 
+- [ ] **A version endpoint, and an agent that reports its own.** The console shows what
+      it is talking to: the control plane's version beside the service it is connected
+      to, and each agent's version in the fleet table, so a machine left behind by an
+      update is visible rather than deduced from behaviour. Two halves. The service
+      answers its own version on the public listener — `/version` beside `/ping` and
+      `/health`, which the console already polls — read from the version the release
+      stamps into `packages/cli/package.json`, not from a second constant that will
+      drift. And the agent sends its version when it registers and on each heartbeat,
+      which the service stores on the agent row and returns with every other agent field,
+      so `agent list` and the console read it the same way. Worth settling first: whether
+      a version mismatch is only displayed or is also said out loud, given that the
+      console breaking against an older service is exactly what the metrics graph did.
+
 ## macOS distribution
 
 - [ ] **An organization Apple Developer account, if signing is ever wanted.** Not a
