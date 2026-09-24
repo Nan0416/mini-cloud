@@ -100,12 +100,19 @@ npm run diff               # what would change
 npm run deploy
 ```
 
+Every `cdk` script carries `AWS_PROFILE=mini-cloud`, so a deploy does not depend on
+which profile the shell happens to have. Deploying from another AWS estate means
+changing that name here as well as the values in `.env`. A profile for some other
+account fails at the first AWS call rather than deploying anywhere, since the stack
+names the account it belongs to.
+
 **The first deploy waits.** ACM issues the certificate only after its validation record
 resolves, so `cdk deploy` sits on the certificate for a few minutes while Route 53
 propagates. That is normal and only happens once.
 
-Rebuild the console and `npm run deploy` again to publish a new version. The
-distribution id and the site URL are stack outputs.
+Rebuild the console and `npm run deploy` again to publish a new version — the stack
+ships whatever `packages/web/dist` holds. The distribution id and the site URL are stack
+outputs.
 
 After the first deploy, give the release workflow the two secrets it reads, from the
 `ReleaseRoleArn` and `DownloadsBucketName` outputs — [dev.md](../dev.md#releasing) has
