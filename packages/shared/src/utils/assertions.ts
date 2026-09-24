@@ -1,4 +1,5 @@
 import { InvalidRequestError } from '../errors';
+import { MAX_TIMESTAMP_MS } from '../models/common';
 
 /**
  * Runtime assertions for data crossing a trust boundary — HTTP bodies, query
@@ -60,6 +61,15 @@ export function assertOptionalInteger(value: unknown, field: string): number | u
     return undefined;
   }
   return assertInteger(value, field);
+}
+
+/** A time in milliseconds since the epoch, within what a `Date` can hold. */
+export function assertTimestamp(value: unknown, field: string): number {
+  const ms = assertInteger(value, field);
+  if (Math.abs(ms) > MAX_TIMESTAMP_MS) {
+    throw new InvalidRequestError(`${field} must be a time in milliseconds since the epoch, between -${MAX_TIMESTAMP_MS} and ${MAX_TIMESTAMP_MS}`);
+  }
+  return ms;
 }
 
 export function assertBoolean(value: unknown, field: string): boolean {

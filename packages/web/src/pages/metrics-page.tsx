@@ -1,57 +1,86 @@
-import { METRIC_STATISTICS, hashDimensions, type MetricDimensions, type MetricStatistic } from '@mini-cloud/shared';
-import { useState } from 'react';
+import { METRIC_GRAPH_LIMITS, periodOf, unitForStatistic, type MetricGraph, type MetricQuery } from '@mini-cloud/shared';
+import { useMemo } from 'react';
+import { Link } from 'react-router-dom';
 import { PageHeader } from '@/components/common/page-header';
 import { EmptyState, ErrorState, LoadingRows } from '@/components/common/states';
-import { MetricChart } from '@/components/metrics/metric-chart';
+import { AddMetricForm } from '@/components/metrics/add-metric-form';
+import { QueryList } from '@/components/metrics/query-list';
+import { TimeRangeControls } from '@/components/metrics/time-range-controls';
+import { TimeSeriesChart, type ChartSeriesState, type ChartSeriesView } from '@/components/metrics/time-series-chart';
+import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Label } from '@/components/ui/label';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { useMetricDimensions, useMetricNames, useMetricNamespaces, useMetricSeries } from '@/hooks/use-metrics';
+import { useMetricGraphParam } from '@/hooks/use-metric-graph';
+import { useListedUnits, useMetricGraphData, useMetricNamespaces, type GraphSeries } from '@/hooks/use-metrics';
+import { isRetryable } from '@/lib/errors';
+import { frameOf, isDrawableIn, type GraphFrame } from '@/lib/metric-graph-data';
+import { EMPTY_GRAPH, axisUnitsOf, colorsOf, isOnGraph, labelOf, nextColor, nextQueryId, withRange } from '@/lib/metric-graph-editor';
+import { urls } from '@/lib/urls';
 
-/** Ranges worth looking at, with a bucket width that gives a readable number of points. */
-const RANGES = [
-  { label: 'Last hour', spanMs: 3_600_000, periodMs: 60_000 },
-  { label: 'Last 6 hours', spanMs: 6 * 3_600_000, periodMs: 300_000 },
-  { label: 'Last 24 hours', spanMs: 86_400_000, periodMs: 3_600_000 },
-  { label: 'Last 7 days', spanMs: 7 * 86_400_000, periodMs: 3_600_000 },
-  { label: 'Last 30 days', spanMs: 30 * 86_400_000, periodMs: 86_400_000 },
-] as const;
+const DESCRIPTION = 'Published by your programs and by the agents themselves. The graph lives in the address, so a link shows exactly what you see.';
 
-/** How a dimension set reads in a picker. The empty set is a series too. */
-function describeDimensions(dimensions: MetricDimensions): string {
-  const entries = Object.entries(dimensions);
-  if (entries.length === 0) {
-    return 'No dimensions';
+function stateOf(series: GraphSeries, frame: GraphFrame | undefined): ChartSeriesState {
+  // Data first: a poll that fails while the service restarts leaves the last answer in
+  // hand, and a series still on screen has not failed as far as a reader is concerned.
+  const answered = series.data !== undefined && !series.placeholder;
+  if (series.error !== null && !answered) {
+    return { kind: 'error', message: series.error.message, retry: isRetryable(series.error) ? series.refetch : undefined };
   }
-  return entries.map(([name, value]) => `${name}=${value}`).join(', ');
+  // A stand-in read at another period would land on the wrong buckets, so it waits.
+  if (series.data === undefined || !isDrawableIn(series, frame)) {
+    return { kind: 'loading' };
+  }
+  return { kind: 'ready', unit: unitForStatistic(series.query.statistic, series.data.unit), datapoints: series.data.datapoints };
+}
+
+/** Adds a query to the graph as it stands, unless it is already there or the graph is full. */
+function withQuery(graph: MetricGraph, query: MetricQuery): MetricGraph {
+  if (graph.queries.length >= METRIC_GRAPH_LIMITS.queries || isOnGraph(graph.queries, query)) {
+    return graph;
+  }
+  // Given afresh, since the form chose them from the graph as it last rendered.
+  return { ...graph, queries: [...graph.queries, { ...query, id: nextQueryId(graph.queries), color: nextColor(graph.queries) }] };
 }
 
 export function MetricsPage() {
-  const [namespace, setNamespace] = useState<string | undefined>(undefined);
-  const [metricName, setMetricName] = useState<string | undefined>(undefined);
-  const [dimensionsHash, setDimensionsHash] = useState<string | undefined>(undefined);
-  const [statistic, setStatistic] = useState<MetricStatistic>('avg');
-  const [rangeIndex, setRangeIndex] = useState(0);
-
+  const { graph, error, editGraph } = useMetricGraphParam();
   const namespaces = useMetricNamespaces();
-  const selectedNamespace = namespace ?? namespaces.data?.namespaces[0];
 
-  const names = useMetricNames(selectedNamespace);
-  const selectedMetric = metricName ?? names.data?.metrics[0]?.metricName;
+  // A link that cannot be read fetches nothing: the empty graph has no series.
+  const shown: MetricGraph = graph ?? EMPTY_GRAPH;
+  const series = useMetricGraphData(shown);
+  const listedUnits = useListedUnits(shown.queries);
+  const colors = useMemo(() => colorsOf(shown.queries), [shown.queries]);
+  const frame = useMemo(() => frameOf(series), [series]);
 
-  const dimensions = useMetricDimensions(selectedNamespace, selectedMetric);
-  const dimensionSets = dimensions.data?.dimensionSets ?? [];
-  const selectedSet = dimensionSets.find((set) => hashDimensions(set) === dimensionsHash) ?? dimensionSets[0];
-
-  const range = RANGES[rangeIndex];
-
-  // Described relatively and resolved to a `from` inside the query function, so the
-  // clock is never read while rendering and the cache key stays stable between polls.
-  const series = useMetricSeries(
-    selectedNamespace === undefined || selectedMetric === undefined || selectedSet === undefined
-      ? undefined
-      : { namespace: selectedNamespace, metricName: selectedMetric, dimensionsHash: hashDimensions(selectedSet), statistic, spanMs: range.spanMs, periodMs: range.periodMs },
+  const chartSeries = useMemo(
+    (): ReadonlyArray<ChartSeriesView> =>
+      series.map((entry, index) => ({
+        id: entry.query.id,
+        label: labelOf(entry.query),
+        colorSlot: colors[index],
+        axis: entry.query.yAxis ?? 'left',
+        state: stateOf(entry, frame),
+      })),
+    [series, colors, frame],
   );
+  // The unit its data reports where it has any, which is what the chart draws; the
+  // listing's before then, so a series still loading still holds its axis.
+  const units = series.map((entry, index) => {
+    const reported = entry.data !== undefined && entry.data.datapoints.length > 0 ? entry.data.unit : listedUnits[index];
+    return reported === undefined ? undefined : unitForStatistic(entry.query.statistic, reported);
+  });
+  const axisUnits = axisUnitsOf(
+    series.flatMap((entry, index) => {
+      const unit = units[index];
+      return unit === undefined ? [] : [{ axis: entry.query.yAxis ?? 'left', unit }];
+    }),
+  );
+
+  // Only what changed, merged into the row as it stands: a whole row made at the last
+  // render would undo an edit made since, such as a label saved a moment ago.
+  const changeQuery = (id: string, change: Partial<MetricQuery>) =>
+    editGraph((current) => ({ ...current, queries: current.queries.map((candidate) => (candidate.id === id ? { ...candidate, ...change } : candidate)) }));
+  const removeQuery = (id: string) => editGraph((current) => ({ ...current, queries: current.queries.filter((candidate) => candidate.id !== id) }));
 
   if (namespaces.isLoading) {
     return <LoadingRows rows={6} />;
@@ -62,7 +91,7 @@ export function MetricsPage() {
   if ((namespaces.data?.namespaces.length ?? 0) === 0) {
     return (
       <div className="space-y-6">
-        <PageHeader title="Metrics" description="Published by your programs and by the agents themselves." />
+        <PageHeader title="Metrics" description={DESCRIPTION} />
         <Card>
           <EmptyState
             title="No metrics yet"
@@ -72,134 +101,77 @@ export function MetricsPage() {
       </div>
     );
   }
+  if (graph === undefined) {
+    return (
+      <div className="space-y-6">
+        <PageHeader title="Metrics" description={DESCRIPTION} />
+        <Card>
+          <EmptyState
+            title="This link's graph cannot be read"
+            description={error instanceof Error ? error.message : String(error)}
+            action={
+              <Button asChild variant="outline">
+                <Link to={urls.metrics()}>Start a new graph</Link>
+              </Button>
+            }
+          />
+        </Card>
+      </div>
+    );
+  }
+
+  const lone = graph.queries.length === 1 ? series[0] : undefined;
+  const loneState = graph.queries.length === 1 ? chartSeries[0].state : undefined;
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Metrics" description="Published by your programs and by the agents themselves." />
+      <PageHeader title="Metrics" description={DESCRIPTION} />
 
       <Card>
-        <CardHeader className="gap-4">
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-5">
-            <div className="space-y-1.5">
-              <Label htmlFor="metric-namespace">Namespace</Label>
-              <Select
-                value={selectedNamespace ?? ''}
-                onValueChange={(value) => {
-                  setNamespace(value);
-                  // A metric name belongs to its namespace, so both choices below
-                  // have to fall back to the new namespace's first option.
-                  setMetricName(undefined);
-                  setDimensionsHash(undefined);
-                }}
-              >
-                <SelectTrigger id="metric-namespace">
-                  <SelectValue placeholder="Choose a namespace" />
-                </SelectTrigger>
-                <SelectContent>
-                  {(namespaces.data?.namespaces ?? []).map((candidate) => (
-                    <SelectItem key={candidate} value={candidate}>
-                      {candidate}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label htmlFor="metric-name">Metric</Label>
-              <Select
-                value={selectedMetric ?? ''}
-                onValueChange={(value) => {
-                  setMetricName(value);
-                  setDimensionsHash(undefined);
-                }}
-              >
-                <SelectTrigger id="metric-name">
-                  <SelectValue placeholder="Choose a metric" />
-                </SelectTrigger>
-                <SelectContent>
-                  {(names.data?.metrics ?? []).map((metric) => (
-                    <SelectItem key={metric.metricName} value={metric.metricName}>
-                      {metric.metricName}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label htmlFor="metric-dimensions">Dimensions</Label>
-              <Select value={selectedSet === undefined ? '' : hashDimensions(selectedSet)} onValueChange={setDimensionsHash}>
-                <SelectTrigger id="metric-dimensions">
-                  <SelectValue placeholder="Choose a dimension set" />
-                </SelectTrigger>
-                <SelectContent>
-                  {dimensionSets.map((set) => (
-                    <SelectItem key={hashDimensions(set)} value={hashDimensions(set)}>
-                      {describeDimensions(set)}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label htmlFor="metric-statistic">Statistic</Label>
-              <Select value={statistic} onValueChange={(value) => setStatistic(METRIC_STATISTICS.find((candidate) => candidate === value) ?? 'avg')}>
-                <SelectTrigger id="metric-statistic">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {METRIC_STATISTICS.map((candidate) => (
-                    <SelectItem key={candidate} value={candidate}>
-                      {candidate}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-1.5">
-              <Label htmlFor="metric-range">Range</Label>
-              <Select value={String(rangeIndex)} onValueChange={(value) => setRangeIndex(Number(value))}>
-                <SelectTrigger id="metric-range">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {RANGES.map((candidate, index) => (
-                    <SelectItem key={candidate.label} value={String(index)}>
-                      {candidate.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          </div>
+        <CardHeader>
+          <TimeRangeControls
+            range={graph.range}
+            periodMs={graph.periodMs}
+            onRangeChange={(range) => editGraph((current) => withRange(current, range))}
+            onPeriodChange={(periodMs) => editGraph((current) => ({ ...current, periodMs }))}
+          />
         </CardHeader>
-
-        <CardContent className="space-y-3">
-          {selectedMetric === undefined ? (
-            <EmptyState title="No metrics in this namespace" />
-          ) : series.isLoading ? (
-            <LoadingRows rows={5} />
-          ) : series.isError ? (
-            // Covers the one refusal a reader can act on: a percentile asked for
-            // beyond the window where the distribution is kept.
-            <ErrorState error={series.error} onRetry={() => void series.refetch()} />
+        <CardContent className="space-y-3 pt-4">
+          {graph.queries.length === 0 ? (
+            <EmptyState title="Nothing on this graph yet" description="Add a metric below to plot it." />
           ) : (
             <>
-              <div className="flex flex-wrap items-baseline justify-between gap-2">
+              {/* One series has no legend, so the title names it. */}
+              {lone === undefined ? null : (
                 <CardTitle className="text-base">
-                  {selectedMetric} <span className="font-normal text-muted-foreground">({series.data?.unit})</span>
+                  {labelOf(lone.query)} {/* Named only for a series the chart is drawing: a stand-in it rejected would have the heading name a unit beside a spinner. */}
+                  {loneState?.kind === 'ready' ? <span className="font-normal text-muted-foreground">({loneState.unit})</span> : null}
                 </CardTitle>
-                <CardDescription>
-                  {statistic} · {series.data?.resolution} buckets · {describeDimensions(selectedSet ?? {})}
-                </CardDescription>
-              </div>
-              <MetricChart datapoints={series.data?.datapoints ?? []} unit={series.data?.unit ?? 'None'} periodMs={range.periodMs} />
+              )}
+              <TimeSeriesChart
+                series={chartSeries}
+                // Before anything has answered there is no window, and the chart shows its loading or failed state instead.
+                from={frame?.from ?? 0}
+                to={frame?.to ?? 0}
+                periodMs={frame?.periodMs ?? periodOf(graph)}
+                stale={series.some((entry) => entry.placeholder)}
+              />
               <p className="text-xs text-muted-foreground">Reads stop a few minutes behind now, so every agent has had time to report the newest bucket.</p>
             </>
           )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Series</CardTitle>
+          <CardDescription>A series in a second unit goes on the right axis.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-5 pt-4">
+          {graph.queries.length === 0 ? null : (
+            <QueryList queries={graph.queries} colors={colors} units={units} axisUnits={axisUnits} onChange={changeQuery} onRemove={removeQuery} />
+          )}
+          <AddMetricForm queries={graph.queries} axisUnits={axisUnits} onAdd={(query) => editGraph((current) => withQuery(current, query))} />
         </CardContent>
       </Card>
     </div>

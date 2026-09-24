@@ -1,5 +1,5 @@
 import type { ListTaskInstancesRequest } from '@mini-cloud/shared';
-import type { MetricSeriesParams } from '@/hooks/use-metrics';
+import type { MetricSeriesKey, MetricWindowKey } from '@/hooks/use-metrics';
 
 /**
  * Every cache key the console uses, built from one place.
@@ -21,7 +21,9 @@ export const queryKeys = {
   metricNamespaces: () => ['metrics', 'namespaces'] as const,
   metricNames: (namespace: string) => ['metrics', 'names', namespace] as const,
   metricDimensions: (namespace: string, metricName: string) => ['metrics', 'dimensions', namespace, metricName] as const,
-  metricData: (params: MetricSeriesParams | undefined) => ['metrics', 'data', params ?? null] as const,
+  /** Every window read for one series, which is where a new window finds data to show while it loads. */
+  metricSeries: (series: MetricSeriesKey) => ['metrics', 'data', series] as const,
+  metricData: (series: MetricSeriesKey, window: MetricWindowKey) => ['metrics', 'data', series, window] as const,
 
   agents: () => ['agents'] as const,
   variables: () => ['variables'] as const,

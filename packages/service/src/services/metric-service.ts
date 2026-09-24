@@ -9,6 +9,7 @@ import {
   ListMetricNamespacesRequest,
   ListMetricNamespacesResponse,
   LoggerFactory,
+  METRIC_MAX_DATAPOINTS,
   METRIC_RESOLUTIONS,
   METRIC_RESOLUTION_MS,
   MetricDatum,
@@ -19,8 +20,10 @@ import {
   RejectedMetricDatum,
   coarsestResolutionFor,
   floorToPeriod,
+  assertTimestamp,
   floorToResolution,
   hashDimensions,
+  unitForStatistic,
 } from '@mini-cloud/shared';
 import { MetricDao } from '../data/metric-dao';
 
@@ -30,18 +33,6 @@ const logger = LoggerFactory.getLogger('MetricService');
 const MAX_FUTURE_MS = 2 * 3600_000;
 
 const DAY_MS = 86_400_000;
-
-/**
- * What `new Date(...).toISOString()` can represent. Beyond it that call throws a bare
- * `RangeError`, which would surface as a 500 for what is plainly a bad request.
- */
-const MAX_TIMESTAMP_MS = 8_640_000_000_000_000;
-
-function assertQueryable(timestamp: number, field: string): void {
-  if (!Number.isFinite(timestamp) || Math.abs(timestamp) > MAX_TIMESTAMP_MS) {
-    throw new InvalidRequestError(`${field} must be a time in milliseconds since the epoch, between -${MAX_TIMESTAMP_MS} and ${MAX_TIMESTAMP_MS}`);
-  }
-}
 
 export interface MetricConfig {
   /**
@@ -147,9 +138,9 @@ export class MetricService {
       throw new InvalidRequestError(`periodMs must be a whole number of minutes, because metrics are stored by the minute. Round ${periodMs} to a multiple of 60000.`);
     }
 
-    assertQueryable(request.from, 'from');
+    assertTimestamp(request.from, 'from');
     if (request.to !== undefined) {
-      assertQueryable(request.to, 'to');
+      assertTimestamp(request.to, 'to');
     }
 
     // Clamped before anything else: a bucket only some agents have reported yet is
@@ -158,13 +149,27 @@ export class MetricService {
     // part of its period, which is the dipping last datapoint `queryLagMs` exists to
     // prevent. The period in progress is therefore not returned until it closes.
     const watermark = now - this.config.queryLagMs;
-    const to = floorToPeriod(Math.min(request.to ?? now, watermark), periodMs);
+    const end = Math.min(request.to ?? now, watermark);
+    const to = floorToPeriod(end, periodMs);
     const from = floorToPeriod(request.from, periodMs);
     if (from >= to) {
-      return { unit: 'None', periodMs, resolution: coarsestResolutionFor(periodMs), datapoints: [] };
+      // An empty window at `from`, rather than one that ends before it starts.
+      return { unit: unitForStatistic(request.statistic, 'None'), periodMs, resolution: coarsestResolutionFor(periodMs), from, to: from, datapoints: [] };
     }
 
     const resolution = this.resolutionFor(request, periodMs, from, now);
+
+    // After the percentile check, because no period can fix that refusal.
+    const buckets = (to - from) / periodMs;
+    if (buckets > METRIC_MAX_DATAPOINTS) {
+      // Sized from the unfloored span, so a read at the suggested period is known to fit.
+      const minutes = Math.ceil((end - request.from) / METRIC_MAX_DATAPOINTS / METRIC_RESOLUTION_MS['1m']);
+      throw new InvalidRequestError(
+        `A ${periodMs / METRIC_RESOLUTION_MS['1m']}-minute period over this range is ${buckets} datapoints, more than the ${METRIC_MAX_DATAPOINTS} one read may return. ` +
+          `Use a period of at least ${minutes} minutes (${minutes * METRIC_RESOLUTION_MS['1m']} ms), or a shorter range.`,
+      );
+    }
+
     const dimensionsHash = hashDimensions(request.dimensions ?? {});
 
     const { unit, datapoints } = await this.metricDao.readSeries({
@@ -178,7 +183,8 @@ export class MetricService {
       to,
     });
 
-    return { unit: unit ?? 'None', periodMs, resolution, datapoints };
+    // A count is a count whatever the series measures, so it is not reported in the metric's unit.
+    return { unit: unitForStatistic(request.statistic, unit ?? 'None'), periodMs, resolution, from, to, datapoints };
   }
 
   /**

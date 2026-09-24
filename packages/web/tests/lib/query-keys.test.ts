@@ -69,4 +69,17 @@ describe('queryKeys', () => {
 
     expect(new Set(firstSegments).size).toBe(roots.length);
   });
+
+  it('files every window read for a series under that series, so a new window can show the last one while it loads', () => {
+    const series = { namespace: 'MiniCloud/Agent', metricName: 'CpuUtilization', dimensionsHash: 'AgentId/nas', statistic: 'avg' as const };
+    const hour = queryKeys.metricData(series, { range: { kind: 'relative', durationMs: 3_600_000 }, periodMs: 60_000 });
+    const week = queryKeys.metricData(series, { range: { kind: 'relative', durationMs: 604_800_000 }, periodMs: 3_600_000 });
+
+    expect(startsWith(hour, queryKeys.metricSeries(series))).toBe(true);
+    expect(startsWith(week, queryKeys.metricSeries(series))).toBe(true);
+    expect(hour).not.toEqual(week);
+    expect(
+      startsWith(queryKeys.metricData({ ...series, statistic: 'p99' }, { range: { kind: 'relative', durationMs: 3_600_000 }, periodMs: 60_000 }), queryKeys.metricSeries(series)),
+    ).toBe(false);
+  });
 });

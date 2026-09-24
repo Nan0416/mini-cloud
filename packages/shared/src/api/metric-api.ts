@@ -72,7 +72,10 @@ export interface GetMetricDataRequest {
   readonly namespace: string;
   readonly metricName: string;
   readonly statistic: MetricStatistic;
-  /** Bucket width of the returned series. Must be a multiple of a minute. */
+  /**
+   * Bucket width of the returned series. Must be a multiple of a minute, and coarse
+   * enough that the range holds at most `METRIC_MAX_DATAPOINTS` buckets.
+   */
   readonly periodMs: number;
   readonly from: number;
   /** Defaults to now, and is clamped to the point every agent has had time to report. */
@@ -89,5 +92,12 @@ export interface GetMetricDataResponse {
   readonly periodMs: number;
   /** Which stored resolution answered the query. */
   readonly resolution: MetricResolution;
+  /**
+   * The window actually read, after flooring to the period and stopping where every
+   * agent has reported. `to` is exclusive. A chart spans this rather than its
+   * datapoints, so a series that starts late or has gaps is drawn that way.
+   */
+  readonly from: number;
+  readonly to: number;
   readonly datapoints: ReadonlyArray<MetricDatapoint>;
 }

@@ -3,6 +3,9 @@ const path = require('node:path');
 /** Workspace packages a test may import, resolved to source so `npm test` needs no build. */
 const SOURCE_PACKAGES = ['shared', 'client', 'reporter', 'agent', 'service'];
 
+/** Dependencies published only as ES modules, as one regex group. */
+const ESM_ONLY_PACKAGES = '(commander|d3-[^/]+|internmap)';
+
 /**
  * Root jest config — runs unit tests across every workspace package.
  *
@@ -59,11 +62,13 @@ module.exports = {
         },
       },
     ],
-    // commander ships ESM only, which jest's CommonJS runtime cannot load; compiled
-    // here, a test can drive the real command tree rather than a copy of its wiring.
-    '/node_modules/commander/.+\\.js$': ['ts-jest', { tsconfig: { module: 'commonjs', target: 'es2022', allowJs: true } }],
+    // commander and d3 ship ESM only, which jest's CommonJS runtime cannot load.
+    // Compiled here, a test can drive the real command tree rather than a copy of its
+    // wiring, and the console's chart arithmetic runs on the d3 it ships with.
+    // `internmap` is d3-array's own ESM-only dependency.
+    [`/node_modules/${ESM_ONLY_PACKAGES}/.+\\.js$`]: ['ts-jest', { tsconfig: { module: 'commonjs', target: 'es2022', allowJs: true } }],
   },
-  transformIgnorePatterns: ['/node_modules/(?!commander/)'],
+  transformIgnorePatterns: [`/node_modules/(?!${ESM_ONLY_PACKAGES}/)`],
   collectCoverageFrom: [
     'packages/*/src/**/*.ts',
     'packages/*/src/**/*.tsx',

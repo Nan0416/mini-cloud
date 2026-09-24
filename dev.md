@@ -411,11 +411,14 @@ curl -s -H "Authorization: Bearer $TOKEN" 'localhost:3001/metrics/names?namespac
 curl -s -H "Authorization: Bearer $TOKEN" 'localhost:3001/metrics/names?namespace=MyApp&limit=50&after=Latency'
 ```
 
-Three things are worth knowing about what comes back:
+Four things are worth knowing about what comes back:
 
 - **Reads stop `metrics.queryLagMs` behind now.** Agents report independently, so the
   newest minute would otherwise hold only whichever machines reported first — a
-  datapoint that dips and silently corrects itself.
+  datapoint that dips and silently corrects itself. The response's `from` and `to` are
+  the window actually read, after that and after flooring both ends to the period.
+- **One read returns at most 1440 datapoints**, a day by the minute. A finer period over
+  a longer range is refused, and the message names the smallest period that fits.
 - **Data that arrives late still counts.** Rollups are updated as data lands rather than
   on a schedule, so an agent that was offline backfills into the hour and day it belongs
   to. Buckets older than `metrics.rawRetentionDays`, or more than two hours ahead, are
@@ -427,6 +430,17 @@ Three things are worth knowing about what comes back:
 Agents also report their own machine's CPU, memory and disk under `MiniCloud/Agent`, so
 there is something to look at before anything is instrumented. Turn it off with
 `agent.hostMetrics`.
+
+The console's metrics page keeps its whole graph in the address, as
+`/metrics?graph=<base64url of JSON>`, so a link shows exactly what its sender saw. The
+JSON is a `MetricGraph` (`packages/shared/src/models/metric-graph.ts`): up to eight
+queries, each an exact dimension set and a statistic, over a relative or absolute range.
+`parseMetricGraph` checks it, and names the field that is wrong. To build a link by hand:
+
+```bash
+echo -n '{"version":1,"range":{"kind":"relative","durationMs":86400000},"queries":[{"id":"m1","namespace":"MyApp","metricName":"Latency","dimensions":{"Operation":"Ingest"},"statistic":"p99"}]}' \
+  | base64 | tr '+/' '-_' | tr -d '=\n'
+```
 
 ## Building the binary
 
