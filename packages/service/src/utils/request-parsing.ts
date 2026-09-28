@@ -1,6 +1,7 @@
 import {
   AGENT_REPORTED_STATUSES,
   BroadcastRequest,
+  CreateDashboardRequest,
   CreateTaskRequest,
   GetMetricDataRequest,
   EXTERNAL_TASK_EVENT_SOURCES,
@@ -31,7 +32,9 @@ import {
   TASK_EVENT_LEVELS,
   TASK_INSTANCE_STATUSES,
   TASK_TYPES,
+  UpdateDashboardRequest,
   UpdateTaskRequest,
+  assertDashboardName,
   assertArray,
   assertBoolean,
   assertDefined,
@@ -47,6 +50,7 @@ import {
   assertString,
   assertStringArray,
   assertStringMap,
+  parseDashboardContent,
   parseOptionalIntegerParam,
 } from '@mini-cloud/shared';
 
@@ -432,4 +436,14 @@ export function parseGetMetricDataRequest(query: unknown): GetMetricDataRequest 
     limit,
     after: parseOptionalIntegerParam(record['after'], 'after'),
   };
+}
+
+export function parseCreateDashboardRequest(body: unknown): CreateDashboardRequest {
+  const { name, ...content } = assertRecord(body, 'body');
+  return { name: assertDashboardName(name, 'name'), ...parseDashboardContent(content, 'dashboard') };
+}
+
+export function parseUpdateDashboardRequest(body: unknown): UpdateDashboardRequest {
+  const { name, version, ...content } = assertRecord(body, 'body');
+  return { name: assertDashboardName(name, 'name'), version: assertInteger(version, 'version'), ...parseDashboardContent(content, 'dashboard') };
 }

@@ -1,6 +1,16 @@
 import {
   BroadcastRequest,
   BroadcastResponse,
+  CreateDashboardRequest,
+  CreateDashboardResponse,
+  DeleteDashboardRequest,
+  DeleteDashboardResponse,
+  GetDashboardRequest,
+  GetDashboardResponse,
+  ListDashboardsRequest,
+  ListDashboardsResponse,
+  UpdateDashboardRequest,
+  UpdateDashboardResponse,
   CreateTaskRequest,
   CreateTaskResponse,
   DeleteTaskRequest,
@@ -170,6 +180,29 @@ export class MiniCloudClient {
     // rather than as a nested object a query string cannot express.
     const dimension = Object.entries(dimensions ?? {}).map(([name, value]) => `${name}:${value}`);
     return this.http.request('GET', '/metrics/data', { query: { ...rest, dimension } });
+  }
+
+  // ---- dashboards ----
+
+  async listDashboards(_request: ListDashboardsRequest = {}): Promise<ListDashboardsResponse> {
+    return this.http.request('GET', '/dashboards');
+  }
+
+  async getDashboard(request: GetDashboardRequest): Promise<GetDashboardResponse> {
+    return this.http.request('GET', `/dashboards/${encodeURIComponent(request.name)}`);
+  }
+
+  async createDashboard(request: CreateDashboardRequest): Promise<CreateDashboardResponse> {
+    return this.http.request('POST', '/dashboards', { body: request });
+  }
+
+  async updateDashboard(request: UpdateDashboardRequest): Promise<UpdateDashboardResponse> {
+    const { name, ...body } = request;
+    return this.http.request('PUT', `/dashboards/${encodeURIComponent(name)}`, { body });
+  }
+
+  async deleteDashboard(request: DeleteDashboardRequest): Promise<DeleteDashboardResponse> {
+    return this.http.request('DELETE', `/dashboards/${encodeURIComponent(request.name)}`);
   }
 
   // ---- agents ----

@@ -175,3 +175,16 @@ export function parseOptionalBooleanParam(value: unknown, field: string): boolea
   }
   throw new InvalidRequestError(`${field} must be "true" or "false"`);
 }
+
+/**
+ * Refuses a field the format does not define. A misspelt optional field, `lable` for
+ * `label`, would otherwise be dropped without a word and its default shown for no
+ * visible reason.
+ */
+export function assertKnownFields(record: Record<string, unknown>, field: string, known: ReadonlyArray<string>): void {
+  for (const key of Object.keys(record)) {
+    if (!known.includes(key)) {
+      throw new InvalidRequestError(`${field}.${key} is not a field of ${field}; it may have ${known.join(', ')}`);
+    }
+  }
+}

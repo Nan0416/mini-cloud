@@ -1,5 +1,6 @@
 import {
   AgentCommand,
+  Dashboard,
   Job,
   LaunchInstruction,
   ReplacementVariables,
@@ -12,6 +13,18 @@ import {
   TaskInstance,
   TaskInstanceStatus,
 } from '@mini-cloud/shared';
+import {
+  CreateDashboardInput,
+  CreateDashboardOutput,
+  DashboardDao,
+  DeleteDashboardInput,
+  DeleteDashboardOutput,
+  GetDashboardInput,
+  GetDashboardOutput,
+  ListDashboardsOutput,
+  UpdateDashboardInput,
+  UpdateDashboardOutput,
+} from '../../src/data/dashboard-dao';
 import {
   AgentDao,
   ExpireAgentsInput,
@@ -481,5 +494,48 @@ export class FakeAgentCommander implements AgentCommander {
   /** Every launch instruction sent, in order — what most dispatch assertions want. */
   get launches(): ReadonlyArray<LaunchInstruction> {
     return this.sent.filter((entry) => entry.command.type === 'launch-instance').map((entry) => (entry.command as { instruction: LaunchInstruction }).instruction);
+  }
+}
+
+/** Holds the version guard, since a stale save being refused is what callers rely on. */
+export class FakeDashboardDao implements DashboardDao {
+  readonly dashboards = new Map<string, Dashboard>();
+
+  seed(...dashboards: ReadonlyArray<Dashboard>): this {
+    for (const dashboard of dashboards) {
+      this.dashboards.set(dashboard.name, dashboard);
+    }
+    return this;
+  }
+
+  async listDashboards(): Promise<ListDashboardsOutput> {
+    return { dashboards: [...this.dashboards.values()].sort((a, b) => a.name.localeCompare(b.name)) };
+  }
+
+  async getDashboard(input: GetDashboardInput): Promise<GetDashboardOutput> {
+    return { dashboard: this.dashboards.get(input.name) };
+  }
+
+  async createDashboard(input: CreateDashboardInput): Promise<CreateDashboardOutput> {
+    if (this.dashboards.has(input.name)) {
+      return {};
+    }
+    const dashboard: Dashboard = { ...input, version: 1, createdAt: NOW, updatedAt: NOW };
+    this.dashboards.set(input.name, dashboard);
+    return { dashboard };
+  }
+
+  async updateDashboard(input: UpdateDashboardInput): Promise<UpdateDashboardOutput> {
+    const current = this.dashboards.get(input.name);
+    if (current === undefined || current.version !== input.version) {
+      return {};
+    }
+    const dashboard: Dashboard = { ...input, version: current.version + 1, createdAt: current.createdAt, updatedAt: NOW };
+    this.dashboards.set(input.name, dashboard);
+    return { dashboard };
+  }
+
+  async deleteDashboard(input: DeleteDashboardInput): Promise<DeleteDashboardOutput> {
+    return { deleted: this.dashboards.delete(input.name) };
   }
 }

@@ -10,3 +10,4 @@ export * from './emf';
 export * from './metric-buckets';
 export * from './metric-graph';
 export * from './metric-statistics';
+export * from './dashboard';

@@ -10,6 +10,7 @@ import {
   assertOptionalOneOf,
   assertOptionalString,
   assertRecord,
+  assertKnownFields,
   assertStringMap,
   assertTimestamp,
 } from './assertions';
@@ -29,24 +30,12 @@ const QUERY_KEYS = ['id', 'namespace', 'metricName', 'dimensions', 'statistic', 
 const RELATIVE_KEYS = ['kind', 'durationMs'];
 const ABSOLUTE_KEYS = ['kind', 'from', 'to'];
 
-/**
- * A misspelt optional field, `lable` for `label`, would otherwise be dropped without a
- * word, and the legend would show the default for no visible reason.
- */
-function assertKnownKeys(record: Record<string, unknown>, field: string, known: ReadonlyArray<string>): void {
-  for (const key of Object.keys(record)) {
-    if (!known.includes(key)) {
-      throw new InvalidRequestError(`${field}.${key} is not a field of a metric graph; ${field} may have ${known.join(', ')}`);
-    }
-  }
-}
-
-function parseTimeRange(value: unknown, field: string): MetricTimeRange {
+export function parseMetricTimeRange(value: unknown, field: string): MetricTimeRange {
   const record = assertRecord(value, field);
   const kind = assertOneOf(record['kind'], `${field}.kind`, METRIC_TIME_RANGE_KINDS);
 
   if (kind === 'relative') {
-    assertKnownKeys(record, field, RELATIVE_KEYS);
+    assertKnownFields(record, field, RELATIVE_KEYS);
     const durationMs = assertInteger(record['durationMs'], `${field}.durationMs`);
     if (durationMs <= 0 || durationMs > MAX_DURATION_MS) {
       throw new InvalidRequestError(`${field}.durationMs must be a span in milliseconds, between 1 and ${MAX_DURATION_MS} — ten years`);
@@ -54,7 +43,7 @@ function parseTimeRange(value: unknown, field: string): MetricTimeRange {
     return { kind, durationMs };
   }
 
-  assertKnownKeys(record, field, ABSOLUTE_KEYS);
+  assertKnownFields(record, field, ABSOLUTE_KEYS);
   const from = assertTimestamp(record['from'], `${field}.from`);
   const to = assertTimestamp(record['to'], `${field}.to`);
   if (from >= to) {
@@ -65,7 +54,7 @@ function parseTimeRange(value: unknown, field: string): MetricTimeRange {
 
 function parseQuery(value: unknown, field: string): MetricQuery {
   const record = assertRecord(value, field);
-  assertKnownKeys(record, field, QUERY_KEYS);
+  assertKnownFields(record, field, QUERY_KEYS);
 
   const id = assertNonEmptyString(record['id'], `${field}.id`);
   if (id.length > METRIC_GRAPH_LIMITS.idLength || !QUERY_ID.test(id)) {
@@ -96,7 +85,7 @@ function parseQuery(value: unknown, field: string): MetricQuery {
   };
 }
 
-function parsePeriod(value: unknown, field: string): number | undefined {
+export function parseMetricPeriod(value: unknown, field: string): number | undefined {
   if (value === undefined || value === null) {
     return undefined;
   }
@@ -134,43 +123,46 @@ export function parseMetricGraph(value: unknown): MetricGraph {
   if (record['version'] !== METRIC_GRAPH_VERSION) {
     throw new InvalidRequestError(`graph.version must be ${METRIC_GRAPH_VERSION}, the only graph format this version of mini-cloud reads`);
   }
-  assertKnownKeys(record, 'graph', GRAPH_KEYS);
+  assertKnownFields(record, 'graph', GRAPH_KEYS);
 
-  const entries = assertArray(record['queries'], 'graph.queries');
+  return {
+    version: METRIC_GRAPH_VERSION,
+    queries: parseMetricQueries(record['queries'], 'graph.queries'),
+    range: parseMetricTimeRange(record['range'], 'graph.range'),
+    periodMs: parseMetricPeriod(record['periodMs'], 'graph.periodMs'),
+  };
+}
+
+/** The queries of one graph, held to the rules that keep each series distinct on it. */
+export function parseMetricQueries(value: unknown, field: string): ReadonlyArray<MetricQuery> {
+  const entries = assertArray(value, field);
   if (entries.length > METRIC_GRAPH_LIMITS.queries) {
-    throw new InvalidRequestError(`graph.queries has ${entries.length} entries, more than the ${METRIC_GRAPH_LIMITS.queries} one graph may plot`);
+    throw new InvalidRequestError(`${field} has ${entries.length} entries, more than the ${METRIC_GRAPH_LIMITS.queries} one graph may plot`);
   }
 
   const ids = new Set<string>();
   const colors = new Set<number>();
   const series = new Map<string, number>();
-  const queries = entries.map((entry, index) => {
-    const query = parseQuery(entry, `graph.queries[${index}]`);
+  return entries.map((entry, index) => {
+    const query = parseQuery(entry, `${field}[${index}]`);
     if (ids.has(query.id)) {
-      throw new InvalidRequestError(`graph.queries[${index}].id "${query.id}" is already used by an earlier query; each needs its own`);
+      throw new InvalidRequestError(`${field}[${index}].id "${query.id}" is already used by an earlier query; each needs its own`);
     }
     ids.add(query.id);
     // Two lines in one colour read as one series.
     if (query.color !== undefined && colors.has(query.color)) {
-      throw new InvalidRequestError(`graph.queries[${index}].color ${query.color} is already used by an earlier query; each needs its own, or leave it out to be given a free one`);
+      throw new InvalidRequestError(`${field}[${index}].color ${query.color} is already used by an earlier query; each needs its own, or leave it out to be given a free one`);
     }
     if (query.color !== undefined) {
       colors.add(query.color);
     }
     const earlier = series.get(seriesIdentity(query));
     if (earlier !== undefined) {
-      throw new InvalidRequestError(`graph.queries[${index}] reads the same series as graph.queries[${earlier}]; change its statistic or dimensions, or remove it`);
+      throw new InvalidRequestError(`${field}[${index}] reads the same series as ${field}[${earlier}]; change its statistic or dimensions, or remove it`);
     }
     series.set(seriesIdentity(query), index);
     return query;
   });
-
-  return {
-    version: METRIC_GRAPH_VERSION,
-    queries,
-    range: parseTimeRange(record['range'], 'graph.range'),
-    periodMs: parsePeriod(record['periodMs'], 'graph.periodMs'),
-  };
 }
 
 /**
