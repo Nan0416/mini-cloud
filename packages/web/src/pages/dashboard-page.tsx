@@ -20,12 +20,12 @@ import {
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader } from '@/components/ui/card';
 import { useDashboard, useDeleteDashboard, useEditDashboard } from '@/hooks/use-dashboards';
-import { titleOf, withDefaultWindow, withWidgetMoved, withWidgetRemoved, withWidgetTitle } from '@/lib/dashboard-editor';
-import { defaultWindowOf, isSameWindow, readWindow, windowSearch, withWindowRange, type DashboardWindow } from '@/lib/dashboard-window';
+import { defaultWindowOf, titleOf, withDefaultWindow, withWidgetMoved, withWidgetRemoved, withWidgetTitle } from '@/lib/dashboard-editor';
+import { isSameWindow, readWindow, windowSearch, withWindowRange, type GraphWindow } from '@/lib/graph-window';
 import { urls } from '@/lib/urls';
 
 interface ReadWindow {
-  readonly window: DashboardWindow | undefined;
+  readonly window: GraphWindow | undefined;
   readonly error: unknown;
 }
 
@@ -61,7 +61,7 @@ function DashboardView({ dashboard }: { readonly dashboard: Dashboard }) {
 
   // Written by hand rather than through the search-params setter, which would escape
   // the ':' in a time and make the link harder to read.
-  const showWindow = (window: DashboardWindow) => void navigate({ search: windowSearch(window) });
+  const showWindow = (window: GraphWindow) => void navigate({ search: windowSearch(window) });
 
   const save = (change: (content: DashboardContent) => DashboardContent, failure: string, success?: string) =>
     edit.mutate(

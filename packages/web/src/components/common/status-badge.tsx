@@ -1,4 +1,4 @@
-import type { AgentStatus, TaskEventLevel, TaskEventSource, TaskInstanceStatus, TaskType } from '@mini-cloud/shared';
+import type { AgentStatus, MonitorState, TaskEventLevel, TaskEventSource, TaskInstanceStatus, TaskType } from '@mini-cloud/shared';
 import { Badge, type BadgeProps } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 
@@ -117,6 +117,22 @@ export function VersionBadge(props: { readonly version: number; readonly latest?
     <Badge variant={props.latest === true ? 'default' : 'outline'} className="font-mono">
       v{props.version}
       {props.latest === true ? ' · latest' : ''}
+    </Badge>
+  );
+}
+
+const MONITOR_STATE: Readonly<Record<MonitorState, Presentation>> = {
+  OK: { label: 'OK', tone: 'success' },
+  ALARM: { label: 'In alarm', tone: 'destructive', inFlight: true },
+  INSUFFICIENT_DATA: { label: 'Insufficient data', tone: 'secondary' },
+};
+
+export function MonitorStateBadge(props: { readonly state: MonitorState }) {
+  const presentation = MONITOR_STATE[props.state] ?? { label: props.state, tone: 'outline' };
+  return (
+    <Badge variant={presentation.tone}>
+      <Dot tone={presentation.tone} pulse={presentation.inFlight} />
+      {presentation.label}
     </Badge>
   );
 }

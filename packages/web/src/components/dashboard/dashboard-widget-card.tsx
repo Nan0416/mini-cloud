@@ -11,13 +11,13 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useGraphChart } from '@/hooks/use-graph-chart';
 import { graphOf, titleOf } from '@/lib/dashboard-editor';
-import type { DashboardWindow } from '@/lib/dashboard-window';
+import type { GraphWindow } from '@/lib/graph-window';
 import { urls } from '@/lib/urls';
 
 export interface DashboardWidgetCardProps {
   readonly dashboard: string;
   readonly widget: DashboardWidget;
-  readonly window: DashboardWindow;
+  readonly window: GraphWindow;
   readonly isFirst: boolean;
   readonly isLast: boolean;
   /** A save is in flight, so another edit would only race it. */

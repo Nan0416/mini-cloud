@@ -3,6 +3,7 @@ import path from 'node:path';
 import { migrate } from '../../src/data/migrate';
 import { PgAgentDao } from '../../src/data/pg-agent-dao';
 import { PgDashboardDao } from '../../src/data/pg-dashboard-dao';
+import { PgMonitorDao } from '../../src/data/pg-monitor-dao';
 import { PgTaskDao } from '../../src/data/pg-task-dao';
 import { PgTaskDynamicsDao } from '../../src/data/pg-task-dynamics-dao';
 import { PgTaskInstanceDao } from '../../src/data/pg-task-instance-dao';
@@ -35,6 +36,7 @@ describeIfDatabase('PostgreSQL DAOs', () => {
   let agentDao: PgAgentDao;
   let variableDao: PgVariableDao;
   let dashboardDao: PgDashboardDao;
+  let monitorDao: PgMonitorDao;
 
   beforeAll(async () => {
     pool = createPool({ connectionString: DATABASE_URL ?? '' });
@@ -45,6 +47,7 @@ describeIfDatabase('PostgreSQL DAOs', () => {
     agentDao = new PgAgentDao(pool);
     variableDao = new PgVariableDao(pool);
     dashboardDao = new PgDashboardDao(pool);
+    monitorDao = new PgMonitorDao(pool);
   });
 
   afterAll(async () => {
@@ -52,7 +55,7 @@ describeIfDatabase('PostgreSQL DAOs', () => {
   });
 
   beforeEach(async () => {
-    await pool.query('TRUNCATE task, task_dynamics, task_instance, task_event, agent, replacement_variable, dashboard CASCADE');
+    await pool.query('TRUNCATE task, task_dynamics, task_instance, task_event, agent, replacement_variable, dashboard, monitor, monitor_state_change CASCADE');
   });
 
   const jobInput = (taskId: string, version: number, overrides: Record<string, unknown> = {}) => ({
@@ -308,6 +311,98 @@ describeIfDatabase('PostgreSQL DAOs', () => {
       const { dashboard } = await dashboardDao.updateDashboard({ name: 'home', version: 1, widgets });
 
       expect(dashboard?.defaultPeriodMs).toBeUndefined();
+    });
+  });
+
+  describe('monitors', () => {
+    const definition = {
+      description: 'CPU on the NAS',
+      metric: { namespace: 'MiniCloud/Agent', metricName: 'CpuUtilization', dimensions: { AgentId: 'nas' }, statistic: 'p99' as const },
+      periodMs: 300_000,
+      evaluationPeriods: 5,
+      datapointsToAlarm: 3,
+      comparison: 'GreaterThanOrEqualToThreshold' as const,
+      threshold: 95.5,
+      treatMissingData: 'breaching' as const,
+      notify: true,
+    };
+    const change = (fromState: 'OK' | 'ALARM' | 'INSUFFICIENT_DATA', toState: 'OK' | 'ALARM' | 'INSUFFICIENT_DATA', changedAt: number, version = 1) => ({
+      name: 'nas-cpu',
+      fromState,
+      version,
+      toState,
+      reason: `${fromState} to ${toState}`,
+      datapoints: [
+        { timestamp: changedAt - 300_000, value: 97.5 },
+        { timestamp: changedAt, value: null },
+      ],
+      threshold: 95.5,
+      changedAt,
+    });
+
+    it('stores a definition and reads it back unchanged, starting with insufficient data', async () => {
+      await monitorDao.createMonitor({ name: 'nas-cpu', ...definition, stateReason: 'new' });
+
+      const { monitor } = await monitorDao.getMonitor({ name: 'nas-cpu' });
+
+      expect(monitor).toMatchObject({ name: 'nas-cpu', ...definition, state: 'INSUFFICIENT_DATA', stateReason: 'new', version: 1 });
+    });
+
+    it('refuses more datapoints to alarm than periods, in the schema as well', async () => {
+      await expect(monitorDao.createMonitor({ name: 'nas-cpu', ...definition, datapointsToAlarm: 6, stateReason: 'new' })).rejects.toThrow(/check constraint/);
+    });
+
+    it('moves the state and records the change together, and reads the history newest first', async () => {
+      await monitorDao.createMonitor({ name: 'nas-cpu', ...definition, stateReason: 'new' });
+
+      await monitorDao.changeState(change('INSUFFICIENT_DATA', 'OK', Date.UTC(2026, 8, 1, 12)));
+      await monitorDao.changeState(change('OK', 'ALARM', Date.UTC(2026, 8, 1, 13)));
+
+      const { monitor } = await monitorDao.getMonitor({ name: 'nas-cpu' });
+      const { changes } = await monitorDao.listStateChanges({ name: 'nas-cpu', limit: 10 });
+      expect(monitor).toMatchObject({ state: 'ALARM', stateReason: 'OK to ALARM', stateChangedAt: Date.UTC(2026, 8, 1, 13), lastEvaluatedAt: Date.UTC(2026, 8, 1, 13) });
+      expect(changes.map((entry) => entry.toState)).toEqual(['ALARM', 'OK']);
+      expect(changes[0].datapoints).toEqual(change('OK', 'ALARM', Date.UTC(2026, 8, 1, 13)).datapoints);
+    });
+
+    it('records nothing when the monitor is no longer in the state it was judged from', async () => {
+      await monitorDao.createMonitor({ name: 'nas-cpu', ...definition, stateReason: 'new' });
+
+      const { change: recorded } = await monitorDao.changeState(change('OK', 'ALARM', Date.UTC(2026, 8, 1, 12)));
+
+      expect(recorded).toBeUndefined();
+      expect((await monitorDao.listStateChanges({ name: 'nas-cpu', limit: 10 })).changes).toEqual([]);
+    });
+
+    it('records nothing judged against a definition that has since been edited', async () => {
+      await monitorDao.createMonitor({ name: 'nas-cpu', ...definition, stateReason: 'new' });
+      await monitorDao.updateMonitor({ name: 'nas-cpu', version: 1, ...definition, threshold: 99 });
+
+      const { change: stale } = await monitorDao.changeState(change('INSUFFICIENT_DATA', 'ALARM', Date.UTC(2026, 8, 1, 12), 1));
+      const { change: current } = await monitorDao.changeState(change('INSUFFICIENT_DATA', 'OK', Date.UTC(2026, 8, 1, 12, 1), 2));
+
+      expect(stale).toBeUndefined();
+      expect(current?.toState).toBe('OK');
+      expect((await monitorDao.listStateChanges({ name: 'nas-cpu', limit: 10 })).changes.map((entry) => entry.toState)).toEqual(['OK']);
+    });
+
+    it('leaves the version alone when evaluating, so an evaluation never makes an edit conflict', async () => {
+      await monitorDao.createMonitor({ name: 'nas-cpu', ...definition, stateReason: 'new' });
+      await monitorDao.changeState(change('INSUFFICIENT_DATA', 'ALARM', Date.UTC(2026, 8, 1, 12)));
+      await monitorDao.markEvaluated({ name: 'nas-cpu', evaluatedAt: Date.UTC(2026, 8, 1, 12, 1) });
+
+      const { monitor } = await monitorDao.updateMonitor({ name: 'nas-cpu', version: 1, ...definition, threshold: 99 });
+
+      expect(monitor).toMatchObject({ version: 2, threshold: 99, state: 'ALARM' });
+    });
+
+    it('takes its history with it when deleted', async () => {
+      await monitorDao.createMonitor({ name: 'nas-cpu', ...definition, stateReason: 'new' });
+      await monitorDao.changeState(change('INSUFFICIENT_DATA', 'ALARM', Date.UTC(2026, 8, 1, 12)));
+
+      await monitorDao.deleteMonitor({ name: 'nas-cpu' });
+
+      expect((await pool.query('SELECT count(*)::int AS n FROM monitor_state_change')).rows[0].n).toBe(0);
     });
   });
 

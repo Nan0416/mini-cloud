@@ -1,13 +1,13 @@
-import { InvalidRequestError, METRIC_RESOLUTION_MS, assertTimestamp, spanOf, type Dashboard, type MetricTimeRange } from '@mini-cloud/shared';
-import { EMPTY_GRAPH, periodFits } from '@/lib/metric-graph-editor';
+import { InvalidRequestError, METRIC_RESOLUTION_MS, assertTimestamp, spanOf, type MetricTimeRange } from '@mini-cloud/shared';
+import { periodFits } from '@/lib/metric-graph-editor';
 
 /**
- * The window a dashboard is shown over, as its link carries it.
+ * The window a dashboard or a monitor's graph is shown over, as its link carries it.
  *
  * Readable parameters rather than the metrics page's opaque graph: a window is two or
  * three scalars, and `?range=3h&period=5m` is a link someone can read and edit by hand.
  */
-export interface DashboardWindow {
+export interface GraphWindow {
   readonly range: MetricTimeRange;
   /** Absent means the automatic period for the range. */
   readonly periodMs?: number;
@@ -53,17 +53,12 @@ function parseTime(text: string, field: string): number {
   return assertTimestamp(ms, field);
 }
 
-/** Where a dashboard opens when its link names no window. */
-export function defaultWindowOf(dashboard: Dashboard): DashboardWindow {
-  return { range: dashboard.defaultRange ?? EMPTY_GRAPH.range, periodMs: dashboard.defaultPeriodMs };
-}
-
 /**
- * The window a link asks for, parameter by parameter over the dashboard's default, so
+ * The window a link asks for, parameter by parameter over the page's default, so
  * `?period=1h` alone keeps the default range. Throws on a parameter it cannot read
  * rather than quietly showing a window nobody asked for.
  */
-export function readWindow(params: URLSearchParams, fallback: DashboardWindow): DashboardWindow {
+export function readWindow(params: URLSearchParams, fallback: GraphWindow): GraphWindow {
   const rangeText = params.get(RANGE_PARAM);
   const fromText = params.get(FROM_PARAM);
   const toText = params.get(TO_PARAM);
@@ -97,7 +92,7 @@ export function readWindow(params: URLSearchParams, fallback: DashboardWindow): 
  * The query string for a window, written in full so a shared link shows the same window
  * even after the dashboard's default changes.
  */
-export function windowSearch(window: DashboardWindow): string {
+export function windowSearch(window: GraphWindow): string {
   const parts =
     window.range.kind === 'relative'
       ? [`${RANGE_PARAM}=${formatSpan(window.range.durationMs)}`]
@@ -107,12 +102,12 @@ export function windowSearch(window: DashboardWindow): string {
   return parts.join('&');
 }
 
-export function isSameWindow(left: DashboardWindow, right: DashboardWindow): boolean {
+export function isSameWindow(left: GraphWindow, right: GraphWindow): boolean {
   return windowSearch(left) === windowSearch(right);
 }
 
 /** A new range, dropping a chosen period that no longer fits in it, as the metrics page does. */
-export function withWindowRange(window: DashboardWindow, range: MetricTimeRange): DashboardWindow {
+export function withWindowRange(window: GraphWindow, range: MetricTimeRange): GraphWindow {
   const keepPeriod = window.periodMs !== undefined && periodFits(spanOf(range), window.periodMs);
   return { range, periodMs: keepPeriod ? window.periodMs : undefined };
 }

@@ -6,9 +6,9 @@ import { Spinner } from '@/components/common/states';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
+import { FormField } from '@/components/common/form-field';
 import { durationToHhmmss, hhmmssToDuration, localDateTimeToTimestamp, timestampToLocalDateTime } from '@/lib/format';
 import { cn } from '@/lib/utils';
 
@@ -178,30 +178,6 @@ function buildRequest(state: FormState, taskId?: string): CreateTaskRequest | Up
   return taskId === undefined ? service : { ...service, taskId };
 }
 
-function Field(props: {
-  readonly label: string;
-  readonly htmlFor: string;
-  readonly hint?: string;
-  readonly error?: string;
-  readonly children: React.ReactNode;
-  readonly optional?: boolean;
-}) {
-  return (
-    <div className="space-y-1.5">
-      <Label htmlFor={props.htmlFor} className="flex items-center gap-1.5">
-        {props.label}
-        {props.optional === true ? <span className="text-xs font-normal text-muted-foreground">optional</span> : null}
-      </Label>
-      {props.children}
-      {props.error !== undefined ? (
-        <p className="text-xs text-destructive">{props.error}</p>
-      ) : props.hint !== undefined ? (
-        <p className="text-xs text-muted-foreground">{props.hint}</p>
-      ) : null}
-    </div>
-  );
-}
-
 export interface TaskFormProps {
   readonly mode: 'create' | 'edit';
   readonly task?: Task;
@@ -253,11 +229,11 @@ export function TaskForm(props: TaskFormProps) {
           )}
 
           <div className="grid gap-5 sm:grid-cols-2">
-            <Field label="Name" htmlFor="name" error={visible('name')}>
+            <FormField label="Name" htmlFor="name" error={visible('name')}>
               <Input id="name" value={state.name} onChange={(event) => patch({ name: event.target.value })} placeholder="nightly-backup" />
-            </Field>
+            </FormField>
 
-            <Field label="Type" htmlFor="type" hint={state.type === 'job' ? 'Runs to completion. Can repeat on a schedule.' : 'Long-running. Kept alive and health-checked.'}>
+            <FormField label="Type" htmlFor="type" hint={state.type === 'job' ? 'Runs to completion. Can repeat on a schedule.' : 'Long-running. Kept alive and health-checked.'}>
               <Select
                 value={state.type}
                 // The type discriminates the whole record and the service has no
@@ -273,10 +249,10 @@ export function TaskForm(props: TaskFormProps) {
                   <SelectItem value="service">Service</SelectItem>
                 </SelectContent>
               </Select>
-            </Field>
+            </FormField>
           </div>
 
-          <Field label="Description" htmlFor="description" optional error={visible('description')}>
+          <FormField label="Description" htmlFor="description" optional error={visible('description')}>
             <Textarea
               id="description"
               value={state.description}
@@ -284,17 +260,17 @@ export function TaskForm(props: TaskFormProps) {
               className="min-h-16"
               placeholder="What this task does."
             />
-          </Field>
+          </FormField>
 
-          <Field label="Working directory" htmlFor="cwd" error={visible('cwd')} hint="Supports ${NAME} replacement variables.">
+          <FormField label="Working directory" htmlFor="cwd" error={visible('cwd')} hint="Supports ${NAME} replacement variables.">
             <Input id="cwd" value={state.cwd} onChange={(event) => patch({ cwd: event.target.value })} className="font-mono" placeholder="${HOME}/projects/backup" />
-          </Field>
+          </FormField>
 
-          <Field label="Command" htmlFor="cmd" error={visible('cmd')} hint="The executable or shell command. Supports ${NAME} replacement variables.">
+          <FormField label="Command" htmlFor="cmd" error={visible('cmd')} hint="The executable or shell command. Supports ${NAME} replacement variables.">
             <Input id="cmd" value={state.cmd} onChange={(event) => patch({ cmd: event.target.value })} className="font-mono" placeholder="/usr/bin/python3" />
-          </Field>
+          </FormField>
 
-          <Field label="Arguments" htmlFor="args" optional error={visible('args')} hint="One per field. Passed to the process in order.">
+          <FormField label="Arguments" htmlFor="args" optional error={visible('args')} hint="One per field. Passed to the process in order.">
             <div className="space-y-2">
               {state.args.map((argument, index) => (
                 <div key={index} className="flex items-center gap-2">
@@ -320,19 +296,19 @@ export function TaskForm(props: TaskFormProps) {
                 Add argument
               </Button>
             </div>
-          </Field>
+          </FormField>
 
-          <Field label="Environment variables" htmlFor="env" optional>
+          <FormField label="Environment variables" htmlFor="env" optional>
             <KeyValueEditor pairs={state.env} onChange={(env) => patch({ env })} addLabel="Add variable" emptyMessage="The process inherits the agent's environment." />
-          </Field>
+          </FormField>
 
           <div className="grid gap-5 sm:grid-cols-2">
-            <Field label="Stdout path" htmlFor="stdout" optional hint="Appended to. Omit to discard.">
+            <FormField label="Stdout path" htmlFor="stdout" optional hint="Appended to. Omit to discard.">
               <Input id="stdout" value={state.stdout} onChange={(event) => patch({ stdout: event.target.value })} className="font-mono" placeholder="${LOGS}/backup.out" />
-            </Field>
-            <Field label="Stderr path" htmlFor="stderr" optional hint="Appended to. Omit to discard.">
+            </FormField>
+            <FormField label="Stderr path" htmlFor="stderr" optional hint="Appended to. Omit to discard.">
               <Input id="stderr" value={state.stderr} onChange={(event) => patch({ stderr: event.target.value })} className="font-mono" placeholder="${LOGS}/backup.err" />
-            </Field>
+            </FormField>
           </div>
         </CardContent>
       </Card>
@@ -344,10 +320,10 @@ export function TaskForm(props: TaskFormProps) {
             <CardDescription>Leave both empty for a job you launch by hand. Set both to have the scheduler repeat it.</CardDescription>
           </CardHeader>
           <CardContent className="grid gap-5 sm:grid-cols-2">
-            <Field label="Interval" htmlFor="interval" optional error={visible('interval')} hint="hh:mm:ss between launches.">
+            <FormField label="Interval" htmlFor="interval" optional error={visible('interval')} hint="hh:mm:ss between launches.">
               <Input id="interval" value={state.interval} onChange={(event) => patch({ interval: event.target.value })} className="font-mono tabular" placeholder="00:15:00" />
-            </Field>
-            <Field label="First launch" htmlFor="firstLaunchAt" optional error={visible('firstLaunchAt')} hint="In your local timezone. Occurrences are counted from here.">
+            </FormField>
+            <FormField label="First launch" htmlFor="firstLaunchAt" optional error={visible('firstLaunchAt')} hint="In your local timezone. Occurrences are counted from here.">
               <Input
                 id="firstLaunchAt"
                 type="datetime-local"
@@ -356,7 +332,7 @@ export function TaskForm(props: TaskFormProps) {
                 onChange={(event) => patch({ firstLaunchAt: event.target.value })}
                 className="tabular"
               />
-            </Field>
+            </FormField>
           </CardContent>
         </Card>
       ) : (
@@ -366,7 +342,7 @@ export function TaskForm(props: TaskFormProps) {
             <CardDescription>How the agent decides the service is still alive. A failing check marks the instance unhealthy; it can recover.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-5">
-            <Field
+            <FormField
               label="Type"
               htmlFor="healthCheck"
               hint={
@@ -387,10 +363,10 @@ export function TaskForm(props: TaskFormProps) {
                   <SelectItem value="passive">Passive</SelectItem>
                 </SelectContent>
               </Select>
-            </Field>
+            </FormField>
 
             {state.healthCheck === 'ping' ? (
-              <Field label="URL" htmlFor="healthCheckUrl" error={visible('healthCheckUrl')} hint="Polled from the agent's machine, so localhost means the agent's localhost.">
+              <FormField label="URL" htmlFor="healthCheckUrl" error={visible('healthCheckUrl')} hint="Polled from the agent's machine, so localhost means the agent's localhost.">
                 <Input
                   id="healthCheckUrl"
                   value={state.healthCheckUrl}
@@ -398,11 +374,11 @@ export function TaskForm(props: TaskFormProps) {
                   className="font-mono"
                   placeholder="http://127.0.0.1:8080/healthz"
                 />
-              </Field>
+              </FormField>
             ) : null}
 
             {state.healthCheck === 'none' ? null : (
-              <Field label="Period (seconds)" htmlFor="healthCheckPeriodSeconds" error={visible('healthCheckPeriodSeconds')}>
+              <FormField label="Period (seconds)" htmlFor="healthCheckPeriodSeconds" error={visible('healthCheckPeriodSeconds')}>
                 <Input
                   id="healthCheckPeriodSeconds"
                   type="number"
@@ -411,7 +387,7 @@ export function TaskForm(props: TaskFormProps) {
                   onChange={(event) => patch({ healthCheckPeriodSeconds: event.target.value })}
                   className={cn('tabular sm:w-40')}
                 />
-              </Field>
+              </FormField>
             )}
           </CardContent>
         </Card>

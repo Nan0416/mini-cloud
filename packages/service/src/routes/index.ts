@@ -7,3 +7,4 @@ export * from './health-endpoints';
 export * from './metric-endpoints';
 export * from './metric-report-endpoints';
 export * from './dashboard-endpoints';
+export * from './monitor-endpoints';

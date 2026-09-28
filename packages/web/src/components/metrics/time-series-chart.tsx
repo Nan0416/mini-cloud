@@ -5,7 +5,7 @@ import { Spinner } from '@/components/common/states';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useElementWidth } from '@/hooks/use-element-width';
-import { buildChartModel, formatBucket, nearestBucket, pointsWithin, type ChartModel } from '@/lib/chart-model';
+import { buildChartModel, formatBucket, nearestBucket, pointsWithin, type ChartModel, type ChartThreshold } from '@/lib/chart-model';
 import { NA } from '@/lib/format';
 import { formatMetricValue } from '@/lib/metric-units';
 import { cn } from '@/lib/utils';
@@ -40,6 +40,8 @@ export interface ChartSeriesView {
 
 export interface TimeSeriesChartProps {
   readonly series: ReadonlyArray<ChartSeriesView>;
+  /** Horizontal rules, such as a monitor's threshold, in the unit of the axis they name. */
+  readonly thresholds?: ReadonlyArray<ChartThreshold>;
   /** The window read, as `GetMetricDataResponse` reports it; `to` is exclusive. */
   readonly from: number;
   readonly to: number;
@@ -110,7 +112,14 @@ export function TimeSeriesChart(props: TimeSeriesChartProps) {
       </div>
 
       {view === 'chart' ? (
-        <ChartView series={ready} from={props.from} to={props.to} periodMs={props.periodMs} loading={props.series.some((series) => series.state.kind === 'loading')} />
+        <ChartView
+          series={ready}
+          thresholds={props.thresholds}
+          from={props.from}
+          to={props.to}
+          periodMs={props.periodMs}
+          loading={props.series.some((series) => series.state.kind === 'loading')}
+        />
       ) : (
         <TableView series={ready} />
       )}
@@ -164,6 +173,7 @@ function Failures(props: { readonly series: ReadonlyArray<ChartSeriesView> }) {
 
 interface ChartViewProps {
   readonly series: ReadonlyArray<ReadySeries>;
+  readonly thresholds: ReadonlyArray<ChartThreshold> | undefined;
   readonly from: number;
   readonly to: number;
   readonly periodMs: number;
@@ -172,8 +182,11 @@ interface ChartViewProps {
 
 function ChartView(props: ChartViewProps) {
   const [ref, width] = useElementWidth<HTMLDivElement>();
-  const { series, from, to, periodMs } = props;
-  const model = useMemo(() => (width === 0 ? undefined : buildChartModel({ series, from, to, periodMs, width, height: HEIGHT })), [series, from, to, periodMs, width]);
+  const { series, thresholds, from, to, periodMs } = props;
+  const model = useMemo(
+    () => (width === 0 ? undefined : buildChartModel({ series, thresholds, from, to, periodMs, width, height: HEIGHT })),
+    [series, thresholds, from, to, periodMs, width],
+  );
   const hasData = series.some((candidate) => candidate.datapoints.length > 0);
 
   return (
@@ -235,6 +248,15 @@ const Plot = memo(function Plot({ model, series, from, to }: PlotProps) {
         <text key={tick.position} x={tick.position} y={model.height - 6} textAnchor={tick.anchor} className="tabular fill-muted-foreground text-[11px]">
           {tick.label}
         </text>
+      ))}
+
+      {model.thresholds.map((threshold) => (
+        <g key={threshold.y}>
+          <line x1={plot.left} x2={plot.right} y1={threshold.y} y2={threshold.y} stroke="var(--destructive)" strokeWidth={1.5} strokeDasharray="6 4" shapeRendering="crispEdges" />
+          <text x={plot.right - 4} y={threshold.y - 4} textAnchor="end" className="tabular fill-destructive text-[11px]">
+            {threshold.label}
+          </text>
+        </g>
       ))}
 
       {model.series.map((path, index) => (

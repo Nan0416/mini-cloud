@@ -16,3 +16,5 @@ export * from './metric-dao';
 export * from './pg-metric-dao';
 export * from './dashboard-dao';
 export * from './pg-dashboard-dao';
+export * from './monitor-dao';
+export * from './pg-monitor-dao';

@@ -1,6 +1,18 @@
 import {
   BroadcastRequest,
   BroadcastResponse,
+  CreateMonitorRequest,
+  CreateMonitorResponse,
+  DeleteMonitorRequest,
+  DeleteMonitorResponse,
+  GetMonitorRequest,
+  GetMonitorResponse,
+  ListMonitorHistoryRequest,
+  ListMonitorHistoryResponse,
+  ListMonitorsRequest,
+  ListMonitorsResponse,
+  UpdateMonitorRequest,
+  UpdateMonitorResponse,
   CreateDashboardRequest,
   CreateDashboardResponse,
   DeleteDashboardRequest,
@@ -203,6 +215,33 @@ export class MiniCloudClient {
 
   async deleteDashboard(request: DeleteDashboardRequest): Promise<DeleteDashboardResponse> {
     return this.http.request('DELETE', `/dashboards/${encodeURIComponent(request.name)}`);
+  }
+
+  // ---- monitors ----
+
+  async listMonitors(_request: ListMonitorsRequest = {}): Promise<ListMonitorsResponse> {
+    return this.http.request('GET', '/monitors');
+  }
+
+  async getMonitor(request: GetMonitorRequest): Promise<GetMonitorResponse> {
+    return this.http.request('GET', `/monitors/${encodeURIComponent(request.name)}`);
+  }
+
+  async createMonitor(request: CreateMonitorRequest): Promise<CreateMonitorResponse> {
+    return this.http.request('POST', '/monitors', { body: request });
+  }
+
+  async updateMonitor(request: UpdateMonitorRequest): Promise<UpdateMonitorResponse> {
+    const { name, ...body } = request;
+    return this.http.request('PUT', `/monitors/${encodeURIComponent(name)}`, { body });
+  }
+
+  async deleteMonitor(request: DeleteMonitorRequest): Promise<DeleteMonitorResponse> {
+    return this.http.request('DELETE', `/monitors/${encodeURIComponent(request.name)}`);
+  }
+
+  async listMonitorHistory(request: ListMonitorHistoryRequest): Promise<ListMonitorHistoryResponse> {
+    return this.http.request('GET', `/monitors/${encodeURIComponent(request.name)}/history`, { query: { limit: request.limit } });
   }
 
   // ---- agents ----

@@ -1,14 +1,22 @@
 import {
   AgentStatus,
   InternalServiceError,
+  METRIC_STATISTICS,
   METRIC_UNITS,
+  MONITOR_COMPARISONS,
+  MONITOR_STATES,
+  MetricStatistic,
   MetricUnit,
+  MonitorComparison,
+  MonitorState,
+  TREAT_MISSING_DATA,
   TASK_EVENT_LEVELS,
   TASK_EVENT_SOURCES,
   TASK_INSTANCE_STATUSES,
   TaskEventLevel,
   TaskEventSource,
   TaskInstanceStatus,
+  TreatMissingData,
 } from '@mini-cloud/shared';
 
 /**
@@ -44,4 +52,20 @@ export function toAgentStatus(value: string, agentId: string): AgentStatus {
 
 export function toMetricUnit(value: string): MetricUnit {
   return narrow(value, METRIC_UNITS, 'unit', value);
+}
+
+export function toMetricStatistic(value: string, rowId: string): MetricStatistic {
+  return narrow(value, METRIC_STATISTICS, 'statistic', rowId);
+}
+
+export function toMonitorComparison(value: string, rowId: string): MonitorComparison {
+  return narrow(value, MONITOR_COMPARISONS, 'comparison', rowId);
+}
+
+export function toTreatMissingData(value: string, rowId: string): TreatMissingData {
+  return narrow(value, TREAT_MISSING_DATA, 'treat_missing_data', rowId);
+}
+
+export function toMonitorState(value: string, rowId: string): MonitorState {
+  return narrow(value, MONITOR_STATES, 'state', rowId);
 }

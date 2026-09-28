@@ -14,6 +14,10 @@ import { DashboardsPage } from '@/pages/dashboards-page';
 import { InstancePage } from '@/pages/instance-page';
 import { InstancesPage } from '@/pages/instances-page';
 import { MetricsPage } from '@/pages/metrics-page';
+import { MonitorCreatePage } from '@/pages/monitor-create-page';
+import { MonitorEditPage } from '@/pages/monitor-edit-page';
+import { MonitorPage } from '@/pages/monitor-page';
+import { MonitorsPage } from '@/pages/monitors-page';
 import { NotFoundPage } from '@/pages/not-found-page';
 import { OverviewPage } from '@/pages/overview-page';
 import { PubSubPage } from '@/pages/pubsub-page';
@@ -84,6 +88,10 @@ function ConnectedApp() {
           <Route path="metrics" element={<MetricsPage />} />
           <Route path="dashboards" element={<DashboardsPage />} />
           <Route path="dashboards/:name" element={<DashboardPage />} />
+          <Route path="monitors" element={<MonitorsPage />} />
+          <Route path="monitors/new" element={<MonitorCreatePage />} />
+          <Route path="monitors/:name" element={<MonitorPage />} />
+          <Route path="monitors/:name/edit" element={<MonitorEditPage />} />
           <Route path="agents" element={<AgentsPage />} />
           <Route path="variables" element={<VariablesPage />} />
           <Route path="pubsub" element={<PubSubPage />} />

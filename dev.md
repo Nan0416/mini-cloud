@@ -150,6 +150,7 @@ mini-cloud reads anywhere.
 | `metrics.queryLagMs` | `180000` | How far behind now reads stop, so every agent has reported the newest bucket |
 | `metrics.ingestBatchRetentionMs` | `86400000` | How long a delivered batch is remembered, for recognising a retry |
 | `metrics.retentionTickMs` | `3600000` | How often metric partitions are created and expired ones dropped |
+| `monitors.evaluationTickMs` | `60000` | How often every monitor is evaluated |
 | `cli.serviceUrl` / `.internalUrl` | `:3001` / `:3000` | Where the CLI points |
 | `agent.id` | this machine's hostname | Unique per agent; two sharing an id receive each other's commands |
 | `agent.name` | the agent id | Display name |
@@ -246,6 +247,8 @@ select * from task_instance order by created_at desc limit 20;
 select * from task_event where instance_id = '…' order by created_at;
 select agent_id, name, last_seen_at from agent;
 select * from replacement_variable;
+select name, state, state_reason, last_evaluated_at from monitor;
+select * from monitor_state_change where monitor_name = '…' order by changed_at desc;
 ```
 
 ### Inspecting and fixing
@@ -294,7 +297,7 @@ One process, two ports, split by who calls.
 
 | | Internal `:3000` | Public `:3001` |
 | --- | --- | --- |
-| Serves | `/agent-api/*`, `/pubsub/*`, `/ws`, `/ping`, `/health` | `/tasks*`, `/instances*`, `/agents*`, `/variables`, `/metrics/*`, `/dashboards*`, `/pubsub/*`, `/ping`, `/health` |
+| Serves | `/agent-api/*`, `/pubsub/*`, `/ws`, `/ping`, `/health` | `/tasks*`, `/instances*`, `/agents*`, `/variables`, `/metrics/*`, `/dashboards*`, `/monitors*`, `/pubsub/*`, `/ping`, `/health` |
 | Called by | agents, LAN programs | the console, the CLI |
 | Authentication | none — the source address is the credential | `publicToken`, always |
 | Source check | `internal.trustedSubnets` | none |

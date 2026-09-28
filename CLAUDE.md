@@ -45,7 +45,7 @@ npm run start:web                      # the console on :5173, in a third
 The control plane serves two HTTP listeners from one process. **Internal** (`:3000`)
 carries `/agent-api/*`, `/pubsub/*` and the WebSocket at `/ws`, and is what agents and
 LAN programs talk to. **Public** (`:3001`) carries `/tasks*`, `/instances*`, `/agents*`,
-`/variables`, `/metrics/*` and `/dashboards*`, and is what the console and the CLI talk to — the only
+`/variables`, `/metrics/*`, `/dashboards*` and `/monitors*`, and is what the console and the CLI talk to — the only
 one meant to face a port forward. A route belongs to exactly one of them; the 404 on the
 other names the right listener.
 

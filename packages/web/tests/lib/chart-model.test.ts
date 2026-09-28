@@ -17,6 +17,26 @@ function build(series: ReadonlyArray<ChartSeries>, overrides: Partial<ChartModel
 const on = (axis: MetricAxis, unit: MetricUnit, id: string, values: ReadonlyArray<number | undefined>): ChartSeries => aSeries(values, { id, unit, axis });
 
 describe('buildChartModel', () => {
+  it('stretches the axis to take in a threshold above the data, so the line is drawn', () => {
+    const model = build([aSeries([10, 20, 30], { unit: 'Percent' })], { thresholds: [{ value: 80, axis: 'left' }] });
+
+    expect(model.thresholds).toHaveLength(1);
+    expect(model.thresholds[0].y).toBeGreaterThanOrEqual(model.plot.top);
+    expect(model.thresholds[0].y).toBeLessThan(model.series[0].ys[2] ?? 0);
+  });
+
+  it('labels a threshold as the axis labels its ticks', () => {
+    const model = build([aSeries([1, 2], { unit: 'Bytes' })], { thresholds: [{ value: 2 * GB, axis: 'left' }] });
+
+    expect(model.thresholds[0].label).toMatch(/GB/);
+  });
+
+  it('draws a threshold on the left when its side has no axis', () => {
+    const model = build([aSeries([1, 2])], { thresholds: [{ value: 5, axis: 'right' }] });
+
+    expect(model.thresholds).toHaveLength(1);
+  });
+
   it('spans the window, not the data, so a series that started late is drawn late', () => {
     // Spanning the data instead would stretch ten minutes across a whole day's chart.
     const model = build([aSeries([undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, 5, 6])]);

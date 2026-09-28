@@ -86,4 +86,9 @@ describe('queryKeys', () => {
   it('nests a dashboard under the dashboards prefix, so a list refresh can also reach it', () => {
     expect(startsWith(queryKeys.dashboard('home'), queryKeys.dashboards())).toBe(true);
   });
+
+  it('nests a monitor and its history under the monitors prefix, so saving one refreshes every view of it', () => {
+    expect(startsWith(queryKeys.monitor('nas-cpu'), queryKeys.monitors())).toBe(true);
+    expect(startsWith(queryKeys.monitorHistory('nas-cpu'), queryKeys.monitor('nas-cpu'))).toBe(true);
+  });
 });

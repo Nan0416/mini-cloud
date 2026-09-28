@@ -28,6 +28,10 @@ export const queryKeys = {
   dashboards: () => ['dashboards'] as const,
   dashboard: (name: string) => ['dashboards', name] as const,
 
+  monitors: () => ['monitors'] as const,
+  monitor: (name: string) => ['monitors', name] as const,
+  monitorHistory: (name: string) => ['monitors', name, 'history'] as const,
+
   agents: () => ['agents'] as const,
   variables: () => ['variables'] as const,
   hubStatus: () => ['hub-status'] as const,

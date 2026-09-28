@@ -21,8 +21,17 @@ export interface ChartSeries {
   readonly datapoints: ReadonlyArray<MetricDatapoint>;
 }
 
+/** A horizontal rule at a value, such as a monitor's threshold. */
+export interface ChartThreshold {
+  /** In the unit of the axis it is read against. */
+  readonly value: number;
+  readonly axis: MetricAxis;
+}
+
 export interface ChartModelInput {
   readonly series: ReadonlyArray<ChartSeries>;
+  /** Kept inside the axis range, so a line far from the data is still drawn. */
+  readonly thresholds?: ReadonlyArray<ChartThreshold>;
   /** Start of the first bucket. */
   readonly from: number;
   /** End of the window, exclusive, so the last bucket starts one period before it. */
@@ -79,6 +88,12 @@ export interface PlotArea {
   readonly bottom: number;
 }
 
+export interface ThresholdModel {
+  readonly y: number;
+  /** The value in the axis's own labelling, "80%" rather than 80. */
+  readonly label: string;
+}
+
 export interface ChartModel {
   readonly width: number;
   readonly height: number;
@@ -91,6 +106,7 @@ export interface ChartModel {
   /** One set of rules, from the first axis: two sets would cross each other. */
   readonly gridlines: ReadonlyArray<number>;
   readonly series: ReadonlyArray<SeriesModel>;
+  readonly thresholds: ReadonlyArray<ThresholdModel>;
 }
 
 const MARGIN_TOP = 10;
@@ -115,10 +131,19 @@ interface AxisScale {
   readonly scale: ScaleLinear<number, number>;
   /** Per series id: what converts its values into the axis unit. */
   readonly factors: ReadonlyMap<string, number>;
+  /** A value in the axis unit, labelled as the ticks are. */
+  readonly format: (value: number) => string;
 }
 
 /** One side's scale. Built before the margins, because the margins are sized from its labels. */
-function buildAxis(side: MetricAxis, series: ReadonlyArray<ChartSeries>, plotTop: number, plotBottom: number, locale: string | undefined): AxisScale {
+function buildAxis(
+  side: MetricAxis,
+  series: ReadonlyArray<ChartSeries>,
+  thresholds: ReadonlyArray<number>,
+  plotTop: number,
+  plotBottom: number,
+  locale: string | undefined,
+): AxisScale {
   // The first series with data sets the unit, and others on its ladder convert into it.
   const reporting = series.filter((candidate) => candidate.datapoints.length > 0);
   const units: MetricUnit[] = [];
@@ -139,6 +164,10 @@ function buildAxis(side: MetricAxis, series: ReadonlyArray<ChartSeries>, plotTop
       low = Math.min(low, point.value * factor);
       high = Math.max(high, point.value * factor);
     }
+  }
+  for (const value of thresholds) {
+    low = Math.min(low, value);
+    high = Math.max(high, value);
   }
   if (low === high) {
     high = low + 1;
@@ -162,7 +191,8 @@ function buildAxis(side: MetricAxis, series: ReadonlyArray<ChartSeries>, plotTop
     .range([plotBottom, plotTop]);
 
   const ticks = values.map((value) => ({ position: scale(value * display.divisor), label: formatTick(value * display.divisor, display, digits, locale) }));
-  return { model: { side, units, ticks }, scale, factors };
+  const format = (value: number): string => formatTick(value, display, digits, locale);
+  return { model: { side, units, ticks }, scale, factors, format };
 }
 
 function labelWidth(axis: AxisScale | undefined): number {
@@ -239,9 +269,10 @@ export function buildChartModel(input: ChartModelInput): ChartModel {
   }));
 
   const onSide = (side: MetricAxis) => shown.filter((candidate) => candidate.axis === side);
+  const thresholdsOn = (side: MetricAxis) => (input.thresholds ?? []).filter((threshold) => threshold.axis === side).map((threshold) => threshold.value);
   // A left axis even with nothing on it, so an empty chart still has a frame.
-  const left = onSide('left').length > 0 || onSide('right').length === 0 ? buildAxis('left', onSide('left'), plotTop, plotBottom, locale) : undefined;
-  const right = onSide('right').length > 0 ? buildAxis('right', onSide('right'), plotTop, plotBottom, locale) : undefined;
+  const left = onSide('left').length > 0 || onSide('right').length === 0 ? buildAxis('left', onSide('left'), thresholdsOn('left'), plotTop, plotBottom, locale) : undefined;
+  const right = onSide('right').length > 0 ? buildAxis('right', onSide('right'), thresholdsOn('right'), plotTop, plotBottom, locale) : undefined;
 
   const plot: PlotArea = {
     left: labelWidth(left),
@@ -324,6 +355,11 @@ export function buildChartModel(input: ChartModelInput): ChartModel {
     axes: axes.map((axis) => axis.model),
     gridlines: axes.length > 0 ? axes[0].model.ticks.map((tick) => tick.position) : [],
     series,
+    thresholds: (input.thresholds ?? []).flatMap((threshold) => {
+      // Drawn against the side it names, or the left when that side has no axis.
+      const axis = threshold.axis === 'right' && right !== undefined ? right : (left ?? right);
+      return axis === undefined ? [] : [{ y: axis.scale(threshold.value), label: axis.format(threshold.value) }];
+    }),
   };
 }
 
