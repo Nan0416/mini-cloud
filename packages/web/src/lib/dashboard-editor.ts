@@ -10,8 +10,8 @@ import {
   type MetricGraph,
   type MetricQuery,
 } from '@mini-cloud/shared';
-import type { DashboardWindow } from '@/lib/dashboard-window';
-import { labelOf } from '@/lib/metric-graph-editor';
+import type { GraphWindow } from '@/lib/graph-window';
+import { EMPTY_GRAPH, labelOf } from '@/lib/metric-graph-editor';
 
 /** The rules a dashboard is edited by, kept apart from the pages so they can be tested. */
 
@@ -28,6 +28,11 @@ export function dashboardNameProblem(name: string, taken: ReadonlyArray<string>)
     return err instanceof Error ? err.message : String(err);
   }
   return taken.includes(name) ? `There is already a dashboard called ${name}.` : undefined;
+}
+
+/** Where a dashboard opens when its link names no window. */
+export function defaultWindowOf(dashboard: Dashboard): GraphWindow {
+  return { range: dashboard.defaultRange ?? EMPTY_GRAPH.range, periodMs: dashboard.defaultPeriodMs };
 }
 
 /** What an update writes: everything but what the service keeps for itself. */
@@ -54,7 +59,7 @@ export function titleOf(widget: DashboardWidget): string {
 }
 
 /** A widget drawn over the dashboard's window, as the metrics page would draw it. */
-export function graphOf(widget: DashboardWidget, window: DashboardWindow): MetricGraph {
+export function graphOf(widget: DashboardWidget, window: GraphWindow): MetricGraph {
   return { version: METRIC_GRAPH_VERSION, queries: widget.queries, range: window.range, periodMs: window.periodMs };
 }
 
@@ -98,7 +103,7 @@ export function withWidgetMoved(content: DashboardContent, id: string, delta: -1
   return { ...content, widgets };
 }
 
-export function withDefaultWindow(content: DashboardContent, window: DashboardWindow): DashboardContent {
+export function withDefaultWindow(content: DashboardContent, window: GraphWindow): DashboardContent {
   return { ...content, defaultRange: window.range, defaultPeriodMs: window.periodMs };
 }
 

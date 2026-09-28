@@ -1,11 +1,13 @@
 import { METRIC_STATISTICS, type MetricAxis, type MetricQuery, type MetricUnit } from '@mini-cloud/shared';
-import { X } from 'lucide-react';
+import { BellPlus, X } from 'lucide-react';
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { axisAccepts, describeDimensions, isSameMetric, labelOf, type AxisUnits } from '@/lib/metric-graph-editor';
+import { urls } from '@/lib/urls';
 
 export interface QueryListProps {
   readonly queries: ReadonlyArray<MetricQuery>;
@@ -123,9 +125,16 @@ function QueryRow(props: QueryRowProps) {
         </Select>
       </TableCell>
       <TableCell>
-        <Button size="icon-sm" variant="ghost" aria-label={`Remove ${labelOf(query)}`} onClick={props.onRemove}>
-          <X />
-        </Button>
+        <div className="flex gap-1">
+          <Button asChild size="icon-sm" variant="ghost" aria-label={`Create a monitor on ${labelOf(query)}`} title="Create a monitor on this series">
+            <Link to={urls.createMonitor({ namespace: query.namespace, metricName: query.metricName, dimensions: query.dimensions, statistic: query.statistic })}>
+              <BellPlus />
+            </Link>
+          </Button>
+          <Button size="icon-sm" variant="ghost" aria-label={`Remove ${labelOf(query)}`} onClick={props.onRemove}>
+            <X />
+          </Button>
+        </div>
       </TableCell>
     </TableRow>
   );

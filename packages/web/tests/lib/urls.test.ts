@@ -64,4 +64,18 @@ describe('urls', () => {
     expect(urls.metrics({ dashboard: 'home' })).toBe('/metrics');
     expect(urls.metrics({ dashboard: 'home', widget: 'w1' })).toBe('/metrics?dashboard=home&widget=w1');
   });
+
+  it('builds monitor links, with the graph window readable in the query', () => {
+    expect(urls.monitors()).toBe('/monitors');
+    expect(urls.monitor('nas-cpu')).toBe('/monitors/nas-cpu');
+    expect(urls.editMonitor('nas-cpu')).toBe('/monitors/nas-cpu/edit');
+    expect(urls.monitor('nas-cpu', { range: { kind: 'relative', durationMs: 10_800_000 }, periodMs: 300_000 })).toBe('/monitors/nas-cpu?range=3h&period=5m');
+  });
+
+  it('starts a new monitor on a metric when given one', () => {
+    expect(urls.createMonitor()).toBe('/monitors/new');
+    expect(urls.createMonitor({ namespace: 'MiniCloud/Agent', metricName: 'CpuUtilization', dimensions: { AgentId: 'nas' }, statistic: 'avg' })).toBe(
+      '/monitors/new?namespace=MiniCloud%2FAgent&metric=CpuUtilization&dimension=AgentId%3Anas&statistic=avg',
+    );
+  });
 });

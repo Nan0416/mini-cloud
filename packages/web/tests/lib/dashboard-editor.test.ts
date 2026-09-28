@@ -9,6 +9,7 @@ import {
 } from '@mini-cloud/shared';
 import {
   dashboardNameProblem,
+  defaultWindowOf,
   saveDashboardEdit,
   graphOf,
   nextWidgetId,
@@ -172,5 +173,20 @@ describe('saveDashboardEdit', () => {
 
     await expect(saveDashboardEdit(api, 'home', (current) => current)).rejects.toThrow(ConflictError);
     expect(api.reads).toBe(2);
+  });
+});
+
+const aDashboard = (overrides: Partial<Dashboard> = {}): Dashboard => ({ name: 'home', widgets: [], version: 1, createdAt: 0, updatedAt: 0, ...overrides });
+const MINUTE = 60_000;
+const HOUR = 60 * MINUTE;
+const DAY = 24 * HOUR;
+
+describe('defaultWindowOf', () => {
+  it('uses the dashboard’s own default, or the metrics page’s three hours', () => {
+    expect(defaultWindowOf(aDashboard({ defaultRange: { kind: 'relative', durationMs: DAY }, defaultPeriodMs: HOUR }))).toEqual({
+      range: { kind: 'relative', durationMs: DAY },
+      periodMs: HOUR,
+    });
+    expect(defaultWindowOf(aDashboard()).range).toEqual({ kind: 'relative', durationMs: 3 * HOUR });
   });
 });

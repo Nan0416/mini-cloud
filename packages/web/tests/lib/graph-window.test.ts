@@ -1,11 +1,8 @@
-import type { Dashboard } from '@mini-cloud/shared';
-import { defaultWindowOf, formatSpan, isSameWindow, parseSpan, readWindow, windowSearch, withWindowRange } from '@/lib/dashboard-window';
+import { formatSpan, isSameWindow, parseSpan, readWindow, windowSearch, withWindowRange } from '@/lib/graph-window';
 
 const MINUTE = 60_000;
 const HOUR = 60 * MINUTE;
 const DAY = 24 * HOUR;
-
-const aDashboard = (overrides: Partial<Dashboard> = {}): Dashboard => ({ name: 'home', widgets: [], version: 1, createdAt: 0, updatedAt: 0, ...overrides });
 
 describe('formatSpan and parseSpan', () => {
   it('writes a span in the largest unit that divides it', () => {
@@ -79,16 +76,6 @@ describe('windowSearch', () => {
     for (const window of windows) {
       expect(readWindow(new URLSearchParams(windowSearch(window)), { range: { kind: 'relative', durationMs: HOUR } })).toEqual(window);
     }
-  });
-});
-
-describe('defaultWindowOf', () => {
-  it('uses the dashboard’s own default, or the metrics page’s three hours', () => {
-    expect(defaultWindowOf(aDashboard({ defaultRange: { kind: 'relative', durationMs: DAY }, defaultPeriodMs: HOUR }))).toEqual({
-      range: { kind: 'relative', durationMs: DAY },
-      periodMs: HOUR,
-    });
-    expect(defaultWindowOf(aDashboard()).range).toEqual({ kind: 'relative', durationMs: 3 * HOUR });
   });
 });
 

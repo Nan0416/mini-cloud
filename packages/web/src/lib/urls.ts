@@ -1,5 +1,6 @@
-import type { MetricGraph } from '@mini-cloud/shared';
-import { windowSearch, type DashboardWindow } from '@/lib/dashboard-window';
+import type { MetricGraph, MonitorMetric } from '@mini-cloud/shared';
+import { windowSearch, type GraphWindow } from '@/lib/graph-window';
+import { metricSearch } from '@/lib/monitor-editor';
 import { DASHBOARD_PARAM, GRAPH_PARAM, WIDGET_PARAM, encodeMetricGraph } from '@/lib/metric-graph-url';
 
 /** A graph on the metrics page, optionally being edited as one widget of a dashboard. */
@@ -48,8 +49,14 @@ export const urls = {
     return query.size > 0 ? `/metrics?${query.toString()}` : '/metrics';
   },
   dashboards: (): string => '/dashboards',
+  monitors: (): string => '/monitors',
+  /** Given a metric, the form opens on it. */
+  createMonitor: (metric?: MonitorMetric): string => (metric === undefined ? '/monitors/new' : `/monitors/new?${metricSearch(metric)}`),
+  /** Without a window, the graph opens on one sized to the monitor's own period. */
+  monitor: (name: string, window?: GraphWindow): string => `/monitors/${encodeURIComponent(name)}${window === undefined ? '' : `?${windowSearch(window)}`}`,
+  editMonitor: (name: string): string => `/monitors/${encodeURIComponent(name)}/edit`,
   /** Without a window, the dashboard opens on its own default. */
-  dashboard: (name: string, window?: DashboardWindow): string => `/dashboards/${encodeURIComponent(name)}${window === undefined ? '' : `?${windowSearch(window)}`}`,
+  dashboard: (name: string, window?: GraphWindow): string => `/dashboards/${encodeURIComponent(name)}${window === undefined ? '' : `?${windowSearch(window)}`}`,
   variables: (): string => '/variables',
   pubsub: (): string => '/pubsub',
 };
