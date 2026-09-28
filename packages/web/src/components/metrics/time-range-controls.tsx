@@ -6,7 +6,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { formatBucket } from '@/lib/chart-model';
 import { formatDuration, localDateTimeToTimestamp, timestampToLocalDateTime } from '@/lib/format';
-import { periodProblem } from '@/lib/metric-graph-editor';
+import { densePointCount, periodFits } from '@/lib/metric-graph-editor';
 
 const { '1m': MINUTE, '1h': HOUR, '1d': DAY } = METRIC_RESOLUTION_MS;
 
@@ -99,11 +99,12 @@ export function TimeRangeControls(props: TimeRangeControlsProps) {
             <SelectContent>
               <SelectItem value={AUTO}>Auto ({formatDuration(autoPeriodFor(span))})</SelectItem>
               {periods.map((periodMs) => {
-                const problem = periodProblem(span, periodMs);
+                const fits = periodFits(span, periodMs);
+                const points = densePointCount(span, periodMs);
                 return (
-                  <SelectItem key={periodMs} value={String(periodMs)} disabled={problem !== undefined}>
+                  <SelectItem key={periodMs} value={String(periodMs)} disabled={!fits}>
                     {formatDuration(periodMs)}
-                    {problem === undefined ? '' : ` (${problem})`}
+                    {!fits ? ' (longer than the range)' : points === undefined ? '' : ` (${points.toLocaleString()} points)`}
                   </SelectItem>
                 );
               })}

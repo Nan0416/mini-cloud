@@ -250,6 +250,37 @@ describeIfDatabase('PgMetricDao', () => {
     expect(datapoints).toEqual([{ timestamp: MINUTE, value: 100 }]);
   });
 
+  it.each(['sum', 'p50'] as const)('walks a sparse %s series across pages without repeating or skipping a bucket', async (statistic) => {
+    // Two minutes of each five-minute bucket that has data, and nothing between minutes
+    // 10 and 20, so the middle page of two periods is empty and must still point on.
+    const minutes = [0, 1, 5, 6, 20, 21].map((minute) => MINUTE + minute * 60_000);
+    await report(
+      'agent-a',
+      minutes.map((bucketStart) => aDatum({ bucketStart })),
+    );
+
+    const seen: number[] = [];
+    let after: number | undefined;
+    do {
+      const page = await dao.readSeries({
+        namespace: 'MyApp',
+        metricName: 'Latency',
+        dimensionsHash: 'Operation/Ingest',
+        resolution: '1m',
+        statistic,
+        periodMs: 300_000,
+        from: MINUTE,
+        to: MINUTE + 1_500_000,
+        limit: 2,
+        after,
+      });
+      seen.push(...page.datapoints.map((datapoint) => datapoint.timestamp));
+      after = page.nextCursor;
+    } while (after !== undefined);
+
+    expect(seen).toEqual([0, 5, 20].map((minute) => MINUTE + minute * 60_000));
+  });
+
   it('records what exists, so the pickers never scan the data', async () => {
     await report('agent-a', [aDatum()]);
 

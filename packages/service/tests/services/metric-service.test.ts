@@ -33,6 +33,7 @@ class FakeMetricDao implements MetricDao {
   readonly ensured: EnsurePartitionsInput[] = [];
   readonly reads: ReadSeriesInput[] = [];
   duplicate = false;
+  nextCursor: number | undefined = undefined;
 
   async putMetricData(input: PutMetricDataInput): Promise<PutMetricDataOutput> {
     this.written.push(input);
@@ -49,7 +50,7 @@ class FakeMetricDao implements MetricDao {
   }
   async readSeries(input: ReadSeriesInput): Promise<ReadSeriesOutput> {
     this.reads.push(input);
-    return { unit: 'Milliseconds', datapoints: [{ timestamp: input.from, value: 1 }] };
+    return { unit: 'Milliseconds', datapoints: [{ timestamp: input.from, value: 1 }], nextCursor: this.nextCursor };
   }
   async ensurePartitions(input: EnsurePartitionsInput): Promise<EnsurePartitionsOutput> {
     this.ensured.push(input);
@@ -219,23 +220,26 @@ describe('MetricService.getMetricData', () => {
     expect(response.to).toBe(metricDao.reads[0].to);
   });
 
-  it('refuses more datapoints than one read may return, and names a period that fits', async () => {
-    // A minute over two days is 2877 buckets once the watermark is taken off.
-    const { service } = build();
-    const query = aQuery({ periodMs: 60_000, from: NOW - 2 * DAY });
+  it('reads four weeks by the minute, a page at a time, rather than refusing it', async () => {
+    const { metricDao, service } = build();
+    metricDao.nextCursor = NOW - 20 * DAY;
 
-    await expect(service.getMetricData(query, NOW)).rejects.toThrow(/2877 datapoints, more than the 1440/);
-    await expect(service.getMetricData(query, NOW)).rejects.toThrow(/at least 2 minutes \(120000 ms\)/);
-    await expect(service.getMetricData({ ...query, periodMs: 120_000 }, NOW)).resolves.toMatchObject({ periodMs: 120_000 });
+    const response = await service.getMetricData(aQuery({ periodMs: 60_000, from: NOW - 28 * DAY, limit: 5000, after: NOW - 21 * DAY }), NOW);
+
+    expect(metricDao.reads[0]).toMatchObject({ resolution: '1m', limit: 5000, after: NOW - 21 * DAY });
+    expect(response.nextCursor).toBe(NOW - 20 * DAY);
   });
 
-  it('answers exactly as many datapoints as the cap', async () => {
+  it('keeps the whole window in every page, so a chart frames the series and not the page', async () => {
     const { metricDao, service } = build();
-    const end = NOW - CONFIG.queryLagMs;
+    const from = NOW - 3 * DAY;
+    const to = NOW - DAY;
 
-    await service.getMetricData(aQuery({ periodMs: 60_000, from: end - 1440 * 60_000 }), NOW);
+    const first = await service.getMetricData(aQuery({ from, to }), NOW);
+    const later = await service.getMetricData(aQuery({ from, to, after: NOW - 2 * DAY }), NOW);
 
-    expect((metricDao.reads[0].to - metricDao.reads[0].from) / 60_000).toBe(1440);
+    expect([later.from, later.to]).toEqual([first.from, first.to]);
+    expect(metricDao.reads[1].from).toBe(from);
   });
 
   it('reads the coarsest resolution the period lines up with', async () => {
@@ -300,6 +304,7 @@ describe('MetricService.getMetricData', () => {
     // surface as a 500 for what is plainly a bad request.
     await expect(build().service.getMetricData(aQuery({ from: -1e18 }), NOW)).rejects.toThrow(/milliseconds since the epoch/);
     await expect(build().service.getMetricData(aQuery({ to: 1e18 }), NOW)).rejects.toThrow(/milliseconds since the epoch/);
+    await expect(build().service.getMetricData(aQuery({ after: 1e18 }), NOW)).rejects.toThrow(/milliseconds since the epoch/);
   });
 
   it('rejects a period that is not a whole number of minutes', async () => {

@@ -179,10 +179,7 @@ export function parseMetricGraph(value: unknown): MetricGraph {
  */
 const AUTO_PERIODS_MS = [1, 5, 15, 60, 180, 360, 720, 1440].map((minutes) => minutes * MINUTE_MS);
 
-/**
- * About as many points as a chart the width of the console can draw distinctly, and
- * well inside `METRIC_MAX_DATAPOINTS`.
- */
+/** About as many points as a chart the width of the console can draw distinctly. */
 const AUTO_PERIOD_POINTS = 500;
 
 /** The finest period that keeps a range within `AUTO_PERIOD_POINTS`. */

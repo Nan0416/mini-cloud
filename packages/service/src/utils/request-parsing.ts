@@ -14,6 +14,7 @@ import {
   ListMetricNamesRequest,
   ListMetricNamespacesRequest,
   ListTaskInstancesRequest,
+  METRIC_DATAPOINT_PAGE_SIZE,
   METRIC_PAGE_SIZE,
   METRIC_STATISTICS,
   METRIC_UNITS,
@@ -415,6 +416,10 @@ export function parseGetMetricDataRequest(query: unknown): GetMetricDataRequest 
   if (periodMs <= 0) {
     throw new InvalidRequestError('periodMs must be positive');
   }
+  const limit = parseOptionalIntegerParam(record['limit'], 'limit');
+  if (limit !== undefined && (limit < 1 || limit > METRIC_DATAPOINT_PAGE_SIZE.max)) {
+    throw new InvalidRequestError(`limit must be between 1 and ${METRIC_DATAPOINT_PAGE_SIZE.max}`);
+  }
 
   return {
     namespace: assertNonEmptyString(record['namespace'], 'namespace'),
@@ -424,5 +429,7 @@ export function parseGetMetricDataRequest(query: unknown): GetMetricDataRequest 
     from,
     to: parseOptionalIntegerParam(record['to'], 'to'),
     dimensions: parseDimensionParams(record['dimension']),
+    limit,
+    after: parseOptionalIntegerParam(record['after'], 'after'),
   };
 }

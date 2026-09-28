@@ -1,4 +1,5 @@
-import { MetricDatum } from '@mini-cloud/shared';
+import { METRIC_DATAPOINT_PAGE_SIZE, MetricDatum } from '@mini-cloud/shared';
+import { ReadSeriesInput } from '../../src/data/metric-dao';
 import { PgMetricDao } from '../../src/data/pg-metric-dao';
 import { fakePool } from './test-helpers';
 
@@ -15,6 +16,19 @@ const aDatum = (overrides: Partial<MetricDatum> = {}): MetricDatum => ({
   min: 10,
   max: 20,
   histogram: { '10': 1, '20': 1 },
+  ...overrides,
+});
+
+/** Ten minutes of one series by the minute. */
+const aRead = (overrides: Partial<ReadSeriesInput> = {}): ReadSeriesInput => ({
+  namespace: 'MyApp',
+  metricName: 'Latency',
+  dimensionsHash: '_none',
+  resolution: '1m',
+  statistic: 'avg',
+  periodMs: 60_000,
+  from: MINUTE,
+  to: MINUTE + 600_000,
   ...overrides,
 });
 
@@ -320,6 +334,62 @@ describe('PgMetricDao.readSeries', () => {
     });
 
     expect(result.datapoints).toEqual([]);
+  });
+
+  // Where each read binds the end of its window: the aggregate also binds the period.
+  const END_PARAM = { avg: { fragment: 'SUM(sample_count)', index: 6 }, p99: { fragment: 'SELECT bucket_start, histogram', index: 5 } } as const;
+
+  it.each(['avg', 'p99'] as const)('ends a page of %s after limit periods, with a cursor at its last bucket', async (statistic) => {
+    const pool = fakePool().on('SELECT unit FROM metric_series', { rows: [{ unit: 'Milliseconds' }] });
+
+    const result = await new PgMetricDao(pool.asPool()).readSeries(aRead({ statistic, limit: 2 }));
+
+    const { fragment, index } = END_PARAM[statistic];
+    expect(pool.find(fragment).values[index]).toBe(new Date(MINUTE + 120_000).toISOString());
+    expect(pool.find(fragment).sql).not.toContain('LIMIT');
+    expect(result.nextCursor).toBe(MINUTE + 60_000);
+  });
+
+  it('answers a cursor after an empty page, since the window goes on past it', async () => {
+    const pool = fakePool().on('SELECT unit FROM metric_series', { rows: [{ unit: 'Milliseconds' }] });
+
+    const result = await new PgMetricDao(pool.asPool()).readSeries(aRead({ limit: 2 }));
+
+    expect(result).toEqual({ unit: 'Milliseconds', datapoints: [], nextCursor: MINUTE + 60_000 });
+  });
+
+  it('answers no cursor on the page that reaches the end of the window', async () => {
+    const pool = fakePool().on('SELECT unit FROM metric_series', { rows: [{ unit: 'Milliseconds' }] });
+
+    const result = await new PgMetricDao(pool.asPool()).readSeries(aRead({ limit: 5, after: MINUTE + 240_000 }));
+
+    expect(pool.find('SUM(sample_count)').values[6]).toBe(new Date(MINUTE + 600_000).toISOString());
+    expect(result.nextCursor).toBeUndefined();
+  });
+
+  it('starts the next page at the bucket after the cursor, even an unaligned one', async () => {
+    const pool = fakePool().on('SELECT unit FROM metric_series', { rows: [{ unit: 'Milliseconds' }] });
+
+    await new PgMetricDao(pool.asPool()).readSeries(aRead({ periodMs: 300_000, after: MINUTE + 12_345 }));
+
+    expect(pool.find('SUM(sample_count)').values[5]).toBe(new Date(MINUTE + 300_000).toISOString());
+  });
+
+  it('reads nothing past a cursor at the end of the window', async () => {
+    const pool = fakePool().on('SELECT unit FROM metric_series', { rows: [{ unit: 'Milliseconds' }] });
+
+    const result = await new PgMetricDao(pool.asPool()).readSeries(aRead({ after: MINUTE + 540_000 }));
+
+    expect(result).toEqual({ unit: 'Milliseconds', datapoints: [] });
+    expect(pool.statements.some((sql) => sql.includes('SUM(sample_count)'))).toBe(false);
+  });
+
+  it('holds a page to the largest size, even when a caller asks the DAO directly for more', async () => {
+    const pool = fakePool().on('SELECT unit FROM metric_series', { rows: [{ unit: 'Milliseconds' }] });
+
+    await new PgMetricDao(pool.asPool()).readSeries(aRead({ to: MINUTE + 30 * 86_400_000, limit: 1_000_000 }));
+
+    expect(pool.find('SUM(sample_count)').values[6]).toBe(new Date(MINUTE + METRIC_DATAPOINT_PAGE_SIZE.max * 60_000).toISOString());
   });
 });
 

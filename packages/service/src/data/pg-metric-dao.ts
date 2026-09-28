@@ -1,6 +1,7 @@
 import {
   InternalServiceError,
   LoggerFactory,
+  METRIC_DATAPOINT_PAGE_SIZE,
   METRIC_PAGE_SIZE,
   METRIC_RESOLUTIONS,
   MetricDatapoint,
@@ -83,6 +84,11 @@ interface MergedDatum {
 function pageLimit(requested: number | undefined): number {
   const limit = requested ?? METRIC_PAGE_SIZE.default;
   return Math.min(Math.max(1, limit), METRIC_PAGE_SIZE.max);
+}
+
+function datapointLimit(requested: number | undefined): number {
+  const limit = requested ?? METRIC_DATAPOINT_PAGE_SIZE.default;
+  return Math.min(Math.max(1, limit), METRIC_DATAPOINT_PAGE_SIZE.max);
 }
 
 /** A cursor only when the extra row came back, meaning there is more to read. */
@@ -317,9 +323,20 @@ export class PgMetricDao implements MetricDao {
       return { datapoints: [] };
     }
 
+    // The page starts at the bucket after the cursor, so both reads keep their plain
+    // `bucket_start >= from` and a coarser stored row can never straddle the cursor.
+    const from = input.after === undefined ? input.from : Math.max(input.from, floorToPeriod(input.after, input.periodMs) + input.periodMs);
+    if (from >= input.to) {
+      return { unit, datapoints: [] };
+    }
+
+    // Ended by time rather than by LIMIT: grouping on the floored bucket hides its order
+    // from Postgres, so a LIMIT would still sort every bucket left in the window.
+    const to = Math.min(input.to, from + datapointLimit(input.limit) * input.periodMs);
+    const page = { ...input, from, to };
     const isPercentile = PERCENTILE_STATISTICS.some((statistic) => statistic === input.statistic);
-    const datapoints = isPercentile ? await this.readPercentile(input) : await this.readAggregate(input);
-    return { unit, datapoints };
+    const datapoints = isPercentile ? await this.readPercentile(page) : await this.readAggregate(page);
+    return { unit, datapoints, nextCursor: to < input.to ? to - input.periodMs : undefined };
   }
 
   private async readUnit(namespace: string, metricName: string, dimensionsHash: string): Promise<MetricUnit | undefined> {

@@ -3,7 +3,6 @@ import {
   METRIC_RESOLUTION_MS,
   METRIC_GRAPH_LIMITS,
   METRIC_GRAPH_VERSION,
-  METRIC_MAX_DATAPOINTS,
   metricIdentity,
   seriesIdentity,
   spanOf,
@@ -122,27 +121,26 @@ export function axisFor(unit: MetricUnit, units: AxisUnits): MetricAxis | undefi
   return METRIC_AXES.find((axis) => units[axis].length > 0 && axisAccepts(unit, axis, units)) ?? METRIC_AXES.find((axis) => units[axis].length === 0);
 }
 
-/**
- * Why a period cannot be read over a span, or `undefined` when it can. Too fine is more
- * datapoints than one read may return; too coarse is not one whole bucket in the range.
- */
-export function periodProblem(spanMs: number, periodMs: number): 'too many points' | 'longer than the range' | undefined {
-  if (periodMs > spanMs) {
-    return 'longer than the range';
-  }
-  if (Math.ceil(spanMs / periodMs) > METRIC_MAX_DATAPOINTS) {
-    return 'too many points';
-  }
-  return undefined;
-}
-
+/** Whether a range holds at least one whole bucket of a period; one that does not reads nothing. */
 export function periodFits(spanMs: number, periodMs: number): boolean {
-  return periodProblem(spanMs, periodMs) === undefined;
+  return periodMs <= spanMs;
+}
+
+/** More points than a plot the width of the console has pixels, by a margin: a day by the minute. */
+const DENSE_POINTS = 1440;
+
+/**
+ * How many points a period draws over a span, when that is enough to be worth saying
+ * before someone picks it. `undefined` when it is not.
+ */
+export function densePointCount(spanMs: number, periodMs: number): number | undefined {
+  const points = Math.ceil(spanMs / periodMs);
+  return points > DENSE_POINTS ? points : undefined;
 }
 
 /**
- * The graph over a new range. A chosen period the new range outgrows is dropped, so the
- * graph falls back to the automatic one instead of every series being refused.
+ * The graph over a new range. A chosen period longer than the new range is dropped, so
+ * the graph falls back to the automatic one instead of reading nothing.
  */
 export function withRange(graph: MetricGraph, range: MetricTimeRange): MetricGraph {
   const keepPeriod = graph.periodMs !== undefined && periodFits(spanOf(range), graph.periodMs);

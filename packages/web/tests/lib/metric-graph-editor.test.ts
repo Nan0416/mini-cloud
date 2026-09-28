@@ -10,8 +10,8 @@ import {
   labelOf,
   nextColor,
   nextQueryId,
+  densePointCount,
   periodFits,
-  periodProblem,
   withRange,
 } from '@/lib/metric-graph-editor';
 
@@ -109,10 +109,10 @@ describe('withRange', () => {
     expect(withRange(graph, { kind: 'relative', durationMs: 7 * DAY }).periodMs).toBe(HOUR);
   });
 
-  it('drops a chosen period the new range has outgrown, rather than have every series refused', () => {
+  it('keeps a fine period over a long range, which is only more points to page through', () => {
     const graph = { ...EMPTY_GRAPH, periodMs: 60_000 };
 
-    expect(withRange(graph, { kind: 'relative', durationMs: 28 * DAY }).periodMs).toBeUndefined();
+    expect(withRange(graph, { kind: 'relative', durationMs: 28 * DAY }).periodMs).toBe(60_000);
   });
 
   it('drops a chosen period longer than the new range, which would read nothing', () => {
@@ -120,15 +120,21 @@ describe('withRange', () => {
   });
 });
 
-describe('periodProblem', () => {
-  it('allows exactly as many datapoints as one read may return', () => {
-    expect(periodFits(DAY, 60_000)).toBe(true);
-    expect(periodProblem(DAY + 60_000, 60_000)).toBe('too many points');
+describe('periodFits', () => {
+  it('refuses a period longer than the range, which holds no whole bucket', () => {
+    expect(periodFits(HOUR, DAY)).toBe(false);
+    expect(periodFits(DAY, DAY)).toBe(true);
+  });
+});
+
+describe('densePointCount', () => {
+  it('names the points a dense period would draw', () => {
+    expect(densePointCount(28 * DAY, 60_000)).toBe(40_320);
   });
 
-  it('refuses a period longer than the range, which holds no whole bucket', () => {
-    expect(periodProblem(HOUR, DAY)).toBe('longer than the range');
-    expect(periodFits(DAY, DAY)).toBe(true);
+  it('says nothing for a day by the minute or less', () => {
+    expect(densePointCount(DAY, 60_000)).toBeUndefined();
+    expect(densePointCount(28 * DAY, HOUR)).toBeUndefined();
   });
 });
 

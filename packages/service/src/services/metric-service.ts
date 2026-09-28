@@ -9,7 +9,6 @@ import {
   ListMetricNamespacesRequest,
   ListMetricNamespacesResponse,
   LoggerFactory,
-  METRIC_MAX_DATAPOINTS,
   METRIC_RESOLUTIONS,
   METRIC_RESOLUTION_MS,
   MetricDatum,
@@ -142,6 +141,9 @@ export class MetricService {
     if (request.to !== undefined) {
       assertTimestamp(request.to, 'to');
     }
+    if (request.after !== undefined) {
+      assertTimestamp(request.after, 'after');
+    }
 
     // Clamped before anything else: a bucket only some agents have reported yet is
     // not a datapoint, it is a partial one. Both ends are then floored to the period
@@ -159,20 +161,9 @@ export class MetricService {
 
     const resolution = this.resolutionFor(request, periodMs, from, now);
 
-    // After the percentile check, because no period can fix that refusal.
-    const buckets = (to - from) / periodMs;
-    if (buckets > METRIC_MAX_DATAPOINTS) {
-      // Sized from the unfloored span, so a read at the suggested period is known to fit.
-      const minutes = Math.ceil((end - request.from) / METRIC_MAX_DATAPOINTS / METRIC_RESOLUTION_MS['1m']);
-      throw new InvalidRequestError(
-        `A ${periodMs / METRIC_RESOLUTION_MS['1m']}-minute period over this range is ${buckets} datapoints, more than the ${METRIC_MAX_DATAPOINTS} one read may return. ` +
-          `Use a period of at least ${minutes} minutes (${minutes * METRIC_RESOLUTION_MS['1m']} ms), or a shorter range.`,
-      );
-    }
-
     const dimensionsHash = hashDimensions(request.dimensions ?? {});
 
-    const { unit, datapoints } = await this.metricDao.readSeries({
+    const { unit, datapoints, nextCursor } = await this.metricDao.readSeries({
       namespace: request.namespace,
       metricName: request.metricName,
       dimensionsHash,
@@ -181,10 +172,12 @@ export class MetricService {
       periodMs,
       from,
       to,
+      limit: request.limit,
+      after: request.after,
     });
 
     // A count is a count whatever the series measures, so it is not reported in the metric's unit.
-    return { unit: unitForStatistic(request.statistic, unit ?? 'None'), periodMs, resolution, from, to, datapoints };
+    return { unit: unitForStatistic(request.statistic, unit ?? 'None'), periodMs, resolution, from, to, datapoints, nextCursor };
   }
 
   /**
