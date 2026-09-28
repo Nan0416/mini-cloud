@@ -136,8 +136,10 @@ describe('assertMonitorName', () => {
     expect(() => assertMonitorName('nas cpu', 'name')).toThrow(/letters, digits, hyphens and underscores/);
   });
 
-  it('refuses "new", which the console’s create page already answers to', () => {
-    expect(() => assertMonitorName('new', 'name')).toThrow(/cannot be "new"/);
+  it('refuses "new" in any case, which the console’s create page already answers to', () => {
+    for (const name of ['new', 'New', 'NEW']) {
+      expect(() => assertMonitorName(name, 'name')).toThrow(/cannot be "new"/);
+    }
     expect(assertMonitorName('new-disk', 'name')).toBe('new-disk');
   });
 });

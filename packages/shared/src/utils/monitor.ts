@@ -28,8 +28,9 @@ export function assertMonitorName(value: unknown, field: string): string {
   if (name.length > MONITOR_LIMITS.nameLength || !MONITOR_NAME.test(name)) {
     throw new InvalidRequestError(`${field} must be letters, digits, hyphens and underscores, up to ${MONITOR_LIMITS.nameLength} characters, like "nas-cpu-high"`);
   }
-  // `/monitors/new` is the console's create page, so a monitor by that name could never be opened.
-  if (name === RESERVED_MONITOR_NAME) {
+  // `/monitors/new` is the console's create page, and the router matches paths without
+  // regard to case, so a monitor called "new" or "New" could never be opened.
+  if (name.toLowerCase() === RESERVED_MONITOR_NAME) {
     throw new InvalidRequestError(`${field} cannot be "${RESERVED_MONITOR_NAME}", which the console uses for creating a monitor; choose another`);
   }
   return name;
