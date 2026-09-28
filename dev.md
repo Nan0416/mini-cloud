@@ -294,7 +294,7 @@ One process, two ports, split by who calls.
 
 | | Internal `:3000` | Public `:3001` |
 | --- | --- | --- |
-| Serves | `/agent-api/*`, `/pubsub/*`, `/ws`, `/ping`, `/health` | `/tasks*`, `/instances*`, `/agents*`, `/variables`, `/metrics/*`, `/pubsub/*`, `/ping`, `/health` |
+| Serves | `/agent-api/*`, `/pubsub/*`, `/ws`, `/ping`, `/health` | `/tasks*`, `/instances*`, `/agents*`, `/variables`, `/metrics/*`, `/dashboards*`, `/pubsub/*`, `/ping`, `/health` |
 | Called by | agents, LAN programs | the console, the CLI |
 | Authentication | none — the source address is the credential | `publicToken`, always |
 | Source check | `internal.trustedSubnets` | none |

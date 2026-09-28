@@ -14,3 +14,5 @@ export * from './variable-dao';
 export * from './pg-variable-dao';
 export * from './metric-dao';
 export * from './pg-metric-dao';
+export * from './dashboard-dao';
+export * from './pg-dashboard-dao';

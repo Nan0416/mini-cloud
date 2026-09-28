@@ -2,6 +2,7 @@ import { Pool } from 'pg';
 import path from 'node:path';
 import { migrate } from '../../src/data/migrate';
 import { PgAgentDao } from '../../src/data/pg-agent-dao';
+import { PgDashboardDao } from '../../src/data/pg-dashboard-dao';
 import { PgTaskDao } from '../../src/data/pg-task-dao';
 import { PgTaskDynamicsDao } from '../../src/data/pg-task-dynamics-dao';
 import { PgTaskInstanceDao } from '../../src/data/pg-task-instance-dao';
@@ -33,6 +34,7 @@ describeIfDatabase('PostgreSQL DAOs', () => {
   let instanceDao: PgTaskInstanceDao;
   let agentDao: PgAgentDao;
   let variableDao: PgVariableDao;
+  let dashboardDao: PgDashboardDao;
 
   beforeAll(async () => {
     pool = createPool({ connectionString: DATABASE_URL ?? '' });
@@ -42,6 +44,7 @@ describeIfDatabase('PostgreSQL DAOs', () => {
     instanceDao = new PgTaskInstanceDao(pool);
     agentDao = new PgAgentDao(pool);
     variableDao = new PgVariableDao(pool);
+    dashboardDao = new PgDashboardDao(pool);
   });
 
   afterAll(async () => {
@@ -49,7 +52,7 @@ describeIfDatabase('PostgreSQL DAOs', () => {
   });
 
   beforeEach(async () => {
-    await pool.query('TRUNCATE task, task_dynamics, task_instance, task_event, agent, replacement_variable CASCADE');
+    await pool.query('TRUNCATE task, task_dynamics, task_instance, task_event, agent, replacement_variable, dashboard CASCADE');
   });
 
   const jobInput = (taskId: string, version: number, overrides: Record<string, unknown> = {}) => ({
@@ -264,6 +267,47 @@ describeIfDatabase('PostgreSQL DAOs', () => {
     it('clears everything when given an empty set', async () => {
       await variableDao.replaceVariables({ variables: { A: '1' } });
       expect((await variableDao.replaceVariables({ variables: {} })).variables).toEqual({});
+    });
+  });
+
+  describe('dashboards', () => {
+    const widgets = [
+      { id: 'w1', title: 'CPU', queries: [{ id: 'm1', namespace: 'MiniCloud/Agent', metricName: 'CpuUtilization', dimensions: { AgentId: 'nas' }, statistic: 'p99' as const }] },
+    ];
+
+    it('stores widgets and defaults and reads them back unchanged', async () => {
+      await dashboardDao.createDashboard({ name: 'home', widgets, defaultRange: { kind: 'relative', durationMs: 3_600_000 }, defaultPeriodMs: 300_000 });
+
+      const { dashboard } = await dashboardDao.getDashboard({ name: 'home' });
+
+      expect(dashboard).toMatchObject({ name: 'home', widgets, defaultRange: { kind: 'relative', durationMs: 3_600_000 }, defaultPeriodMs: 300_000, version: 1 });
+    });
+
+    it('creates a name once', async () => {
+      await dashboardDao.createDashboard({ name: 'home', widgets });
+
+      expect((await dashboardDao.createDashboard({ name: 'home', widgets: [] })).dashboard).toBeUndefined();
+      expect((await dashboardDao.getDashboard({ name: 'home' })).dashboard?.widgets).toEqual(widgets);
+    });
+
+    it('applies one of two updates made from the same version', async () => {
+      await dashboardDao.createDashboard({ name: 'home', widgets: [] });
+
+      const [first, second] = await Promise.all([
+        dashboardDao.updateDashboard({ name: 'home', version: 1, widgets }),
+        dashboardDao.updateDashboard({ name: 'home', version: 1, widgets: [] }),
+      ]);
+
+      expect([first.dashboard, second.dashboard].filter((dashboard) => dashboard !== undefined)).toHaveLength(1);
+      expect((await dashboardDao.getDashboard({ name: 'home' })).dashboard?.version).toBe(2);
+    });
+
+    it('clears a default when an update leaves it out', async () => {
+      await dashboardDao.createDashboard({ name: 'home', widgets, defaultPeriodMs: 300_000 });
+
+      const { dashboard } = await dashboardDao.updateDashboard({ name: 'home', version: 1, widgets });
+
+      expect(dashboard?.defaultPeriodMs).toBeUndefined();
     });
   });
 

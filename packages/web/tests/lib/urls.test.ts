@@ -52,4 +52,16 @@ describe('urls', () => {
     expect(urls.task('t1', {})).toBe('/tasks/t1');
     expect(urls.task('t1', { version: undefined, tab: undefined })).toBe('/tasks/t1');
   });
+
+  it('builds dashboard links, with the window readable in the query', () => {
+    expect(urls.dashboards()).toBe('/dashboards');
+    expect(urls.dashboard('home-lab')).toBe('/dashboards/home-lab');
+    expect(urls.dashboard('home-lab', { range: { kind: 'relative', durationMs: 3_600_000 }, periodMs: 60_000 })).toBe('/dashboards/home-lab?range=1h&period=1m');
+  });
+
+  it('marks a metrics link as editing a widget only when it names both the dashboard and the widget', () => {
+    expect(urls.metrics()).toBe('/metrics');
+    expect(urls.metrics({ dashboard: 'home' })).toBe('/metrics');
+    expect(urls.metrics({ dashboard: 'home', widget: 'w1' })).toBe('/metrics?dashboard=home&widget=w1');
+  });
 });

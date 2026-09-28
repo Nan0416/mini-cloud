@@ -25,6 +25,9 @@ export const queryKeys = {
   metricSeries: (series: MetricSeriesKey) => ['metrics', 'data', series] as const,
   metricData: (series: MetricSeriesKey, window: MetricWindowKey) => ['metrics', 'data', series, window] as const,
 
+  dashboards: () => ['dashboards'] as const,
+  dashboard: (name: string) => ['dashboards', name] as const,
+
   agents: () => ['agents'] as const,
   variables: () => ['variables'] as const,
   hubStatus: () => ['hub-status'] as const,

@@ -7,3 +7,4 @@ export * from './pubsub';
 export * from './offline-report';
 export * from './metric';
 export * from './metric-graph';
+export * from './dashboard';

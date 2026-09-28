@@ -2,6 +2,7 @@ import { LoggerFactory } from '@mini-cloud/shared';
 import { ErrorRequestHandler, RequestHandler } from 'express';
 import { Pool } from 'pg';
 import { PgAgentDao } from '../data/pg-agent-dao';
+import { PgDashboardDao } from '../data/pg-dashboard-dao';
 import { PgMetricDao } from '../data/pg-metric-dao';
 import { PgTaskDao } from '../data/pg-task-dao';
 import { PgTaskDynamicsDao } from '../data/pg-task-dynamics-dao';
@@ -21,6 +22,7 @@ import { requestLogger } from '../middleware/request-logger';
 import { subnetFilter } from '../middleware/subnet-filter';
 import { AgentEndpoints } from '../routes/agent-endpoints';
 import { AgentReportEndpoints } from '../routes/agent-report-endpoints';
+import { DashboardEndpoints } from '../routes/dashboard-endpoints';
 import { Endpoints } from '../routes/endpoints';
 import { HealthEndpoints } from '../routes/health-endpoints';
 import { MetricEndpoints } from '../routes/metric-endpoints';
@@ -28,6 +30,7 @@ import { MetricReportEndpoints } from '../routes/metric-report-endpoints';
 import { PubSubEndpoints } from '../routes/pubsub-endpoints';
 import { TaskEndpoints } from '../routes/task-endpoints';
 import { AgentService } from '../services/agent-service';
+import { DashboardService } from '../services/dashboard-service';
 import { MetricService } from '../services/metric-service';
 import { TaskService } from '../services/task-service';
 import { isDefaultPublicToken, ServiceConfig } from '../config';
@@ -36,7 +39,7 @@ const logger = LoggerFactory.getLogger('DependencyFactory');
 
 /** What each listener serves, for the hint in the other one's 404. */
 const INTERNAL_ROUTES: ReadonlyArray<string> = ['/agent-api/*', '/pubsub/*', '/ws'];
-const PUBLIC_ROUTES: ReadonlyArray<string> = ['/tasks', '/instances', '/agents', '/variables', '/metrics/*'];
+const PUBLIC_ROUTES: ReadonlyArray<string> = ['/tasks', '/instances', '/agents', '/variables', '/metrics/*', '/dashboards'];
 
 /** One express application's worth of wiring: what runs before the routes, and the routes. */
 export interface PlaneDependencies {
@@ -90,6 +93,7 @@ export class DependencyFactory {
     const agentDao = new PgAgentDao(pool);
     const variableDao = new PgVariableDao(pool);
     const metricDao = new PgMetricDao(pool);
+    const dashboardDao = new PgDashboardDao(pool);
 
     const agentCommander = new HubAgentCommander(messageHub);
     const taskDispatcher = new TaskDispatcher({ taskInstanceDao, taskEventDao, agentCommander });
@@ -97,6 +101,7 @@ export class DependencyFactory {
     const taskService = new TaskService({ taskDao, taskDynamicsDao, taskInstanceDao, taskEventDao, variableDao, agentCommander, taskDispatcher });
     const agentService = new AgentService({ agentDao, agentCommander });
     const metricService = new MetricService({ metricDao, config: config.metrics });
+    const dashboardService = new DashboardService({ dashboardDao });
 
     const scheduler = new Scheduler({
       taskDao,
@@ -138,6 +143,7 @@ export class DependencyFactory {
           new TaskEndpoints({ taskService }),
           new AgentEndpoints({ agentService }),
           new MetricEndpoints({ metricService }),
+          new DashboardEndpoints({ dashboardService }),
           new PubSubEndpoints({ messageHub }),
         ],
         notFound: notFoundHandler({
