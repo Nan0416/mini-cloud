@@ -91,12 +91,13 @@ describe('PgMonitorDao', () => {
     expect(pool.sql(0)).toContain('WHERE name = $1 AND version = $2');
   });
 
-  it('records a change of state only when the monitor is still in the state it was judged from, atomically', async () => {
+  it('records a change of state only when the monitor is still in the state and at the version it was judged against, atomically', async () => {
     const pool = fakePool().on('UPDATE monitor SET state', { rows: [], rowCount: 0 });
 
     const { change } = await new PgMonitorDao(pool.asPool()).changeState({
       name: 'nas-cpu',
       fromState: 'OK',
+      version: 2,
       toState: 'ALARM',
       reason: 'hot',
       datapoints: [],
@@ -107,7 +108,8 @@ describe('PgMonitorDao', () => {
     const inTransaction = pool.queries.filter((query) => query.onClient).map((query) => query.sql.replace(/\s+/g, ' ').trim());
     expect(change).toBeUndefined();
     expect(inTransaction[0]).toBe('BEGIN');
-    expect(inTransaction[1]).toContain('WHERE name = $1 AND state = $2');
+    expect(inTransaction[1]).toContain('WHERE name = $1 AND state = $2 AND version = $6');
+    expect(pool.find('UPDATE monitor SET state').values[5]).toBe(2);
     expect(inTransaction[2]).toBe('ROLLBACK');
     expect(pool.statements.some((sql) => sql.includes('INSERT INTO monitor_state_change'))).toBe(false);
     expect(pool.releases).toBe(1);

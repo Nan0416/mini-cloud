@@ -162,12 +162,13 @@ export class PgMonitorDao implements MonitorDao {
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
-      // Guarded on the state it was judged from, so an evaluation that raced a delete,
-      // or another evaluation, records nothing rather than a change that did not happen.
+      // Guarded on the state and the definition it was judged against, so an evaluation
+      // that raced an edit, a delete or another evaluation records nothing rather than a
+      // change judged against settings that are no longer the monitor's.
       const moved = await client.query(
         `UPDATE monitor SET state = $3, state_reason = $4, state_changed_at = $5, last_evaluated_at = $5
-          WHERE name = $1 AND state = $2`,
-        [input.name, input.fromState, input.toState, input.reason, changedAt],
+          WHERE name = $1 AND state = $2 AND version = $6`,
+        [input.name, input.fromState, input.toState, input.reason, changedAt, input.version],
       );
       if ((moved.rowCount ?? 0) === 0) {
         await client.query('ROLLBACK');

@@ -106,6 +106,7 @@ export class MonitorEvaluator {
     const { change } = await monitorDao.changeState({
       name: monitor.name,
       fromState: monitor.state,
+      version: monitor.version,
       toState: evaluation.state,
       reason: evaluation.reason,
       datapoints: evaluation.datapoints,

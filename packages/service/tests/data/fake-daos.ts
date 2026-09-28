@@ -614,7 +614,7 @@ export class FakeMonitorDao implements MonitorDao {
 
   async changeState(input: ChangeStateInput): Promise<ChangeStateOutput> {
     const current = this.monitors.get(input.name);
-    if (current === undefined || current.state !== input.fromState) {
+    if (current === undefined || current.state !== input.fromState || current.version !== input.version) {
       return {};
     }
     this.monitors.set(input.name, { ...current, state: input.toState, stateReason: input.reason, stateChangedAt: input.changedAt, lastEvaluatedAt: input.changedAt });

@@ -135,4 +135,9 @@ describe('assertMonitorName', () => {
     expect(assertMonitorName('nas-cpu_high', 'name')).toBe('nas-cpu_high');
     expect(() => assertMonitorName('nas cpu', 'name')).toThrow(/letters, digits, hyphens and underscores/);
   });
+
+  it('refuses "new", which the console’s create page already answers to', () => {
+    expect(() => assertMonitorName('new', 'name')).toThrow(/cannot be "new"/);
+    expect(assertMonitorName('new-disk', 'name')).toBe('new-disk');
+  });
 });

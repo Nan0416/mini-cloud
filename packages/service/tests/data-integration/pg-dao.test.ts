@@ -326,9 +326,10 @@ describeIfDatabase('PostgreSQL DAOs', () => {
       treatMissingData: 'breaching' as const,
       notify: true,
     };
-    const change = (fromState: 'OK' | 'ALARM' | 'INSUFFICIENT_DATA', toState: 'OK' | 'ALARM' | 'INSUFFICIENT_DATA', changedAt: number) => ({
+    const change = (fromState: 'OK' | 'ALARM' | 'INSUFFICIENT_DATA', toState: 'OK' | 'ALARM' | 'INSUFFICIENT_DATA', changedAt: number, version = 1) => ({
       name: 'nas-cpu',
       fromState,
+      version,
       toState,
       reason: `${fromState} to ${toState}`,
       datapoints: [
@@ -371,6 +372,18 @@ describeIfDatabase('PostgreSQL DAOs', () => {
 
       expect(recorded).toBeUndefined();
       expect((await monitorDao.listStateChanges({ name: 'nas-cpu', limit: 10 })).changes).toEqual([]);
+    });
+
+    it('records nothing judged against a definition that has since been edited', async () => {
+      await monitorDao.createMonitor({ name: 'nas-cpu', ...definition, stateReason: 'new' });
+      await monitorDao.updateMonitor({ name: 'nas-cpu', version: 1, ...definition, threshold: 99 });
+
+      const { change: stale } = await monitorDao.changeState(change('INSUFFICIENT_DATA', 'ALARM', Date.UTC(2026, 8, 1, 12), 1));
+      const { change: current } = await monitorDao.changeState(change('INSUFFICIENT_DATA', 'OK', Date.UTC(2026, 8, 1, 12, 1), 2));
+
+      expect(stale).toBeUndefined();
+      expect(current?.toState).toBe('OK');
+      expect((await monitorDao.listStateChanges({ name: 'nas-cpu', limit: 10 })).changes.map((entry) => entry.toState)).toEqual(['OK']);
     });
 
     it('leaves the version alone when evaluating, so an evaluation never makes an edit conflict', async () => {

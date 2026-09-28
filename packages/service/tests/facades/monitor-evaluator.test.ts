@@ -162,6 +162,23 @@ describe('MonitorEvaluator', () => {
     expect(monitorDao.monitors.get('b')?.state).toBe('ALARM');
   });
 
+  it('records and notifies nothing judged against a threshold that was raised while it was being judged', async () => {
+    const { series, monitorDao, notifier, evaluator } = context(aMonitor());
+    series.datapoints = valuesEndingAt(WINDOW_END, 90, 90, 90);
+    const read = series.readSeries;
+    series.readSeries = async (input) => {
+      // The operator raises the threshold to 95 after this tick loaded the monitor at 80.
+      await monitorDao.updateMonitor({ ...aMonitor(), version: 1, threshold: 95 });
+      return read(input);
+    };
+
+    await evaluator.runTick(NOW);
+
+    expect(monitorDao.monitors.get('nas-cpu')?.state).toBe('OK');
+    expect(monitorDao.changes).toHaveLength(0);
+    expect(notifier.sent).toHaveLength(0);
+  });
+
   it('records nothing when the monitor moved on while it was being judged', async () => {
     const { series, monitorDao, notifier, evaluator } = context(aMonitor());
     series.datapoints = valuesEndingAt(WINDOW_END, 90, 90, 90);

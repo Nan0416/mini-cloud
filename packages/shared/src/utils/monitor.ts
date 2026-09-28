@@ -18,6 +18,8 @@ const MINUTE_MS = METRIC_RESOLUTION_MS['1m'];
 /** Something a URL path carries as it is, as a dashboard's name is. */
 const MONITOR_NAME = /^[A-Za-z0-9_-]+$/;
 
+const RESERVED_MONITOR_NAME = 'new';
+
 const DEFINITION_KEYS = ['description', 'metric', 'periodMs', 'evaluationPeriods', 'datapointsToAlarm', 'comparison', 'threshold', 'treatMissingData', 'notify'];
 const METRIC_KEYS = ['namespace', 'metricName', 'dimensions', 'statistic'];
 
@@ -25,6 +27,10 @@ export function assertMonitorName(value: unknown, field: string): string {
   const name = assertNonEmptyString(value, field);
   if (name.length > MONITOR_LIMITS.nameLength || !MONITOR_NAME.test(name)) {
     throw new InvalidRequestError(`${field} must be letters, digits, hyphens and underscores, up to ${MONITOR_LIMITS.nameLength} characters, like "nas-cpu-high"`);
+  }
+  // `/monitors/new` is the console's create page, so a monitor by that name could never be opened.
+  if (name === RESERVED_MONITOR_NAME) {
+    throw new InvalidRequestError(`${field} cannot be "${RESERVED_MONITOR_NAME}", which the console uses for creating a monitor; choose another`);
   }
   return name;
 }

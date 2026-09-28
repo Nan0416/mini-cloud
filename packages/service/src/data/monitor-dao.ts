@@ -55,6 +55,8 @@ export interface ChangeStateInput {
   readonly name: string;
   /** Written only if the monitor is still in this state. */
   readonly fromState: MonitorState;
+  /** And only if its definition is still the one it was judged against. */
+  readonly version: number;
   readonly toState: MonitorState;
   readonly reason: string;
   readonly datapoints: ReadonlyArray<EvaluatedDatapoint>;

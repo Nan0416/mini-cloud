@@ -51,7 +51,7 @@ describe('MonitorService', () => {
   it('keeps the state across an edit, leaving it to the next evaluation', async () => {
     const { service, monitorDao } = context();
     await service.createMonitor({ name: 'nas-cpu', ...aDefinition() });
-    await monitorDao.changeState({ name: 'nas-cpu', fromState: 'INSUFFICIENT_DATA', toState: 'ALARM', reason: 'hot', datapoints: [], threshold: 80, changedAt: 1 });
+    await monitorDao.changeState({ name: 'nas-cpu', version: 1, fromState: 'INSUFFICIENT_DATA', toState: 'ALARM', reason: 'hot', datapoints: [], threshold: 80, changedAt: 1 });
 
     const { monitor } = await service.updateMonitor({ name: 'nas-cpu', version: 1, ...aDefinition({ threshold: 90 }) });
 
@@ -70,8 +70,8 @@ describe('MonitorService', () => {
   it('lists a monitor’s changes of state, newest first', async () => {
     const { service, monitorDao } = context();
     await service.createMonitor({ name: 'nas-cpu', ...aDefinition() });
-    await monitorDao.changeState({ name: 'nas-cpu', fromState: 'INSUFFICIENT_DATA', toState: 'OK', reason: 'fine', datapoints: [], threshold: 80, changedAt: 1 });
-    await monitorDao.changeState({ name: 'nas-cpu', fromState: 'OK', toState: 'ALARM', reason: 'hot', datapoints: [], threshold: 80, changedAt: 2 });
+    await monitorDao.changeState({ name: 'nas-cpu', version: 1, fromState: 'INSUFFICIENT_DATA', toState: 'OK', reason: 'fine', datapoints: [], threshold: 80, changedAt: 1 });
+    await monitorDao.changeState({ name: 'nas-cpu', version: 1, fromState: 'OK', toState: 'ALARM', reason: 'hot', datapoints: [], threshold: 80, changedAt: 2 });
 
     const { changes } = await service.listMonitorHistory({ name: 'nas-cpu' });
 

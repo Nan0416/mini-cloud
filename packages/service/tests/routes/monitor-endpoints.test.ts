@@ -58,7 +58,7 @@ describe('monitor routes', () => {
 
   it('serves a monitor’s history, and bounds how much one request may ask for', async () => {
     await server.post('/monitors', { name: 'nas-cpu', ...aBody() });
-    await monitorDao.changeState({ name: 'nas-cpu', fromState: 'INSUFFICIENT_DATA', toState: 'ALARM', reason: 'hot', datapoints: [], threshold: 95.5, changedAt: 1 });
+    await monitorDao.changeState({ name: 'nas-cpu', version: 1, fromState: 'INSUFFICIENT_DATA', toState: 'ALARM', reason: 'hot', datapoints: [], threshold: 95.5, changedAt: 1 });
 
     const history = await server.get<ListMonitorHistoryResponse>('/monitors/nas-cpu/history?limit=10');
 
