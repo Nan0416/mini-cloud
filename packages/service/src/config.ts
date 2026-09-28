@@ -56,6 +56,12 @@ export interface MetricsConfig extends MetricConfig {
   readonly retentionTickMs: number;
 }
 
+/** The monitors section. */
+export interface MonitorsConfig {
+  /** How often every monitor is evaluated. */
+  readonly evaluationTickMs: number;
+}
+
 export interface ServiceConfig {
   readonly databaseUrl: string;
   readonly internal: InternalListenerConfig;
@@ -64,6 +70,7 @@ export interface ServiceConfig {
   readonly consoleUrl: string;
   readonly scheduler: SchedulerConfig;
   readonly metrics: MetricsConfig;
+  readonly monitors: MonitorsConfig;
   readonly cli: CliConfig;
   /** Read on a worker machine; the control plane ignores it. */
   readonly agent: AgentSettings;
@@ -109,6 +116,7 @@ export function loadConfig(options: LoadConfigOptions = {}): ServiceConfig {
   const publicSection = root.section('public');
   const scheduler = root.section('scheduler');
   const metrics = root.section('metrics');
+  const monitors = root.section('monitors');
   const cli = root.section('cli');
   const agent = root.section('agent');
 
@@ -155,6 +163,10 @@ export function loadConfig(options: LoadConfigOptions = {}): ServiceConfig {
       ingestBatchRetentionMs: metrics.positiveInteger('ingestBatchRetentionMs', 86_400_000),
       retentionTickMs: metrics.positiveInteger('retentionTickMs', 3600_000),
     },
+    monitors: {
+      // A minute, the finest period there is, so a monitor never misses one closing.
+      evaluationTickMs: monitors.positiveInteger('evaluationTickMs', 60_000),
+    },
     cli: {
       serviceUrl: cli.string('serviceUrl', 'http://127.0.0.1:3001'),
       internalUrl: cli.string('internalUrl', 'http://127.0.0.1:3000'),
@@ -178,7 +190,7 @@ export function loadConfig(options: LoadConfigOptions = {}): ServiceConfig {
     },
   };
 
-  for (const section of [internal, publicSection, scheduler, metrics, cli, agent, root]) {
+  for (const section of [internal, publicSection, scheduler, metrics, monitors, cli, agent, root]) {
     section.reportUnknownKeys();
   }
   return config;

@@ -1,6 +1,8 @@
 import {
   AgentCommand,
   Dashboard,
+  Monitor,
+  MonitorStateChange,
   Job,
   LaunchInstruction,
   ReplacementVariables,
@@ -82,6 +84,24 @@ import {
   UpdateStatusInput,
   UpdateStatusOutput,
 } from '../../src/data/task-instance-dao';
+import {
+  ChangeStateInput,
+  ChangeStateOutput,
+  CreateMonitorInput,
+  CreateMonitorOutput,
+  DeleteMonitorInput,
+  DeleteMonitorOutput,
+  GetMonitorInput,
+  GetMonitorOutput,
+  ListMonitorsOutput,
+  ListStateChangesInput,
+  ListStateChangesOutput,
+  MarkEvaluatedInput,
+  MarkEvaluatedOutput,
+  MonitorDao,
+  UpdateMonitorInput,
+  UpdateMonitorOutput,
+} from '../../src/data/monitor-dao';
 import { ListVariablesOutput, ReplaceVariablesInput, ReplaceVariablesOutput, VariableDao } from '../../src/data/variable-dao';
 import { AgentCommander } from '../../src/facades/agent-commander';
 
@@ -537,5 +557,86 @@ export class FakeDashboardDao implements DashboardDao {
 
   async deleteDashboard(input: DeleteDashboardInput): Promise<DeleteDashboardOutput> {
     return { deleted: this.dashboards.delete(input.name) };
+  }
+}
+
+/** Holds the version guard and the state guard, since callers rely on a stale write being refused. */
+export class FakeMonitorDao implements MonitorDao {
+  readonly monitors = new Map<string, Monitor>();
+  readonly changes: MonitorStateChange[] = [];
+
+  seed(...monitors: ReadonlyArray<Monitor>): this {
+    for (const monitor of monitors) {
+      this.monitors.set(monitor.name, monitor);
+    }
+    return this;
+  }
+
+  async listMonitors(): Promise<ListMonitorsOutput> {
+    return { monitors: [...this.monitors.values()].sort((a, b) => a.name.localeCompare(b.name)) };
+  }
+
+  async getMonitor(input: GetMonitorInput): Promise<GetMonitorOutput> {
+    return { monitor: this.monitors.get(input.name) };
+  }
+
+  async createMonitor(input: CreateMonitorInput): Promise<CreateMonitorOutput> {
+    if (this.monitors.has(input.name)) {
+      return {};
+    }
+    const { stateReason, ...definition } = input;
+    const monitor: Monitor = { ...definition, state: 'INSUFFICIENT_DATA', stateReason, stateChangedAt: NOW, version: 1, createdAt: NOW, updatedAt: NOW };
+    this.monitors.set(input.name, monitor);
+    return { monitor };
+  }
+
+  async updateMonitor(input: UpdateMonitorInput): Promise<UpdateMonitorOutput> {
+    const current = this.monitors.get(input.name);
+    if (current === undefined || current.version !== input.version) {
+      return {};
+    }
+    const monitor: Monitor = { ...current, ...input, version: current.version + 1, updatedAt: NOW };
+    this.monitors.set(input.name, monitor);
+    return { monitor };
+  }
+
+  async deleteMonitor(input: DeleteMonitorInput): Promise<DeleteMonitorOutput> {
+    return { deleted: this.monitors.delete(input.name) };
+  }
+
+  async markEvaluated(input: MarkEvaluatedInput): Promise<MarkEvaluatedOutput> {
+    const current = this.monitors.get(input.name);
+    if (current !== undefined) {
+      this.monitors.set(input.name, { ...current, lastEvaluatedAt: input.evaluatedAt });
+    }
+    return {};
+  }
+
+  async changeState(input: ChangeStateInput): Promise<ChangeStateOutput> {
+    const current = this.monitors.get(input.name);
+    if (current === undefined || current.state !== input.fromState) {
+      return {};
+    }
+    this.monitors.set(input.name, { ...current, state: input.toState, stateReason: input.reason, stateChangedAt: input.changedAt, lastEvaluatedAt: input.changedAt });
+    const change: MonitorStateChange = {
+      monitorName: input.name,
+      fromState: input.fromState,
+      toState: input.toState,
+      reason: input.reason,
+      datapoints: input.datapoints,
+      threshold: input.threshold,
+      changedAt: input.changedAt,
+    };
+    this.changes.push(change);
+    return { change };
+  }
+
+  async listStateChanges(input: ListStateChangesInput): Promise<ListStateChangesOutput> {
+    return {
+      changes: this.changes
+        .filter((change) => change.monitorName === input.name)
+        .reverse()
+        .slice(0, input.limit),
+    };
   }
 }

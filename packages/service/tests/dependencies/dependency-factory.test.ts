@@ -55,6 +55,7 @@ const aConfig = (overrides: Partial<ServiceConfig> = {}): ServiceConfig => ({
     ingestBatchRetentionMs: 86_400_000,
     retentionTickMs: 3600_000,
   },
+  monitors: { evaluationTickMs: 60_000 },
   ...overrides,
 });
 
@@ -121,6 +122,8 @@ const ROUTES: ReadonlyArray<{ method: 'GET' | 'POST'; path: string; internal: bo
   { method: 'GET', path: '/metrics/data', internal: false, public: true },
   { method: 'GET', path: '/dashboards', internal: false, public: true },
   { method: 'POST', path: '/dashboards', internal: false, public: true },
+  { method: 'GET', path: '/monitors', internal: false, public: true },
+  { method: 'POST', path: '/monitors', internal: false, public: true },
 ];
 
 let listeners: Listeners | undefined;

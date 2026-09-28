@@ -2,6 +2,7 @@ import {
   AGENT_REPORTED_STATUSES,
   BroadcastRequest,
   CreateDashboardRequest,
+  CreateMonitorRequest,
   CreateTaskRequest,
   GetMetricDataRequest,
   EXTERNAL_TASK_EVENT_SOURCES,
@@ -33,6 +34,11 @@ import {
   TASK_INSTANCE_STATUSES,
   TASK_TYPES,
   UpdateDashboardRequest,
+  UpdateMonitorRequest,
+  ListMonitorHistoryRequest,
+  MONITOR_HISTORY_PAGE_SIZE,
+  assertMonitorName,
+  parseMonitorDefinition,
   UpdateTaskRequest,
   assertDashboardName,
   assertArray,
@@ -446,4 +452,23 @@ export function parseCreateDashboardRequest(body: unknown): CreateDashboardReque
 export function parseUpdateDashboardRequest(body: unknown): UpdateDashboardRequest {
   const { name, version, ...content } = assertRecord(body, 'body');
   return { name: assertDashboardName(name, 'name'), version: assertInteger(version, 'version'), ...parseDashboardContent(content, 'dashboard') };
+}
+
+export function parseCreateMonitorRequest(body: unknown): CreateMonitorRequest {
+  const { name, ...definition } = assertRecord(body, 'body');
+  return { name: assertMonitorName(name, 'name'), ...parseMonitorDefinition(definition, 'monitor') };
+}
+
+export function parseUpdateMonitorRequest(body: unknown): UpdateMonitorRequest {
+  const { name, version, ...definition } = assertRecord(body, 'body');
+  return { name: assertMonitorName(name, 'name'), version: assertInteger(version, 'version'), ...parseMonitorDefinition(definition, 'monitor') };
+}
+
+export function parseListMonitorHistoryRequest(query: unknown): ListMonitorHistoryRequest {
+  const record = assertRecord(query, 'query');
+  const limit = parseOptionalIntegerParam(record['limit'], 'limit');
+  if (limit !== undefined && (limit < 1 || limit > MONITOR_HISTORY_PAGE_SIZE.max)) {
+    throw new InvalidRequestError(`limit must be between 1 and ${MONITOR_HISTORY_PAGE_SIZE.max}`);
+  }
+  return { name: assertNonEmptyString(record['name'], 'name'), limit };
 }
