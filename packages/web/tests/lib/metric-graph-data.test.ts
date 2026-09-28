@@ -17,28 +17,32 @@ function entry(data: GetMetricDataResponse | undefined, placeholder = false): Gr
 }
 
 /**
- * A service holding one datapoint a minute, paged the way the real one pages, whose
+ * A service holding one datapoint a minute except where told otherwise, paged the way the
+ * real one pages — a page is `pageSize` minutes whether or not they hold data — whose
  * watermark moves on by a minute every time it is asked.
  */
 class FakeSeries {
   readonly requests: GetMetricDataRequest[] = [];
   private watermark = NOW;
 
-  constructor(private readonly pageSize: number) {}
+  constructor(
+    private readonly pageSize: number,
+    private readonly missing: ReadonlySet<number> = new Set(),
+  ) {}
 
   readonly getPage = async (request: GetMetricDataRequest): Promise<GetMetricDataResponse> => {
     this.requests.push(request);
     this.watermark += MINUTE;
     const to = Math.min(request.to ?? this.watermark, this.watermark);
-    const all = [];
-    for (let timestamp = request.from; timestamp < to; timestamp += MINUTE) {
-      if (request.after === undefined || timestamp > request.after) {
-        all.push({ timestamp, value: 1 });
+    const start = request.after === undefined ? request.from : request.after + MINUTE;
+    const end = Math.min(to, start + this.pageSize * MINUTE);
+    const datapoints = [];
+    for (let timestamp = start; timestamp < end; timestamp += MINUTE) {
+      if (!this.missing.has(timestamp)) {
+        datapoints.push({ timestamp, value: 1 });
       }
     }
-    const datapoints = all.slice(0, this.pageSize);
-    const nextCursor = all.length > this.pageSize ? datapoints[datapoints.length - 1].timestamp : undefined;
-    return { ...answer(request.from, to, MINUTE), datapoints, nextCursor };
+    return { ...answer(request.from, to, MINUTE), datapoints, nextCursor: end < to ? end - MINUTE : undefined };
   };
 }
 
@@ -53,6 +57,14 @@ describe('readWholeSeries', () => {
     expect(series.datapoints.map((datapoint) => (datapoint.timestamp - request.from) / MINUTE)).toEqual([0, 1, 2, 3, 4, 5]);
     expect(series.nextCursor).toBeUndefined();
     expect(service.requests).toHaveLength(3);
+  });
+
+  it('reads on past a page with no data, which a sparse series can answer', async () => {
+    const service = new FakeSeries(2, new Set([request.from + 2 * MINUTE, request.from + 3 * MINUTE]));
+
+    const series = await readWholeSeries(service.getPage, request);
+
+    expect(series.datapoints.map((datapoint) => (datapoint.timestamp - request.from) / MINUTE)).toEqual([0, 1, 4, 5]);
   });
 
   it('ends every page where the first did, though the service would have read further', async () => {

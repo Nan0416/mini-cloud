@@ -293,59 +293,77 @@ describe('PgMetricDao.readSeries', () => {
   it('computes a percentile from the merged distribution of the buckets in the period', async () => {
     const pool = fakePool()
       .on('SELECT unit FROM metric_series', { rows: [{ unit: 'Milliseconds' }] })
-      .on('jsonb_agg(histogram)', {
+      .on('SELECT bucket_start, histogram', {
         rows: [
-          {
-            bucket_ms: String(MINUTE),
-            histograms: [
-              { '1': 9, '100': 1 },
-              { '1': 90, '100': 10 },
-            ],
-          },
+          { bucket_start: new Date(MINUTE), histogram: { '1': 9, '100': 1 } },
+          { bucket_start: new Date(MINUTE + 60_000), histogram: { '1': 90, '100': 10 } },
         ],
       });
 
-    const result = await new PgMetricDao(pool.asPool()).readSeries(aRead({ statistic: 'p90', periodMs: 300_000 }));
+    const result = await new PgMetricDao(pool.asPool()).readSeries({
+      namespace: 'MyApp',
+      metricName: 'Latency',
+      dimensionsHash: '_none',
+      resolution: '1m',
+      statistic: 'p90',
+      periodMs: 300_000,
+      from: MINUTE,
+      to: MINUTE + 600_000,
+    });
 
     // Both minutes fall in one five-minute bucket, so their distributions merge into
     // one before the percentile is taken.
-    expect(result.datapoints).toEqual([{ timestamp: MINUTE, value: 1 }]);
+    expect(result.datapoints).toHaveLength(1);
+    expect(result.datapoints[0].value).toBe(1);
   });
 
-  it('leaves out minutes with no distribution rather than reporting a zero percentile', async () => {
-    const pool = fakePool().on('SELECT unit FROM metric_series', { rows: [{ unit: 'Milliseconds' }] });
-
-    await new PgMetricDao(pool.asPool()).readSeries(aRead({ statistic: 'p99' }));
-
-    expect(pool.find('jsonb_agg(histogram)').sql.replace(/\s+/g, ' ')).toContain('AND histogram IS NOT NULL');
-  });
-
-  it.each(['avg', 'p99'] as const)('answers one page of %s and a cursor at its last datapoint when more remain', async (statistic) => {
-    const fragment = statistic === 'avg' ? 'SUM(sample_count)' : 'jsonb_agg(histogram)';
-    const bucket = (index: number) =>
-      statistic === 'avg'
-        ? { bucket_ms: String(MINUTE + index * 60_000), sample_count: '1', sum_value: 1, min_value: 1, max_value: 1 }
-        : { bucket_ms: String(MINUTE + index * 60_000), histograms: [{ '1': 1 }] };
+  it('skips buckets with no distribution rather than reporting a zero percentile', async () => {
     const pool = fakePool()
       .on('SELECT unit FROM metric_series', { rows: [{ unit: 'Milliseconds' }] })
-      .on(fragment, { rows: [bucket(0), bucket(1), bucket(2)] });
+      .on('SELECT bucket_start, histogram', { rows: [{ bucket_start: new Date(MINUTE), histogram: null }] });
+
+    const result = await new PgMetricDao(pool.asPool()).readSeries({
+      namespace: 'MyApp',
+      metricName: 'Latency',
+      dimensionsHash: '_none',
+      resolution: '1m',
+      statistic: 'p99',
+      periodMs: 60_000,
+      from: MINUTE,
+      to: MINUTE + 600_000,
+    });
+
+    expect(result.datapoints).toEqual([]);
+  });
+
+  // Where each read binds the end of its window: the aggregate also binds the period.
+  const END_PARAM = { avg: { fragment: 'SUM(sample_count)', index: 6 }, p99: { fragment: 'SELECT bucket_start, histogram', index: 5 } } as const;
+
+  it.each(['avg', 'p99'] as const)('ends a page of %s after limit periods, with a cursor at its last bucket', async (statistic) => {
+    const pool = fakePool().on('SELECT unit FROM metric_series', { rows: [{ unit: 'Milliseconds' }] });
 
     const result = await new PgMetricDao(pool.asPool()).readSeries(aRead({ statistic, limit: 2 }));
 
-    // One row past the page is how the DAO knows there is another.
-    expect(pool.find(fragment).values[7]).toBe(3);
-    expect(result.datapoints.map((datapoint) => datapoint.timestamp)).toEqual([MINUTE, MINUTE + 60_000]);
+    const { fragment, index } = END_PARAM[statistic];
+    expect(pool.find(fragment).values[index]).toBe(new Date(MINUTE + 120_000).toISOString());
+    expect(pool.find(fragment).sql).not.toContain('LIMIT');
     expect(result.nextCursor).toBe(MINUTE + 60_000);
   });
 
-  it('answers no cursor on the last page', async () => {
-    const pool = fakePool()
-      .on('SELECT unit FROM metric_series', { rows: [{ unit: 'Milliseconds' }] })
-      .on('SUM(sample_count)', { rows: [{ bucket_ms: String(MINUTE), sample_count: '1', sum_value: 1, min_value: 1, max_value: 1 }] });
+  it('answers a cursor after an empty page, since the window goes on past it', async () => {
+    const pool = fakePool().on('SELECT unit FROM metric_series', { rows: [{ unit: 'Milliseconds' }] });
 
-    const result = await new PgMetricDao(pool.asPool()).readSeries(aRead({ limit: 1 }));
+    const result = await new PgMetricDao(pool.asPool()).readSeries(aRead({ limit: 2 }));
 
-    expect(result.datapoints).toHaveLength(1);
+    expect(result).toEqual({ unit: 'Milliseconds', datapoints: [], nextCursor: MINUTE + 60_000 });
+  });
+
+  it('answers no cursor on the page that reaches the end of the window', async () => {
+    const pool = fakePool().on('SELECT unit FROM metric_series', { rows: [{ unit: 'Milliseconds' }] });
+
+    const result = await new PgMetricDao(pool.asPool()).readSeries(aRead({ limit: 5, after: MINUTE + 240_000 }));
+
+    expect(pool.find('SUM(sample_count)').values[6]).toBe(new Date(MINUTE + 600_000).toISOString());
     expect(result.nextCursor).toBeUndefined();
   });
 
@@ -369,9 +387,9 @@ describe('PgMetricDao.readSeries', () => {
   it('holds a page to the largest size, even when a caller asks the DAO directly for more', async () => {
     const pool = fakePool().on('SELECT unit FROM metric_series', { rows: [{ unit: 'Milliseconds' }] });
 
-    await new PgMetricDao(pool.asPool()).readSeries(aRead({ limit: 1_000_000 }));
+    await new PgMetricDao(pool.asPool()).readSeries(aRead({ to: MINUTE + 30 * 86_400_000, limit: 1_000_000 }));
 
-    expect(pool.find('SUM(sample_count)').values[7]).toBe(METRIC_DATAPOINT_PAGE_SIZE.max + 1);
+    expect(pool.find('SUM(sample_count)').values[6]).toBe(new Date(MINUTE + METRIC_DATAPOINT_PAGE_SIZE.max * 60_000).toISOString());
   });
 });
 

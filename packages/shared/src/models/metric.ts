@@ -193,10 +193,10 @@ export interface MetricDatum extends MetricStatisticSet {
 export const METRIC_PAGE_SIZE = { default: 100, max: 1000 } as const;
 
 /**
- * Page sizes for a series read: a day at one-minute resolution by default, a week at most.
+ * Periods per page of a series read: a day at one-minute resolution by default, a week at most.
  *
- * A page bounds one response, not the work: a percentile merges every minute row in
- * its range whatever the period, and only `rawRetentionDays` bounds that.
+ * A page bounds one request, not the window: a percentile over four weeks still merges
+ * every minute row in them across its pages, and only `rawRetentionDays` bounds that.
  */
 export const METRIC_DATAPOINT_PAGE_SIZE = { default: 1440, max: 10_080 } as const;
 

@@ -86,7 +86,7 @@ export interface GetMetricDataRequest {
    * across sets that each already counted the same observation.
    */
   readonly dimensions?: MetricDimensions;
-  /** Datapoints per page. See `METRIC_DATAPOINT_PAGE_SIZE`. */
+  /** Periods per page, and so the most datapoints one can hold. See `METRIC_DATAPOINT_PAGE_SIZE`. */
   readonly limit?: number;
   /** The previous page's `nextCursor`. Omit for the first page. */
   readonly after?: number;
@@ -107,8 +107,9 @@ export interface GetMetricDataResponse {
   /** This page's datapoints, oldest first. Empty buckets are omitted rather than zeroed. */
   readonly datapoints: ReadonlyArray<MetricDatapoint>;
   /**
-   * The timestamp of this page's last datapoint: pass it back as `after`. Absent when
-   * this was the last page.
+   * The start of the last bucket this page covered: pass it back as `after`. A page
+   * covers `limit` periods whether or not they hold data, so a sparse series can
+   * answer an empty page that still has a cursor. Absent when this was the last page.
    */
   readonly nextCursor?: number;
 }

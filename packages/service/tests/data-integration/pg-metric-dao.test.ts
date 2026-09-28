@@ -251,9 +251,9 @@ describeIfDatabase('PgMetricDao', () => {
   });
 
   it.each(['sum', 'p50'] as const)('walks a sparse %s series across pages without repeating or skipping a bucket', async (statistic) => {
-    // Two minutes of each five-minute bucket, and the third bucket empty: the page
-    // limit counts buckets, not the minute rows a percentile merges inside them.
-    const minutes = [0, 1, 5, 6, 15, 16, 20].map((minute) => MINUTE + minute * 60_000);
+    // Two minutes of each five-minute bucket that has data, and nothing between minutes
+    // 10 and 20, so the middle page of two periods is empty and must still point on.
+    const minutes = [0, 1, 5, 6, 20, 21].map((minute) => MINUTE + minute * 60_000);
     await report(
       'agent-a',
       minutes.map((bucketStart) => aDatum({ bucketStart })),
@@ -278,7 +278,7 @@ describeIfDatabase('PgMetricDao', () => {
       after = page.nextCursor;
     } while (after !== undefined);
 
-    expect(seen).toEqual([0, 5, 15, 20].map((minute) => MINUTE + minute * 60_000));
+    expect(seen).toEqual([0, 5, 20].map((minute) => MINUTE + minute * 60_000));
   });
 
   it('records what exists, so the pickers never scan the data', async () => {

@@ -72,7 +72,7 @@ export interface ReadSeriesOutput {
   /** Undefined when the series has never been written. */
   readonly unit?: MetricUnit;
   readonly datapoints: ReadonlyArray<MetricDatapoint>;
-  /** Absent when the page reached the end. */
+  /** The start of the last bucket this page covered. Absent when the page reached the end. */
   readonly nextCursor?: number;
 }
 
