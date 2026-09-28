@@ -82,4 +82,8 @@ describe('queryKeys', () => {
       startsWith(queryKeys.metricData({ ...series, statistic: 'p99' }, { range: { kind: 'relative', durationMs: 3_600_000 }, periodMs: 60_000 }), queryKeys.metricSeries(series)),
     ).toBe(false);
   });
+
+  it('nests a dashboard under the dashboards prefix, so a list refresh can also reach it', () => {
+    expect(startsWith(queryKeys.dashboard('home'), queryKeys.dashboards())).toBe(true);
+  });
 });

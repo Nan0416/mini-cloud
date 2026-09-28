@@ -4,6 +4,10 @@ import { EMPTY_GRAPH } from '@/lib/metric-graph-editor';
 /** The query parameter the metrics page keeps its graph in. */
 export const GRAPH_PARAM = 'graph';
 
+/** Beside the graph while it is being edited as a dashboard's widget: which one, of which dashboard. */
+export const DASHBOARD_PARAM = 'dashboard';
+export const WIDGET_PARAM = 'widget';
+
 /**
  * A graph in a link, as base64url-encoded JSON.
  *

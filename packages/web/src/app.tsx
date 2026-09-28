@@ -9,6 +9,8 @@ import { ThemeProvider, useTheme } from '@/hooks/use-theme';
 import { SetupScreen } from '@/components/setup/setup-screen';
 import { InternalServiceError, ServiceUnreachableError } from '@mini-cloud/shared';
 import { AgentsPage } from '@/pages/agents-page';
+import { DashboardPage } from '@/pages/dashboard-page';
+import { DashboardsPage } from '@/pages/dashboards-page';
 import { InstancePage } from '@/pages/instance-page';
 import { InstancesPage } from '@/pages/instances-page';
 import { MetricsPage } from '@/pages/metrics-page';
@@ -80,6 +82,8 @@ function ConnectedApp() {
           <Route path="instances" element={<InstancesPage />} />
           <Route path="instances/:instanceId" element={<InstancePage />} />
           <Route path="metrics" element={<MetricsPage />} />
+          <Route path="dashboards" element={<DashboardsPage />} />
+          <Route path="dashboards/:name" element={<DashboardPage />} />
           <Route path="agents" element={<AgentsPage />} />
           <Route path="variables" element={<VariablesPage />} />
           <Route path="pubsub" element={<PubSubPage />} />

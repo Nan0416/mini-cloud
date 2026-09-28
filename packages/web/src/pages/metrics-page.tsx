@@ -1,36 +1,25 @@
 import { METRIC_GRAPH_LIMITS, periodOf, unitForStatistic, type MetricGraph, type MetricQuery } from '@mini-cloud/shared';
-import { useMemo } from 'react';
-import { Link } from 'react-router-dom';
+import { LayoutDashboard } from 'lucide-react';
+import { useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import { PageHeader } from '@/components/common/page-header';
+import { AddToDashboardDialog } from '@/components/dashboard/add-to-dashboard-dialog';
+import { EditingWidgetBanner } from '@/components/dashboard/editing-widget-banner';
 import { EmptyState, ErrorState, LoadingRows } from '@/components/common/states';
 import { AddMetricForm } from '@/components/metrics/add-metric-form';
 import { QueryList } from '@/components/metrics/query-list';
 import { TimeRangeControls } from '@/components/metrics/time-range-controls';
-import { TimeSeriesChart, type ChartSeriesState, type ChartSeriesView } from '@/components/metrics/time-series-chart';
+import { TimeSeriesChart } from '@/components/metrics/time-series-chart';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useMetricGraphParam } from '@/hooks/use-metric-graph';
-import { useListedUnits, useMetricGraphData, useMetricNamespaces, type GraphSeries } from '@/hooks/use-metrics';
-import { isRetryable } from '@/lib/errors';
-import { frameOf, isDrawableIn, type GraphFrame } from '@/lib/metric-graph-data';
-import { EMPTY_GRAPH, axisUnitsOf, colorsOf, isOnGraph, labelOf, nextColor, nextQueryId, withRange } from '@/lib/metric-graph-editor';
+import { useGraphChart } from '@/hooks/use-graph-chart';
+import { useListedUnits, useMetricNamespaces } from '@/hooks/use-metrics';
+import { EMPTY_GRAPH, axisUnitsOf, isOnGraph, labelOf, nextColor, nextQueryId, withRange } from '@/lib/metric-graph-editor';
+import { DASHBOARD_PARAM, WIDGET_PARAM } from '@/lib/metric-graph-url';
 import { urls } from '@/lib/urls';
 
 const DESCRIPTION = 'Published by your programs and by the agents themselves. The graph lives in the address, so a link shows exactly what you see.';
-
-function stateOf(series: GraphSeries, frame: GraphFrame | undefined): ChartSeriesState {
-  // Data first: a poll that fails while the service restarts leaves the last answer in
-  // hand, and a series still on screen has not failed as far as a reader is concerned.
-  const answered = series.data !== undefined && !series.placeholder;
-  if (series.error !== null && !answered) {
-    return { kind: 'error', message: series.error.message, retry: isRetryable(series.error) ? series.refetch : undefined };
-  }
-  // A stand-in read at another period would land on the wrong buckets, so it waits.
-  if (series.data === undefined || !isDrawableIn(series, frame)) {
-    return { kind: 'loading' };
-  }
-  return { kind: 'ready', unit: unitForStatistic(series.query.statistic, series.data.unit), datapoints: series.data.datapoints };
-}
 
 /** Adds a query to the graph as it stands, unless it is already there or the graph is full. */
 function withQuery(graph: MetricGraph, query: MetricQuery): MetricGraph {
@@ -44,25 +33,15 @@ function withQuery(graph: MetricGraph, query: MetricQuery): MetricGraph {
 export function MetricsPage() {
   const { graph, error, editGraph } = useMetricGraphParam();
   const namespaces = useMetricNamespaces();
+  const [params] = useSearchParams();
+  const editingDashboard = params.get(DASHBOARD_PARAM);
+  const editingWidget = params.get(WIDGET_PARAM);
+  const [adding, setAdding] = useState(false);
 
   // A link that cannot be read fetches nothing: the empty graph has no series.
   const shown: MetricGraph = graph ?? EMPTY_GRAPH;
-  const series = useMetricGraphData(shown);
+  const { series, chartSeries, frame, colors, stale } = useGraphChart(shown);
   const listedUnits = useListedUnits(shown.queries);
-  const colors = useMemo(() => colorsOf(shown.queries), [shown.queries]);
-  const frame = useMemo(() => frameOf(series), [series]);
-
-  const chartSeries = useMemo(
-    (): ReadonlyArray<ChartSeriesView> =>
-      series.map((entry, index) => ({
-        id: entry.query.id,
-        label: labelOf(entry.query),
-        colorSlot: colors[index],
-        axis: entry.query.yAxis ?? 'left',
-        state: stateOf(entry, frame),
-      })),
-    [series, colors, frame],
-  );
   // The unit its data reports where it has any, which is what the chart draws; the
   // listing's before then, so a series still loading still holds its axis.
   const units = series.map((entry, index) => {
@@ -125,7 +104,18 @@ export function MetricsPage() {
 
   return (
     <div className="space-y-6">
-      <PageHeader title="Metrics" description={DESCRIPTION} />
+      <PageHeader
+        title="Metrics"
+        description={DESCRIPTION}
+        actions={
+          <Button variant="outline" onClick={() => setAdding(true)} disabled={graph.queries.length === 0}>
+            <LayoutDashboard className="size-4" />
+            Add to dashboard
+          </Button>
+        }
+      />
+
+      {editingDashboard === null || editingWidget === null ? null : <EditingWidgetBanner dashboard={editingDashboard} widget={editingWidget} graph={graph} />}
 
       <Card>
         <CardHeader>
@@ -154,7 +144,7 @@ export function MetricsPage() {
                 from={frame?.from ?? 0}
                 to={frame?.to ?? 0}
                 periodMs={frame?.periodMs ?? periodOf(graph)}
-                stale={series.some((entry) => entry.placeholder)}
+                stale={stale}
               />
               <p className="text-xs text-muted-foreground">Reads stop a few minutes behind now, so every agent has had time to report the newest bucket.</p>
             </>
@@ -174,6 +164,8 @@ export function MetricsPage() {
           <AddMetricForm queries={graph.queries} axisUnits={axisUnits} onAdd={(query) => editGraph((current) => withQuery(current, query))} />
         </CardContent>
       </Card>
+
+      <AddToDashboardDialog open={adding} onOpenChange={setAdding} graph={graph} />
     </div>
   );
 }
