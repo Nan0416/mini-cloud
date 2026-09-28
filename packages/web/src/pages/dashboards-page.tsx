@@ -21,7 +21,11 @@ const COLUMNS: ReadonlyArray<Column<Dashboard>> = [
     id: 'name',
     header: 'Name',
     cell: (dashboard) => (
-      <Link to={urls.dashboard(dashboard.name)} className="font-medium hover:underline">
+      <Link
+        to={urls.dashboard(dashboard.name)}
+        onClick={(event) => event.stopPropagation()}
+        className="font-medium text-primary hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+      >
         {dashboard.name}
       </Link>
     ),
