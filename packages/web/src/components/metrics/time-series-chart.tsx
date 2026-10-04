@@ -264,7 +264,7 @@ const Plot = memo(function Plot({ model, series, from, to }: PlotProps) {
           {path.area === undefined ? null : <path d={path.area} fill={color(series[index].colorSlot)} fillOpacity={0.1} />}
           <path d={path.line} fill="none" stroke={color(series[index].colorSlot)} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
           {path.dots.map((dot) => (
-            <circle key={dot.x} cx={dot.x} cy={dot.y} r={4} fill={color(series[index].colorSlot)} stroke="var(--card)" strokeWidth={2} />
+            <circle key={dot.x} cx={dot.x} cy={dot.y} r={2.5} fill={color(series[index].colorSlot)} stroke="var(--card)" strokeWidth={1} />
           ))}
         </g>
       ))}
