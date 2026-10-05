@@ -1,6 +1,7 @@
 import { MONITOR_HISTORY_PAGE_SIZE, type CreateMonitorRequest, type MonitorStateChange, type UpdateMonitorRequest } from '@mini-cloud/shared';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useApi } from '@/hooks/use-connection';
+import type { WindowHistory } from '@/lib/monitor-bands';
 import { queryKeys } from '@/lib/query-keys';
 
 /** The evaluator runs every minute, so a state on screen is never more than this far behind it. */
@@ -36,17 +37,22 @@ export function useMonitorHistoryBetween(name: string, range: { readonly from: n
   const api = useApi();
   return useQuery({
     queryKey: queryKeys.monitorHistoryBetween(name, range?.from ?? 0, range?.to ?? 0),
-    queryFn: async () => {
+    queryFn: async (): Promise<WindowHistory | undefined> => {
+      if (range === undefined) {
+        return undefined;
+      }
       const changes: MonitorStateChange[] = [];
       let after: number | undefined;
       do {
-        const page = await api.listMonitorHistory({ name, from: range?.from, to: range?.to, limit: MONITOR_HISTORY_PAGE_SIZE.max, after });
+        const page = await api.listMonitorHistory({ name, from: range.from, to: range.to, limit: MONITOR_HISTORY_PAGE_SIZE.max, after });
         changes.push(...page.changes);
         after = page.nextCursor;
       } while (after !== undefined);
-      return changes;
+      return { name, from: range.from, to: range.to, changes };
     },
     enabled: range !== undefined,
+    // The window moves on every poll of a relative range; the last answer keeps the bands
+    // on screen meanwhile, and says which window it covers so nothing past it is guessed.
     placeholderData: keepPreviousData,
   });
 }

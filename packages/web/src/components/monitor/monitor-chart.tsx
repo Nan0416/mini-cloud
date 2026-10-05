@@ -1,6 +1,8 @@
 import { periodOf, type Monitor, type MonitorMetric } from '@mini-cloud/shared';
+import { AlertTriangle } from 'lucide-react';
 import { useMemo } from 'react';
 import { BAND_FILLS, TimeSeriesChart } from '@/components/metrics/time-series-chart';
+import { Button } from '@/components/ui/button';
 import { useGraphChart } from '@/hooks/use-graph-chart';
 import { useMonitorHistoryBetween } from '@/hooks/use-monitors';
 import type { ChartBandTone } from '@/lib/chart-model';
@@ -31,7 +33,7 @@ export function MonitorChart({ metric, threshold, window, monitor }: MonitorChar
     () =>
       monitor === undefined || frame === undefined || history.data === undefined
         ? []
-        : stateBands({ changes: history.data, createdAt: monitor.createdAt, from: frame.from, to: frame.to }),
+        : stateBands({ history: history.data, name: monitor.name, createdAt: monitor.createdAt, from: frame.from, to: frame.to }),
     [monitor, frame, history.data],
   );
   const tones = new Set(bands.map((band) => band.tone));
@@ -47,6 +49,16 @@ export function MonitorChart({ metric, threshold, window, monitor }: MonitorChar
         periodMs={frame?.periodMs ?? periodOf(graph)}
         stale={stale}
       />
+      {history.isError ? (
+        // Without this a monitor in alarm all along would look, unshaded, as if it had been fine.
+        <p className="flex items-center gap-1.5 text-xs">
+          <AlertTriangle aria-hidden className="size-3.5 shrink-0 text-destructive" />
+          <span className="text-muted-foreground">The monitor&rsquo;s history could not be read, so the chart may not show when it was in alarm.</span>
+          <Button variant="link" size="sm" className="h-auto p-0 text-xs" onClick={() => void history.refetch()}>
+            Try again
+          </Button>
+        </p>
+      ) : null}
       {tones.size === 0 ? null : (
         <ul className="flex gap-4 text-xs text-muted-foreground">
           {(['alarm', 'muted'] as const)

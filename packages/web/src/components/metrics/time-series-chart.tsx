@@ -234,9 +234,10 @@ const Plot = memo(function Plot({ model, series, from, to }: PlotProps) {
       role="img"
       aria-label={`${series.length === 1 ? series[0].label : `${series.length} series`} from ${formatBucket(from)} to ${formatBucket(to)}. The table view lists every value.`}
     >
-      {model.bands.map((band) => (
+      {model.bands.map((band, index) => (
         <rect
-          key={`${band.tone}:${band.left}`}
+          // Two bands too thin to see can be widened onto the same spot.
+          key={index}
           x={band.left}
           y={plot.top}
           width={band.right - band.left}
