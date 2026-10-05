@@ -58,8 +58,8 @@ export interface MetricsConfig extends MetricConfig {
 
 /** The monitors section. */
 export interface MonitorsConfig {
-  /** How often every monitor is evaluated. */
-  readonly evaluationTickMs: number;
+  /** How far behind now a monitor's window ends. Separate from the graphs' lag, so alarms can wait longer for stragglers. */
+  readonly queryLagMs: number;
 }
 
 export interface ServiceConfig {
@@ -156,16 +156,15 @@ export function loadConfig(options: LoadConfigOptions = {}): ServiceConfig {
       rawRetentionDays: metrics.positiveInteger('rawRetentionDays', 28),
       // A little over a year, so this week can be compared with the same week last year.
       rollupRetentionDays: metrics.positiveInteger('rollupRetentionDays', 400),
-      // Three agent ticks: a machine that misses one still lands inside the window,
-      // so a chart never shows a bucket only some of the fleet has reported.
-      queryLagMs: metrics.positiveInteger('queryLagMs', 180_000),
+      // Agents post each closed minute by :10, so this leaves them 20 seconds. A machine
+      // that misses that lands a minute later and corrects the bucket on the next read.
+      queryLagMs: metrics.positiveInteger('queryLagMs', 30_000),
       // Far longer than an agent will retry, which is all this has to outlast.
       ingestBatchRetentionMs: metrics.positiveInteger('ingestBatchRetentionMs', 86_400_000),
       retentionTickMs: metrics.positiveInteger('retentionTickMs', 3600_000),
     },
     monitors: {
-      // A minute, the finest period there is, so a monitor never misses one closing.
-      evaluationTickMs: monitors.positiveInteger('evaluationTickMs', 60_000),
+      queryLagMs: monitors.positiveInteger('queryLagMs', 30_000),
     },
     cli: {
       serviceUrl: cli.string('serviceUrl', 'http://127.0.0.1:3001'),
@@ -183,7 +182,6 @@ export function loadConfig(options: LoadConfigOptions = {}): ServiceConfig {
       healthCheckTickMs: agent.optionalPositiveInteger('healthCheckTickMs'),
       passiveToleranceMs: agent.optionalPositiveInteger('passiveToleranceMs'),
       pingFailureThreshold: agent.optionalPositiveInteger('pingFailureThreshold'),
-      metricsTickMs: agent.optionalPositiveInteger('metricsTickMs'),
       metricsSpoolDir: agent.optionalString('metricsSpoolDir'),
       hostMetrics: agent.optionalBoolean('hostMetrics'),
       maxHistogramBuckets: agent.optionalPositiveInteger('maxHistogramBuckets'),

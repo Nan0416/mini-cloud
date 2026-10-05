@@ -1,4 +1,4 @@
-import { LoggerFactory, MetricDatum, PutMetricDataRequest } from '@mini-cloud/shared';
+import { InternalServiceError, LoggerFactory, METRIC_RESOLUTION_MS, MetricDatum, PutMetricDataRequest, ServiceUnreachableError, floorToResolution } from '@mini-cloud/shared';
 import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { HostMetrics } from './host-metrics';
@@ -21,6 +21,40 @@ export interface MetricsCollectorProps {
   readonly hostMetrics?: HostMetrics;
   /** Generates a batch id. Injected so a test can make one predictable. */
   readonly newBatchId: () => string;
+  /** Waits between delivery attempts. Injected so a test need not. */
+  readonly sleep?: (ms: number) => Promise<void>;
+}
+
+/**
+ * Waits before each retry of a minute's batch, after a first attempt that failed.
+ *
+ * Two retries 5s apart still land well inside the service's query lag, so a brief
+ * failure, such as a restart or a deadlock with another agent's batch, does not leave
+ * the minute short when it is first graphed and judged.
+ */
+export const DELIVERY_RETRY_DELAYS_MS: ReadonlyArray<number> = [5_000, 5_000];
+
+/**
+ * How far into each minute the collector runs, at the earliest.
+ *
+ * The reporter writes a closed minute to the spool a second after it ends, so this
+ * leaves it room; and every agent sending a minute within a known few seconds is what
+ * lets the service know when that minute's data is in.
+ */
+export const COLLECT_OFFSET_MS = 5_000;
+
+/** The spread past the offset, so a fleet's batches do not all contend for the same rows at once. */
+export const COLLECT_JITTER_MS = 5_000;
+
+/**
+ * Milliseconds from `now` until the next collect, `jitterMs` past the offset.
+ *
+ * Counted from the offset rather than from the jittered moment, so a collect at :09
+ * followed by a jitter of 1s waits for the next minute instead of running again at :06.
+ */
+export function msUntilNextCollect(now: number, jitterMs: number): number {
+  const minute = METRIC_RESOLUTION_MS['1m'];
+  return floorToResolution(now - COLLECT_OFFSET_MS, '1m') + minute + COLLECT_OFFSET_MS + jitterMs - now;
 }
 
 interface PendingBatch {
@@ -71,7 +105,7 @@ export class MetricsCollector {
 
     const batch: PendingBatch = { batchId: this.props.newBatchId(), data: sealed };
     await this.writePending(batch);
-    await this.deliver(batch);
+    await this.deliver(batch, DELIVERY_RETRY_DELAYS_MS);
   }
 
   /** Reads the spool and commits the new offsets, retiring files past their hour. */
@@ -98,21 +132,35 @@ export class MetricsCollector {
     }
   }
 
-  private async deliver(batch: PendingBatch): Promise<void> {
-    try {
-      await this.props.publisher.putMetricData({ agentId: this.props.agentId, batchId: batch.batchId, data: batch.data });
-      await this.discardPending(batch.batchId);
-      logger.debug(`Reported ${batch.data.length} metric datum(s) in batch ${batch.batchId}.`);
-    } catch (err) {
-      // Left on disk for the next tick. Resending the same id is safe: the service
-      // applies a batch once, however many times it arrives.
-      logger.warn(`Could not deliver metric batch ${batch.batchId}; it will be retried.`, err);
+  /**
+   * Resending the same id is safe: the service applies a batch once, however many
+   * times it arrives. Only a failure that could pass on another attempt is retried
+   * here; a refused batch would be refused the same way five seconds later.
+   */
+  private async deliver(batch: PendingBatch, retryDelaysMs: ReadonlyArray<number>): Promise<void> {
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        await this.props.publisher.putMetricData({ agentId: this.props.agentId, batchId: batch.batchId, data: batch.data });
+        await this.discardPending(batch.batchId);
+        logger.debug(`Reported ${batch.data.length} metric datum(s) in batch ${batch.batchId}.`);
+        return;
+      } catch (err) {
+        const delayMs = retryDelaysMs[attempt];
+        if (delayMs === undefined || !isRetryable(err)) {
+          // Left on disk for the next tick.
+          logger.warn(`Could not deliver metric batch ${batch.batchId}; it will be retried next minute.`, err);
+          return;
+        }
+        logger.info(`Could not deliver metric batch ${batch.batchId}; retrying in ${delayMs}ms. ${err instanceof Error ? err.message : String(err)}`);
+        await (this.props.sleep ?? sleep)(delayMs);
+      }
     }
   }
 
+  /** One attempt each: these have had their retries, and a long backlog must not hold up this minute's batch. */
   private async deliverPending(): Promise<void> {
     for (const batch of await this.loadPending()) {
-      await this.deliver(batch);
+      await this.deliver(batch, []);
     }
   }
 
@@ -154,6 +202,14 @@ export class MetricsCollector {
       logger.debug(`Could not remove the delivered metric batch ${batchId}: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
+}
+
+function isRetryable(err: unknown): boolean {
+  return err instanceof ServiceUnreachableError || err instanceof InternalServiceError;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function isPendingBatch(value: unknown): value is PendingBatch {

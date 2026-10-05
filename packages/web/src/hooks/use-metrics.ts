@@ -91,7 +91,7 @@ export interface GraphSeries extends SeriesResult {
   readonly query: MetricQuery;
 }
 
-/** The service holds reads a few minutes behind now, so polling faster would return the same series. */
+/** A bucket closes once a minute, so polling faster would mostly return the same series. */
 const POLL_MS = 60_000;
 
 export function seriesKeyOf(query: MetricQuery): MetricSeriesKey {

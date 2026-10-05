@@ -1,7 +1,7 @@
 import { LoggerFactory, Monitor, MetricDatapoint } from '@mini-cloud/shared';
 import { MetricDao, ReadSeriesInput, ReadSeriesOutput } from '../../src/data/metric-dao';
 import { DiscordCredentials } from '../../src/data/notifier-dao';
-import { MonitorEvaluator } from '../../src/facades/monitor-evaluator';
+import { MonitorEvaluator, msUntilNextEvaluation } from '../../src/facades/monitor-evaluator';
 import { NotificationDispatcher } from '../../src/facades/notification-dispatcher';
 import { NotificationSender } from '../../src/facades/notification-sender';
 import { NotificationMessage } from '../../src/utils/notification-message';
@@ -93,7 +93,7 @@ const context = (...monitors: Monitor[]) => {
     monitorDao,
     metricDao: series.asDao(),
     dispatcher,
-    config: { tickMs: MINUTE, queryLagMs: LAG, rawRetentionDays: 28, consoleUrl: 'https://console.example' },
+    config: { queryLagMs: LAG, rawRetentionDays: 28, consoleUrl: 'https://console.example' },
   });
   return { monitorDao, series, notifier, evaluator };
 };
@@ -337,5 +337,50 @@ describe('MonitorEvaluator', () => {
 
     expect(monitorDao.changes).toHaveLength(0);
     expect(notifier.sent).toHaveLength(0);
+  });
+});
+
+describe('msUntilNextEvaluation', () => {
+  const OPEN = Date.UTC(2026, 8, 27, 12, 0);
+
+  it('evaluates just after a minute clears the lag', () => {
+    expect(msUntilNextEvaluation(OPEN, 30_000)).toBe(31_000);
+  });
+
+  it('judges a minute on the first evaluation able to read it', () => {
+    const at = OPEN + msUntilNextEvaluation(OPEN, 30_000);
+    expect(Math.floor((at - 30_000) / MINUTE) * MINUTE).toBe(OPEN);
+  });
+
+  it('wraps a lag longer than a minute onto its second within the minute', () => {
+    expect((OPEN + msUntilNextEvaluation(OPEN, 75_000)) % MINUTE).toBe(16_000);
+  });
+
+  it('waits a full minute when called exactly on its second, so an evaluation never repeats itself', () => {
+    expect(msUntilNextEvaluation(OPEN + 31_000, 30_000)).toBe(MINUTE);
+  });
+});
+
+describe('MonitorEvaluator schedule', () => {
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  it('evaluates on its second every minute, and not after stopping', async () => {
+    // The context's three-minute lag puts each evaluation at :01.
+    jest.useFakeTimers({ now: Date.UTC(2026, 8, 27, 12, 0, 10) });
+    const { series, evaluator } = context(aMonitor());
+
+    evaluator.start();
+    await jest.advanceTimersByTimeAsync(50_000);
+    expect(series.reads).toHaveLength(0);
+    await jest.advanceTimersByTimeAsync(1_000);
+    expect(series.reads).toHaveLength(1);
+    await jest.advanceTimersByTimeAsync(MINUTE);
+    expect(series.reads).toHaveLength(2);
+
+    await evaluator.stop();
+    await jest.advanceTimersByTimeAsync(5 * MINUTE);
+    expect(series.reads).toHaveLength(2);
   });
 });

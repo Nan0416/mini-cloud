@@ -1,9 +1,9 @@
-import { EmfDocument, MetricUnit, PutMetricDataRequest } from '@mini-cloud/shared';
+import { EmfDocument, InvalidRequestError, MetricUnit, PutMetricDataRequest, ServiceUnreachableError } from '@mini-cloud/shared';
 import { mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { MetricPublisher, MetricsCollector } from '../../src/metrics/metrics-collector';
+import { COLLECT_JITTER_MS, COLLECT_OFFSET_MS, DELIVERY_RETRY_DELAYS_MS, MetricPublisher, MetricsCollector, msUntilNextCollect } from '../../src/metrics/metrics-collector';
 import { SpoolReader } from '../../src/metrics/spool-reader';
 
 const HOUR = Date.UTC(2026, 8, 19, 14);
@@ -14,12 +14,13 @@ const SPOOL_FILE = 'inst-1-2026-09-19-14.emf';
 class FakePublisher implements MetricPublisher {
   readonly sent: PutMetricDataRequest[] = [];
   failures = 0;
+  failWith: Error = new Error('service unreachable');
 
   async putMetricData(request: PutMetricDataRequest): Promise<unknown> {
     this.sent.push(request);
     if (this.failures > 0) {
       this.failures -= 1;
-      throw new Error('service unreachable');
+      throw this.failWith;
     }
     return {};
   }
@@ -38,6 +39,7 @@ describe('MetricsCollector', () => {
   let publisher: FakePublisher;
   let collector: MetricsCollector;
   let nextId = 0;
+  let waits: number[];
 
   const spoolDir = (): string => path.join(dir, 'spool');
   const pendingDir = (): string => path.join(dir, 'pending');
@@ -50,6 +52,7 @@ describe('MetricsCollector', () => {
     await mkdir(spoolDir(), { recursive: true });
     publisher = new FakePublisher();
     nextId = 0;
+    waits = [];
     collector = new MetricsCollector({
       agentId: 'agent-a',
       reader: new SpoolReader({ spoolDir: spoolDir(), offsetsPath: path.join(dir, 'offsets.json') }),
@@ -57,6 +60,9 @@ describe('MetricsCollector', () => {
       pendingDir: pendingDir(),
       maxHistogramBuckets: 100,
       newBatchId: () => `batch-${(nextId += 1)}`,
+      sleep: async (ms) => {
+        waits.push(ms);
+      },
     });
   });
 
@@ -179,6 +185,58 @@ describe('MetricsCollector', () => {
     expect(publisher.sent.map((request) => request.batchId)).toEqual(['batch-0', 'batch-1']);
   });
 
+  it('retries a batch the service could not take twice, 5s apart, within the same tick', async () => {
+    await write(aDocument(MINUTE + 10_000));
+    publisher.failWith = new ServiceUnreachableError('connection refused');
+    publisher.failures = 2;
+
+    await collector.collect(MINUTE + 61_000);
+
+    expect(publisher.sent.map((request) => request.batchId)).toEqual(['batch-1', 'batch-1', 'batch-1']);
+    expect(waits).toEqual(DELIVERY_RETRY_DELAYS_MS);
+    expect(readdirSync(pendingDir())).toEqual([]);
+  });
+
+  it('leaves a batch for the next tick once its retries are spent', async () => {
+    await write(aDocument(MINUTE + 10_000));
+    publisher.failWith = new ServiceUnreachableError('connection refused');
+    publisher.failures = 3;
+
+    await collector.collect(MINUTE + 61_000);
+    expect(publisher.sent).toHaveLength(3);
+    expect(readdirSync(pendingDir())).toEqual(['batch-1.json']);
+
+    await collector.collect(MINUTE + 121_000);
+    expect(publisher.sent.map((request) => request.batchId)).toEqual(['batch-1', 'batch-1', 'batch-1', 'batch-1']);
+    expect(readdirSync(pendingDir())).toEqual([]);
+  });
+
+  it('does not retry a batch the service refused, which would be refused again', async () => {
+    await write(aDocument(MINUTE + 10_000));
+    publisher.failWith = new InvalidRequestError('bad batch');
+    publisher.failures = 1;
+
+    await collector.collect(MINUTE + 61_000);
+
+    expect(publisher.sent).toHaveLength(1);
+    expect(waits).toEqual([]);
+  });
+
+  it('gives a backlog one attempt each, so it cannot hold up the minute behind it', async () => {
+    await write(aDocument(MINUTE + 10_000));
+    publisher.failWith = new ServiceUnreachableError('connection refused');
+    publisher.failures = 3;
+    await collector.collect(MINUTE + 61_000);
+    waits = [];
+
+    publisher.failures = 1;
+    await collector.collect(MINUTE + 121_000);
+
+    expect(publisher.sent).toHaveLength(4);
+    expect(waits).toEqual([]);
+    expect(readdirSync(pendingDir())).toEqual(['batch-1.json']);
+  });
+
   it('discards a pending file it cannot read rather than retrying it forever', async () => {
     await mkdir(pendingDir(), { recursive: true });
     await writeFile(path.join(pendingDir(), 'batch-0.json'), JSON.stringify({ nonsense: true }));
@@ -198,5 +256,29 @@ describe('MetricsCollector', () => {
     await collector.collect(MINUTE + 61_000);
 
     expect(readdirSync(pendingDir())).toEqual([]);
+  });
+});
+
+describe('msUntilNextCollect', () => {
+  it('aims at the offset plus jitter into the current minute when that is still ahead', () => {
+    expect(msUntilNextCollect(MINUTE + 1_000, 2_000)).toBe(COLLECT_OFFSET_MS + 2_000 - 1_000);
+  });
+
+  it('aims at the next minute once the offset has passed', () => {
+    expect(msUntilNextCollect(MINUTE + 30_000, 0)).toBe(60_000 - 30_000 + COLLECT_OFFSET_MS);
+  });
+
+  it('never collects twice in a minute when a smaller jitter follows a larger one', () => {
+    const late = MINUTE + COLLECT_OFFSET_MS + 4_000;
+    expect(late + msUntilNextCollect(late, 1_000)).toBe(MINUTE + 60_000 + COLLECT_OFFSET_MS + 1_000);
+  });
+
+  it('lands every collect within the jitter window past the offset, wherever it starts', () => {
+    for (const start of [MINUTE, MINUTE + 4_999, MINUTE + 9_999, MINUTE + 17_123, MINUTE + 59_999]) {
+      for (const jitter of [0, 2_500, COLLECT_JITTER_MS - 1]) {
+        const second = (start + msUntilNextCollect(start, jitter)) % 60_000;
+        expect(second).toBe(COLLECT_OFFSET_MS + jitter);
+      }
+    }
   });
 });

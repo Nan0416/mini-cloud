@@ -17,8 +17,6 @@ export interface AgentConfig {
   readonly passiveToleranceMs: number;
   /** Consecutive failed pings before an instance is reported unhealthy. */
   readonly pingFailureThreshold: number;
-  /** How often the metrics spool is drained and reported. */
-  readonly metricsTickMs: number;
   /** Where launched programs write EMF documents for this agent to pick up. */
   readonly metricsSpoolDir: string;
   /** Report this machine's own CPU, memory and disk usage. */
@@ -80,10 +78,6 @@ export function resolveAgentConfig(settings: AgentSettings = {}): AgentConfig {
     healthCheckTickMs: settings.healthCheckTickMs ?? 5_000,
     passiveToleranceMs: settings.passiveToleranceMs ?? 2_000,
     pingFailureThreshold: settings.pingFailureThreshold ?? 3,
-    // One minute, because a minute is the bucket everything downstream is keyed on.
-    // A shorter tick would send the same bucket repeatedly; a longer one would delay
-    // every metric by the difference.
-    metricsTickMs: settings.metricsTickMs ?? 60_000,
     // Outside workDir on purpose: programs write here, and workDir holds the agent's
     // own state.
     metricsSpoolDir: settings.metricsSpoolDir ?? path.join(os.homedir(), '.mini-cloud', 'metrics'),

@@ -1,4 +1,4 @@
-import { AsyncQueue, LoggerFactory, Monitor, evaluateMonitor, hashDimensions } from '@mini-cloud/shared';
+import { AsyncQueue, LoggerFactory, METRIC_RESOLUTION_MS, Monitor, evaluateMonitor, floorToResolution, hashDimensions } from '@mini-cloud/shared';
 import { MetricDao } from '../data/metric-dao';
 import { MonitorDao } from '../data/monitor-dao';
 import { metricReadWindow, metricResolutionFor } from '../utils/metric-read';
@@ -8,9 +8,7 @@ import { DispatchInput, NotificationDispatcher } from './notification-dispatcher
 const logger = LoggerFactory.getLogger('MonitorEvaluator');
 
 export interface MonitorEvaluatorConfig {
-  /** How often every monitor is evaluated. */
-  readonly tickMs: number;
-  /** The metrics' own, so a monitor reads the periods a graph would draw and no newer. */
+  /** How far behind now a monitor's window ends, so every agent has reported its newest period. */
   readonly queryLagMs: number;
   readonly rawRetentionDays: number;
   /** Where a notification links to the monitor; empty for no link. */
@@ -22,6 +20,21 @@ export interface MonitorEvaluatorProps {
   readonly metricDao: MetricDao;
   readonly dispatcher: NotificationDispatcher;
   readonly config: MonitorEvaluatorConfig;
+}
+
+/** Past the moment a minute becomes readable, so a timer firing a hair early does not miss it. */
+const EVALUATION_GRACE_MS = 1_000;
+
+/**
+ * Milliseconds from `now` until the next evaluation, always in (0, one minute].
+ *
+ * Evaluations land just after each minute clears the lag, so a closed minute is judged
+ * as soon as it may be rather than up to a minute later.
+ */
+export function msUntilNextEvaluation(now: number, queryLagMs: number): number {
+  const minute = METRIC_RESOLUTION_MS['1m'];
+  const offset = (queryLagMs + EVALUATION_GRACE_MS) % minute;
+  return floorToResolution(now - offset, '1m') + minute + offset - now;
 }
 
 /** A change of state waiting to be sent, and the monitor it is about, for the log. */
@@ -40,6 +53,7 @@ interface PendingNotification extends DispatchInput {
 export class MonitorEvaluator {
   private readonly props: MonitorEvaluatorProps;
   private timer?: NodeJS.Timeout;
+  private scheduling = false;
 
   // A slow tick must not overlap the next: both would judge the same monitor, and the
   // second's change would be refused by the state guard after the first had notified.
@@ -58,8 +72,23 @@ export class MonitorEvaluator {
   }
 
   start(): void {
-    logger.info(`Starting monitor evaluation every ${this.props.config.tickMs}ms.`);
-    this.timer = setInterval(() => void this.runTick(), this.props.config.tickMs);
+    logger.info(`Starting monitor evaluation every minute, ${this.props.config.queryLagMs}ms behind the metrics.`);
+    this.scheduling = true;
+    this.schedule();
+  }
+
+  /** Re-aimed from the wall clock each time, so evaluations stay on their second through drift and sleep. */
+  private schedule(): void {
+    this.timer = setTimeout(
+      () => {
+        void this.runTick().finally(() => {
+          if (this.scheduling) {
+            this.schedule();
+          }
+        });
+      },
+      msUntilNextEvaluation(Date.now(), this.props.config.queryLagMs),
+    );
   }
 
   /**
@@ -69,9 +98,10 @@ export class MonitorEvaluator {
    * the point a service manager kills the process.
    */
   async stop(graceMs: number = 0): Promise<void> {
-    if (this.timer !== undefined) {
+    if (this.scheduling) {
       logger.info('Stopping monitor evaluation.');
-      clearInterval(this.timer);
+      this.scheduling = false;
+      clearTimeout(this.timer);
       this.timer = undefined;
     }
 
