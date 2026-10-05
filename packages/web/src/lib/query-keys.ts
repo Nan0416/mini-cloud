@@ -32,6 +32,8 @@ export const queryKeys = {
   monitor: (name: string) => ['monitors', name] as const,
   monitorHistory: (name: string) => ['monitors', name, 'history'] as const,
 
+  notifiers: () => ['notifiers'] as const,
+
   agents: () => ['agents'] as const,
   variables: () => ['variables'] as const,
   hubStatus: () => ['hub-status'] as const,

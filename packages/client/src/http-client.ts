@@ -2,6 +2,7 @@ import {
   AgentOfflineError,
   AppError,
   ConflictError,
+  DeliveryFailedError,
   ErrorCode,
   ForbiddenError,
   InternalServiceError,
@@ -41,6 +42,8 @@ function toAppError(status: number, message: string, errorCode: ErrorCode | unde
       return new ConflictError(message);
     case 'AGENT_OFFLINE':
       return new AgentOfflineError(message);
+    case 'DELIVERY_FAILED':
+      return new DeliveryFailedError(message);
     default:
       return new InternalServiceError(`${message} (HTTP ${status})`);
   }
@@ -142,7 +145,7 @@ export class HttpClient {
   }
 
   private toErrorCode(value: string | undefined): ErrorCode | undefined {
-    const codes: ReadonlyArray<ErrorCode> = ['INVALID_REQUEST', 'UNAUTHENTICATED', 'FORBIDDEN', 'NOT_FOUND', 'CONFLICT', 'AGENT_OFFLINE', 'INTERNAL'];
+    const codes: ReadonlyArray<ErrorCode> = ['INVALID_REQUEST', 'UNAUTHENTICATED', 'FORBIDDEN', 'NOT_FOUND', 'CONFLICT', 'AGENT_OFFLINE', 'DELIVERY_FAILED', 'INTERNAL'];
     return codes.find((code) => code === value);
   }
 }

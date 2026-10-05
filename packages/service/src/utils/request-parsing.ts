@@ -3,6 +3,12 @@ import {
   BroadcastRequest,
   CreateDashboardRequest,
   CreateMonitorRequest,
+  CreateNotifierRequest,
+  UpdateNotifierRequest,
+  assertKnownFields,
+  assertNotifierName,
+  assertOptionalNotifierDescription,
+  parseNotifierTargetInput,
   CreateTaskRequest,
   GetMetricDataRequest,
   EXTERNAL_TASK_EVENT_SOURCES,
@@ -471,4 +477,28 @@ export function parseListMonitorHistoryRequest(query: unknown): ListMonitorHisto
     throw new InvalidRequestError(`limit must be between 1 and ${MONITOR_HISTORY_PAGE_SIZE.max}`);
   }
   return { name: assertNonEmptyString(record['name'], 'name'), limit };
+}
+
+const NOTIFIER_KEYS = ['name', 'description', 'target'];
+
+export function parseCreateNotifierRequest(body: unknown): CreateNotifierRequest {
+  const record = assertRecord(body, 'body');
+  assertKnownFields(record, 'body', NOTIFIER_KEYS);
+  return {
+    name: assertNotifierName(record['name'], 'name'),
+    description: assertOptionalNotifierDescription(record['description'], 'description'),
+    target: parseNotifierTargetInput(record['target'], 'target'),
+  };
+}
+
+export function parseUpdateNotifierRequest(body: unknown): UpdateNotifierRequest {
+  const record = assertRecord(body, 'body');
+  assertKnownFields(record, 'body', ['notifierId', 'version', ...NOTIFIER_KEYS]);
+  return {
+    notifierId: assertNonEmptyString(record['notifierId'], 'notifierId'),
+    version: assertInteger(record['version'], 'version'),
+    name: assertNotifierName(record['name'], 'name'),
+    description: assertOptionalNotifierDescription(record['description'], 'description'),
+    target: parseNotifierTargetInput(record['target'], 'target'),
+  };
 }

@@ -1,7 +1,7 @@
 import { CreateMonitorResponse, ErrorResponse, GetMonitorResponse, ListMonitorHistoryResponse, UpdateMonitorResponse } from '@mini-cloud/shared';
 import { MonitorEndpoints } from '../../src/routes/monitor-endpoints';
 import { MonitorService } from '../../src/services/monitor-service';
-import { FakeMonitorDao } from '../data/fake-daos';
+import { FakeMonitorDao, FakeNotifierDao } from '../data/fake-daos';
 import { TestServer } from './test-helpers';
 
 const aBody = (overrides: Record<string, unknown> = {}) => ({
@@ -12,7 +12,9 @@ const aBody = (overrides: Record<string, unknown> = {}) => ({
   comparison: 'GreaterThanOrEqualToThreshold',
   threshold: 95.5,
   treatMissingData: 'breaching',
+  severity: 3,
   notify: false,
+  notifierIds: [],
   ...overrides,
 });
 
@@ -21,7 +23,7 @@ let server: TestServer;
 
 beforeEach(async () => {
   monitorDao = new FakeMonitorDao();
-  server = await TestServer.start(new MonitorEndpoints({ monitorService: new MonitorService({ monitorDao }) }));
+  server = await TestServer.start(new MonitorEndpoints({ monitorService: new MonitorService({ monitorDao, notifierDao: new FakeNotifierDao(monitorDao) }) }));
 });
 
 afterEach(async () => {

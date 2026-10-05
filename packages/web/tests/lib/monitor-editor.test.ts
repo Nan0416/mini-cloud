@@ -31,7 +31,9 @@ const aDefinition = (overrides: Partial<MonitorDefinition> = {}): MonitorDefinit
   comparison: 'GreaterThanThreshold',
   threshold: 80,
   treatMissingData: 'missing',
+  severity: 3,
   notify: true,
+  notifierIds: [],
   ...overrides,
 });
 

@@ -26,6 +26,11 @@ export type MonitorState = 'OK' | 'ALARM' | 'INSUFFICIENT_DATA';
 
 export const MONITOR_STATES: ReadonlyArray<MonitorState> = ['OK', 'ALARM', 'INSUFFICIENT_DATA'];
 
+/** How urgent an alarm is, from 1, the most, to 5. */
+export type MonitorSeverity = 1 | 2 | 3 | 4 | 5;
+
+export const MONITOR_SEVERITIES: ReadonlyArray<MonitorSeverity> = [1, 2, 3, 4, 5];
+
 export const MONITOR_LIMITS = {
   nameLength: 255,
   descriptionLength: 1024,
@@ -58,8 +63,11 @@ export interface MonitorDefinition {
   readonly comparison: MonitorComparison;
   readonly threshold: number;
   readonly treatMissingData: TreatMissingData;
-  /** Whether a change of state is handed to the notifier. The monitor is evaluated either way. */
+  readonly severity: MonitorSeverity;
+  /** Whether a change of state is sent to the notifiers. The monitor is evaluated either way, and a muted monitor keeps its notifiers. */
   readonly notify: boolean;
+  /** Where a change of state is sent, by `notifierId`. */
+  readonly notifierIds: ReadonlyArray<string>;
 }
 
 export interface Monitor extends MonitorDefinition {

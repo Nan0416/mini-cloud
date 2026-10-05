@@ -1,6 +1,18 @@
 import { InvalidRequestError } from '../errors';
 import { METRIC_RESOLUTION_MS, METRIC_STATISTICS } from '../models/metric';
-import { EvaluatedDatapoint, MONITOR_COMPARISONS, MONITOR_LIMITS, MonitorComparison, MonitorDefinition, MonitorMetric, MonitorState, TREAT_MISSING_DATA } from '../models/monitor';
+import {
+  EvaluatedDatapoint,
+  MONITOR_COMPARISONS,
+  MONITOR_LIMITS,
+  MONITOR_SEVERITIES,
+  MonitorComparison,
+  MonitorDefinition,
+  MonitorMetric,
+  MonitorSeverity,
+  MonitorState,
+  TREAT_MISSING_DATA,
+} from '../models/monitor';
+import { NOTIFIER_LIMITS } from '../models/notifier';
 import {
   assertBoolean,
   assertInteger,
@@ -10,6 +22,7 @@ import {
   assertOneOf,
   assertOptionalString,
   assertRecord,
+  assertStringArray,
   assertStringMap,
 } from './assertions';
 
@@ -20,7 +33,19 @@ const MONITOR_NAME = /^[A-Za-z0-9_-]+$/;
 
 const RESERVED_MONITOR_NAME = 'new';
 
-const DEFINITION_KEYS = ['description', 'metric', 'periodMs', 'evaluationPeriods', 'datapointsToAlarm', 'comparison', 'threshold', 'treatMissingData', 'notify'];
+const DEFINITION_KEYS = [
+  'description',
+  'metric',
+  'periodMs',
+  'evaluationPeriods',
+  'datapointsToAlarm',
+  'comparison',
+  'threshold',
+  'treatMissingData',
+  'severity',
+  'notify',
+  'notifierIds',
+];
 const METRIC_KEYS = ['namespace', 'metricName', 'dimensions', 'statistic'];
 
 export function assertMonitorName(value: unknown, field: string): string {
@@ -45,6 +70,26 @@ function parseMetric(value: unknown, field: string): MonitorMetric {
     dimensions: assertStringMap(record['dimensions'], `${field}.dimensions`),
     statistic: assertOneOf(record['statistic'], `${field}.statistic`, METRIC_STATISTICS),
   };
+}
+
+function parseSeverity(value: unknown, field: string): MonitorSeverity {
+  const number = assertInteger(value, field);
+  const severity = MONITOR_SEVERITIES.find((candidate) => candidate === number);
+  if (severity === undefined) {
+    throw new InvalidRequestError(`${field} must be 1 to 5, where 1 is the most urgent`);
+  }
+  return severity;
+}
+
+function parseNotifierIds(value: unknown, field: string): ReadonlyArray<string> {
+  const ids = [...new Set(assertStringArray(value, field))];
+  if (ids.some((id) => id.length === 0)) {
+    throw new InvalidRequestError(`${field} cannot hold an empty notifier id`);
+  }
+  if (ids.length > NOTIFIER_LIMITS.perMonitor) {
+    throw new InvalidRequestError(`${field} names ${ids.length} notifiers; a monitor sends to at most ${NOTIFIER_LIMITS.perMonitor}`);
+  }
+  return ids;
 }
 
 /** Checks what a caller wrote into a monitor, and returns it with nothing but the fields the format defines. */
@@ -91,7 +136,9 @@ export function parseMonitorDefinition(value: unknown, field: string): MonitorDe
     comparison: assertOneOf(record['comparison'], `${field}.comparison`, MONITOR_COMPARISONS),
     threshold,
     treatMissingData: assertOneOf(record['treatMissingData'], `${field}.treatMissingData`, TREAT_MISSING_DATA),
+    severity: parseSeverity(record['severity'], `${field}.severity`),
     notify: assertBoolean(record['notify'], `${field}.notify`),
+    notifierIds: parseNotifierIds(record['notifierIds'], `${field}.notifierIds`),
   };
 }
 

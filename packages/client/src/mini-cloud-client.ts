@@ -2,6 +2,18 @@ import {
   BroadcastRequest,
   BroadcastResponse,
   CreateMonitorRequest,
+  CreateNotifierRequest,
+  CreateNotifierResponse,
+  DeleteNotifierRequest,
+  DeleteNotifierResponse,
+  GetNotifierRequest,
+  GetNotifierResponse,
+  ListNotifiersRequest,
+  ListNotifiersResponse,
+  TestNotifierRequest,
+  TestNotifierResponse,
+  UpdateNotifierRequest,
+  UpdateNotifierResponse,
   CreateMonitorResponse,
   DeleteMonitorRequest,
   DeleteMonitorResponse,
@@ -242,6 +254,33 @@ export class MiniCloudClient {
 
   async listMonitorHistory(request: ListMonitorHistoryRequest): Promise<ListMonitorHistoryResponse> {
     return this.http.request('GET', `/monitors/${encodeURIComponent(request.name)}/history`, { query: { limit: request.limit } });
+  }
+
+  // ---- notifiers ----
+
+  async listNotifiers(_request: ListNotifiersRequest = {}): Promise<ListNotifiersResponse> {
+    return this.http.request('GET', '/notifiers');
+  }
+
+  async getNotifier(request: GetNotifierRequest): Promise<GetNotifierResponse> {
+    return this.http.request('GET', `/notifiers/${encodeURIComponent(request.notifierId)}`);
+  }
+
+  async createNotifier(request: CreateNotifierRequest): Promise<CreateNotifierResponse> {
+    return this.http.request('POST', '/notifiers', { body: request });
+  }
+
+  async updateNotifier(request: UpdateNotifierRequest): Promise<UpdateNotifierResponse> {
+    const { notifierId, ...body } = request;
+    return this.http.request('PUT', `/notifiers/${encodeURIComponent(notifierId)}`, { body });
+  }
+
+  async deleteNotifier(request: DeleteNotifierRequest): Promise<DeleteNotifierResponse> {
+    return this.http.request('DELETE', `/notifiers/${encodeURIComponent(request.notifierId)}`);
+  }
+
+  async testNotifier(request: TestNotifierRequest): Promise<TestNotifierResponse> {
+    return this.http.request('POST', `/notifiers/${encodeURIComponent(request.notifierId)}/test`);
   }
 
   // ---- agents ----

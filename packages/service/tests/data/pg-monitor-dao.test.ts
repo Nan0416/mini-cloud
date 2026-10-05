@@ -14,7 +14,9 @@ const aRow = (overrides: Record<string, unknown> = {}) => ({
   comparison: 'GreaterThanThreshold',
   threshold: 80,
   treat_missing_data: 'breaching',
+  severity: 3,
   notify: true,
+  notifier_ids: [],
   state: 'ALARM',
   state_reason: 'hot',
   state_changed_at: new Date(Date.UTC(2026, 8, 1)),
@@ -33,12 +35,14 @@ const aDefinition = {
   comparison: 'GreaterThanThreshold' as const,
   threshold: 80,
   treatMissingData: 'missing' as const,
+  severity: 3 as const,
   notify: true,
+  notifierIds: [],
 };
 
 describe('PgMonitorDao', () => {
   it('maps a row into a monitor, with the period read back as a number and absent fields left out', async () => {
-    const pool = fakePool().on('SELECT * FROM monitor WHERE name', { rows: [aRow()] });
+    const pool = fakePool().on('WHERE m.name = $1', { rows: [aRow({ notifier_ids: ['ntf-a', 'ntf-b'] })] });
 
     const { monitor } = await new PgMonitorDao(pool.asPool()).getMonitor({ name: 'nas-cpu' });
 
@@ -47,6 +51,8 @@ describe('PgMonitorDao', () => {
       metric: { namespace: 'MiniCloud/Agent', metricName: 'CpuUtilization', dimensions: { AgentId: 'nas' }, statistic: 'p99' },
       periodMs: 300_000,
       state: 'ALARM',
+      severity: 3,
+      notifierIds: ['ntf-a', 'ntf-b'],
       version: 2,
     });
     expect(monitor?.description).toBeUndefined();
@@ -54,7 +60,7 @@ describe('PgMonitorDao', () => {
   });
 
   it('refuses a row whose state the schema and the types disagree on, as an internal error', async () => {
-    const pool = fakePool().on('SELECT * FROM monitor WHERE name', { rows: [aRow({ state: 'PENDING' })] });
+    const pool = fakePool().on('WHERE m.name = $1', { rows: [aRow({ state: 'PENDING' })] });
 
     await expect(new PgMonitorDao(pool.asPool()).getMonitor({ name: 'nas-cpu' })).rejects.toThrow(/unrecognised state "PENDING"/);
   });
@@ -77,9 +83,57 @@ describe('PgMonitorDao', () => {
       'GreaterThanThreshold',
       80,
       'missing',
+      3,
       true,
       'new',
     ]);
+  });
+
+  it('links its notifiers in the transaction that creates it', async () => {
+    const pool = fakePool().on('INSERT INTO monitor ', { rows: [aRow()] });
+
+    const { monitor } = await new PgMonitorDao(pool.asPool()).createMonitor({ name: 'nas-cpu', ...aDefinition, notifierIds: ['ntf-b', 'ntf-a'], stateReason: 'new' });
+
+    const inTransaction = pool.queries.filter((query) => query.onClient).map((query) => query.sql.replace(/\s+/g, ' ').trim());
+    expect(inTransaction[0]).toBe('BEGIN');
+    expect(inTransaction[2]).toContain('INSERT INTO monitor_notifier');
+    expect(pool.find('INSERT INTO monitor_notifier').values).toEqual(['nas-cpu', ['ntf-b', 'ntf-a']]);
+    expect(inTransaction[3]).toBe('COMMIT');
+    expect(monitor?.notifierIds).toEqual(['ntf-a', 'ntf-b']);
+  });
+
+  it('links nothing when the name is taken', async () => {
+    const pool = fakePool();
+
+    const { monitor } = await new PgMonitorDao(pool.asPool()).createMonitor({ name: 'nas-cpu', ...aDefinition, notifierIds: ['ntf-a'], stateReason: 'new' });
+
+    expect(monitor).toBeUndefined();
+    expect(pool.statements.some((sql) => sql.includes('monitor_notifier'))).toBe(false);
+  });
+
+  it('replaces its notifiers on an edit, and rolls the edit back, reporting it, when a notifier has gone', async () => {
+    const pool = fakePool()
+      .on('UPDATE monitor', { rows: [aRow()] })
+      .failOn('INSERT INTO monitor_notifier', Object.assign(new Error('violates foreign key constraint'), { code: '23503', constraint: 'monitor_notifier_notifier_id_fkey' }));
+
+    const result = await new PgMonitorDao(pool.asPool()).updateMonitor({ name: 'nas-cpu', version: 2, ...aDefinition, notifierIds: ['ntf-gone'] });
+
+    expect(result).toEqual({ notifierMissing: true });
+
+    const inTransaction = pool.queries.filter((query) => query.onClient).map((query) => query.sql.replace(/\s+/g, ' ').trim());
+    expect(inTransaction[2]).toBe('DELETE FROM monitor_notifier WHERE monitor_name = $1');
+    expect(inTransaction.at(-1)).toBe('ROLLBACK');
+    expect(pool.releases).toBe(1);
+  });
+
+  it('passes on any other failure to link notifiers', async () => {
+    const pool = fakePool()
+      .on('INSERT INTO monitor ', { rows: [aRow()] })
+      .failOn('INSERT INTO monitor_notifier', new Error('connection reset'));
+
+    await expect(new PgMonitorDao(pool.asPool()).createMonitor({ name: 'nas-cpu', ...aDefinition, notifierIds: ['ntf-a'], stateReason: 'new' })).rejects.toThrow(
+      'connection reset',
+    );
   });
 
   it('guards an update on the version it was made from, in the same statement', async () => {
@@ -88,7 +142,8 @@ describe('PgMonitorDao', () => {
     const { monitor } = await new PgMonitorDao(pool.asPool()).updateMonitor({ name: 'nas-cpu', version: 3, ...aDefinition });
 
     expect(monitor).toBeUndefined();
-    expect(pool.sql(0)).toContain('WHERE name = $1 AND version = $2');
+    expect(pool.statements.find((sql) => sql.startsWith('UPDATE monitor'))).toContain('WHERE name = $1 AND version = $2');
+    expect(pool.statements.some((sql) => sql.includes('monitor_notifier'))).toBe(false);
   });
 
   it('records a change of state only when the monitor is still in the state and at the version it was judged against, atomically', async () => {

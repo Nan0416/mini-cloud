@@ -124,6 +124,8 @@ const ROUTES: ReadonlyArray<{ method: 'GET' | 'POST'; path: string; internal: bo
   { method: 'POST', path: '/dashboards', internal: false, public: true },
   { method: 'GET', path: '/monitors', internal: false, public: true },
   { method: 'POST', path: '/monitors', internal: false, public: true },
+  { method: 'GET', path: '/notifiers', internal: false, public: true },
+  { method: 'POST', path: '/notifiers', internal: false, public: true },
 ];
 
 let listeners: Listeners | undefined;

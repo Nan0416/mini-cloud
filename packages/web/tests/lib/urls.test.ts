@@ -72,6 +72,10 @@ describe('urls', () => {
     expect(urls.monitor('nas-cpu', { range: { kind: 'relative', durationMs: 10_800_000 }, periodMs: 300_000 })).toBe('/monitors/nas-cpu?range=3h&period=5m');
   });
 
+  it('links to the notifiers page', () => {
+    expect(urls.notifiers()).toBe('/notifiers');
+  });
+
   it('starts a new monitor on a metric when given one', () => {
     expect(urls.createMonitor()).toBe('/monitors/new');
     expect(urls.createMonitor({ namespace: 'MiniCloud/Agent', metricName: 'CpuUtilization', dimensions: { AgentId: 'nas' }, statistic: 'avg' })).toBe(

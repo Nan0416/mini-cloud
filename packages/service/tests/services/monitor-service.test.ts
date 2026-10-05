@@ -1,6 +1,6 @@
-import { ConflictError, MonitorDefinition, NotFoundError } from '@mini-cloud/shared';
+import { ConflictError, InvalidRequestError, MonitorDefinition, NotFoundError } from '@mini-cloud/shared';
 import { MonitorService } from '../../src/services/monitor-service';
-import { FakeMonitorDao } from '../data/fake-daos';
+import { FakeMonitorDao, FakeNotifierDao, aNotifier } from '../data/fake-daos';
 
 const aDefinition = (overrides: Partial<MonitorDefinition> = {}): MonitorDefinition => ({
   metric: { namespace: 'MiniCloud/Agent', metricName: 'CpuUtilization', dimensions: { AgentId: 'nas' }, statistic: 'avg' },
@@ -10,13 +10,16 @@ const aDefinition = (overrides: Partial<MonitorDefinition> = {}): MonitorDefinit
   comparison: 'GreaterThanThreshold',
   threshold: 80,
   treatMissingData: 'missing',
+  severity: 3,
   notify: true,
+  notifierIds: [],
   ...overrides,
 });
 
 const context = () => {
   const monitorDao = new FakeMonitorDao();
-  return { monitorDao, service: new MonitorService({ monitorDao }) };
+  const notifierDao = new FakeNotifierDao(monitorDao);
+  return { monitorDao, notifierDao, service: new MonitorService({ monitorDao, notifierDao }) };
 };
 
 describe('MonitorService', () => {
@@ -35,6 +38,35 @@ describe('MonitorService', () => {
     await service.createMonitor({ name: 'nas-cpu', ...aDefinition() });
 
     await expect(service.createMonitor({ name: 'nas-cpu', ...aDefinition({ threshold: 1 }) })).rejects.toThrow(ConflictError);
+  });
+
+  it('saves the notifiers a monitor sends to', async () => {
+    const { notifierDao, service } = context();
+    notifierDao.seed(aNotifier({ notifierId: 'ntf-a' }));
+
+    const { monitor } = await service.createMonitor({ name: 'nas-cpu', ...aDefinition({ notifierIds: ['ntf-a'] }) });
+
+    expect(monitor.notifierIds).toEqual(['ntf-a']);
+  });
+
+  it('refuses a create or an edit naming a notifier that does not exist, and says which', async () => {
+    const { notifierDao, service } = context();
+    notifierDao.seed(aNotifier({ notifierId: 'ntf-a' }));
+    const { monitor } = await service.createMonitor({ name: 'nas-cpu', ...aDefinition() });
+
+    await expect(service.createMonitor({ name: 'other', ...aDefinition({ notifierIds: ['ntf-a', 'ntf-gone'] }) })).rejects.toThrow(/ntf-gone/);
+    await expect(service.updateMonitor({ name: 'nas-cpu', version: monitor.version, ...aDefinition({ notifierIds: ['ntf-gone'] }) })).rejects.toThrow(InvalidRequestError);
+  });
+
+  it('names a notifier deleted between the check and the save, rather than failing', async () => {
+    const { monitorDao, notifierDao, service } = context();
+    notifierDao.seed(aNotifier({ notifierId: 'ntf-a' }));
+    monitorDao.createMonitor = async () => {
+      notifierDao.notifiers.delete('ntf-a');
+      return { notifierMissing: true };
+    };
+
+    await expect(service.createMonitor({ name: 'nas-cpu', ...aDefinition({ notifierIds: ['ntf-a'] }) })).rejects.toThrow(/no longer exists: ntf-a/);
   });
 
   it('saves an edit made from the current version, and refuses one made from an older one', async () => {

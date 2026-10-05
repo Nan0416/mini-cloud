@@ -4,11 +4,15 @@ import {
   METRIC_STATISTICS,
   METRIC_UNITS,
   MONITOR_COMPARISONS,
+  MONITOR_SEVERITIES,
   MONITOR_STATES,
   MetricStatistic,
   MetricUnit,
   MonitorComparison,
+  MonitorSeverity,
   MonitorState,
+  NOTIFIER_TYPES,
+  NotifierType,
   TREAT_MISSING_DATA,
   TASK_EVENT_LEVELS,
   TASK_EVENT_SOURCES,
@@ -68,4 +72,16 @@ export function toTreatMissingData(value: string, rowId: string): TreatMissingDa
 
 export function toMonitorState(value: string, rowId: string): MonitorState {
   return narrow(value, MONITOR_STATES, 'state', rowId);
+}
+
+export function toMonitorSeverity(value: number, monitorName: string): MonitorSeverity {
+  const match = MONITOR_SEVERITIES.find((candidate) => candidate === value);
+  if (match === undefined) {
+    throw new InternalServiceError(`Row ${monitorName} has unrecognised severity ${value}.`);
+  }
+  return match;
+}
+
+export function toNotifierType(value: string, notifierId: string): NotifierType {
+  return narrow(value, NOTIFIER_TYPES, 'type', notifierId);
 }

@@ -1,4 +1,4 @@
-import { Activity, BellRing, ChartLine, Cloud, LayoutDashboard, ListTree, Radio, Server, Variable } from 'lucide-react';
+import { Activity, BellRing, ChartLine, Cloud, LayoutDashboard, ListTree, Radio, Send, Server, Variable } from 'lucide-react';
 import { urls } from '@/lib/urls';
 
 export interface NavItem {
@@ -24,6 +24,7 @@ export const NAV_SECTIONS: ReadonlyArray<NavSection> = [
       { to: urls.metrics(), label: 'Metrics', icon: ChartLine },
       { to: urls.dashboards(), label: 'Dashboards', icon: LayoutDashboard, matchPrefix: '/dashboards' },
       { to: urls.monitors(), label: 'Monitors', icon: BellRing, matchPrefix: '/monitors' },
+      { to: urls.notifiers(), label: 'Notifiers', icon: Send },
     ],
   },
   {

@@ -1,4 +1,4 @@
-import type { AgentStatus, MonitorState, TaskEventLevel, TaskEventSource, TaskInstanceStatus, TaskType } from '@mini-cloud/shared';
+import type { AgentStatus, MonitorSeverity, MonitorState, TaskEventLevel, TaskEventSource, TaskInstanceStatus, TaskType } from '@mini-cloud/shared';
 import { Badge, type BadgeProps } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 
@@ -133,6 +133,22 @@ export function MonitorStateBadge(props: { readonly state: MonitorState }) {
     <Badge variant={presentation.tone}>
       <Dot tone={presentation.tone} pulse={presentation.inFlight} />
       {presentation.label}
+    </Badge>
+  );
+}
+
+const SEVERITY_TONE: Readonly<Record<MonitorSeverity, Tone>> = {
+  1: 'destructive',
+  2: 'destructive',
+  3: 'warning',
+  4: 'outline',
+  5: 'outline',
+};
+
+export function SeverityBadge(props: { readonly severity: MonitorSeverity }) {
+  return (
+    <Badge variant={SEVERITY_TONE[props.severity] ?? 'outline'} className="tabular">
+      SEV-{props.severity}
     </Badge>
   );
 }

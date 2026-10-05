@@ -91,4 +91,8 @@ describe('queryKeys', () => {
     expect(startsWith(queryKeys.monitor('nas-cpu'), queryKeys.monitors())).toBe(true);
     expect(startsWith(queryKeys.monitorHistory('nas-cpu'), queryKeys.monitor('nas-cpu'))).toBe(true);
   });
+
+  it('keeps notifiers apart from monitors, so saving a monitor does not refetch them', () => {
+    expect(startsWith(queryKeys.notifiers(), queryKeys.monitors())).toBe(false);
+  });
 });

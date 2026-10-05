@@ -12,3 +12,4 @@ export * from './metric-graph';
 export * from './metric-statistics';
 export * from './dashboard';
 export * from './monitor';
+export * from './notifier';

@@ -11,6 +11,7 @@ import {
   type MonitorComparison,
   type MonitorDefinition,
   type MonitorMetric,
+  type MonitorSeverity,
   type TreatMissingData,
 } from '@mini-cloud/shared';
 import { formatDuration } from '@/lib/format';
@@ -23,6 +24,15 @@ const { '1m': MINUTE, '1h': HOUR, '1d': DAY } = METRIC_RESOLUTION_MS;
 
 /** The periods a monitor can be given. Each divides a day, so a window of them lines up with the rollups. */
 export const MONITOR_PERIODS: ReadonlyArray<number> = [MINUTE, 5 * MINUTE, 15 * MINUTE, HOUR, 6 * HOUR, DAY];
+
+/** How each severity reads in a picker. The number is what a notification heads with. */
+export const SEVERITY_LABELS: Readonly<Record<MonitorSeverity, string>> = {
+  1: 'SEV-1 · most urgent',
+  2: 'SEV-2',
+  3: 'SEV-3',
+  4: 'SEV-4',
+  5: 'SEV-5 · least urgent',
+};
 
 export const COMPARISON_LABELS: Readonly<Record<MonitorComparison, string>> = {
   GreaterThanThreshold: 'Greater than',
@@ -86,7 +96,9 @@ export interface MonitorFormValues {
   readonly comparison: MonitorComparison;
   readonly threshold: string;
   readonly treatMissingData: TreatMissingData;
+  readonly severity: MonitorSeverity;
   readonly notify: boolean;
+  readonly notifierIds: ReadonlyArray<string>;
 }
 
 export function blankMonitorForm(metric?: MonitorMetric): MonitorFormValues {
@@ -102,7 +114,9 @@ export function blankMonitorForm(metric?: MonitorMetric): MonitorFormValues {
     comparison: 'GreaterThanThreshold',
     threshold: '',
     treatMissingData: 'missing',
+    severity: 3,
     notify: true,
+    notifierIds: [],
   };
 }
 
@@ -119,7 +133,9 @@ export function monitorFormOf(monitor: MonitorDefinition): MonitorFormValues {
     comparison: monitor.comparison,
     threshold: String(monitor.threshold),
     treatMissingData: monitor.treatMissingData,
+    severity: monitor.severity,
     notify: monitor.notify,
+    notifierIds: monitor.notifierIds,
   };
 }
 
@@ -154,7 +170,9 @@ export function definitionOf(values: MonitorFormValues): FormResult {
         comparison: values.comparison,
         threshold: typedNumber(values.threshold),
         treatMissingData: values.treatMissingData,
+        severity: values.severity,
         notify: values.notify,
+        notifierIds: values.notifierIds,
       },
       'monitor',
     );

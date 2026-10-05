@@ -3,7 +3,7 @@ import { Plus } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { DataTable, type Column } from '@/components/common/data-table';
 import { PageHeader } from '@/components/common/page-header';
-import { MonitorStateBadge } from '@/components/common/status-badge';
+import { MonitorStateBadge, SeverityBadge } from '@/components/common/status-badge';
 import { Timestamp } from '@/components/common/timestamp';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
@@ -36,6 +36,12 @@ const COLUMNS: ReadonlyArray<Column<Monitor>> = [
     compare: (left, right) => STATE_ORDER[left.state] - STATE_ORDER[right.state] || left.name.localeCompare(right.name),
   },
   {
+    id: 'severity',
+    header: 'Severity',
+    cell: (monitor) => <SeverityBadge severity={monitor.severity} />,
+    compare: (left, right) => left.severity - right.severity || left.name.localeCompare(right.name),
+  },
+  {
     id: 'metric',
     header: 'Metric',
     cell: (monitor) => (
@@ -52,7 +58,20 @@ const COLUMNS: ReadonlyArray<Column<Monitor>> = [
     cell: (monitor) => <Timestamp value={monitor.stateChangedAt} variant="relative" />,
     compare: (left, right) => left.stateChangedAt - right.stateChangedAt,
   },
-  { id: 'notify', header: 'Notifies', cell: (monitor) => (monitor.notify ? 'Yes' : <span className="text-muted-foreground">No</span>) },
+  {
+    id: 'notify',
+    header: 'Notifies',
+    cell: (monitor) =>
+      !monitor.notify ? (
+        <span className="text-muted-foreground">Muted</span>
+      ) : monitor.notifierIds.length === 0 ? (
+        <span className="text-muted-foreground">No one</span>
+      ) : (
+        <span className="tabular">
+          {monitor.notifierIds.length} {monitor.notifierIds.length === 1 ? 'notifier' : 'notifiers'}
+        </span>
+      ),
+  },
 ];
 
 export function MonitorsPage() {
@@ -63,7 +82,7 @@ export function MonitorsPage() {
     <>
       <PageHeader
         title="Monitors"
-        description="A threshold on one metric, evaluated every minute. A change of state is recorded, and sent on when the monitor notifies."
+        description="A threshold on one metric, evaluated every minute. A change of state is recorded, and sent to the monitor's notifiers."
         actions={
           <Button asChild>
             <Link to={urls.createMonitor()}>

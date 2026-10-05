@@ -2,6 +2,7 @@ import {
   METRIC_STATISTICS,
   MONITOR_COMPARISONS,
   MONITOR_LIMITS,
+  MONITOR_SEVERITIES,
   TREAT_MISSING_DATA,
   assertMonitorName,
   hashDimensions,
@@ -13,6 +14,7 @@ import { useMemo, useState, type FormEvent } from 'react';
 import { FormField } from '@/components/common/form-field';
 import { Spinner } from '@/components/common/states';
 import { MonitorChart } from '@/components/monitor/monitor-chart';
+import { NotifierPicker } from '@/components/notifier/notifier-picker';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -25,6 +27,7 @@ import { describeDimensions } from '@/lib/metric-graph-editor';
 import {
   COMPARISON_LABELS,
   MONITOR_PERIODS,
+  SEVERITY_LABELS,
   TREAT_MISSING_DATA_LABELS,
   defaultMonitorWindow,
   definitionOf,
@@ -280,12 +283,46 @@ export function MonitorForm(props: MonitorFormProps) {
                 </SelectContent>
               </Select>
             </FormField>
-            <FormField label="Notifications" htmlFor="monitor-notify" hint="Evaluated and recorded either way; this only decides whether a change is sent on.">
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Notifications</CardTitle>
+          <CardDescription>Who is told when the monitor changes state. Every change is recorded in its history either way.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          <div className="grid gap-5 sm:grid-cols-2">
+            <FormField label="Severity" htmlFor="monitor-severity" hint="Heads the alarm's message, and sets its colour.">
+              <Select
+                value={String(values.severity)}
+                onValueChange={(severity) => patch({ severity: MONITOR_SEVERITIES.find((candidate) => String(candidate) === severity) ?? values.severity })}
+              >
+                <SelectTrigger id="monitor-severity">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {MONITOR_SEVERITIES.map((severity) => (
+                    <SelectItem key={severity} value={String(severity)}>
+                      {SEVERITY_LABELS[severity]}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </FormField>
+            <FormField label="Send" htmlFor="monitor-notify" hint="Muting keeps the notifiers chosen below, ready for when it is turned back on.">
               <label className="flex h-9 items-center gap-2 text-sm">
                 <Switch id="monitor-notify" checked={values.notify} onCheckedChange={(notify) => patch({ notify })} />
-                {values.notify ? 'Notify on every change of state' : 'Do not notify'}
+                {values.notify ? 'Notify on every change of state' : 'Muted'}
               </label>
             </FormField>
+          </div>
+
+          <div className="space-y-1.5">
+            <p className="text-sm font-medium">Notifiers</p>
+            <NotifierPicker selected={values.notifierIds} onChange={(notifierIds) => patch({ notifierIds })} />
+            {values.notify && values.notifierIds.length === 0 ? <p className="text-xs text-muted-foreground">With none chosen, a change of state is only recorded.</p> : null}
           </div>
 
           {showErrors && problem !== undefined ? <p className="text-sm text-destructive">{problem}</p> : null}

@@ -19,6 +19,7 @@ import { MonitorEditPage } from '@/pages/monitor-edit-page';
 import { MonitorPage } from '@/pages/monitor-page';
 import { MonitorsPage } from '@/pages/monitors-page';
 import { NotFoundPage } from '@/pages/not-found-page';
+import { NotifiersPage } from '@/pages/notifiers-page';
 import { OverviewPage } from '@/pages/overview-page';
 import { PubSubPage } from '@/pages/pubsub-page';
 import { TaskCreatePage } from '@/pages/task-create-page';
@@ -92,6 +93,7 @@ function ConnectedApp() {
           <Route path="monitors/new" element={<MonitorCreatePage />} />
           <Route path="monitors/:name" element={<MonitorPage />} />
           <Route path="monitors/:name/edit" element={<MonitorEditPage />} />
+          <Route path="notifiers" element={<NotifiersPage />} />
           <Route path="agents" element={<AgentsPage />} />
           <Route path="variables" element={<VariablesPage />} />
           <Route path="pubsub" element={<PubSubPage />} />

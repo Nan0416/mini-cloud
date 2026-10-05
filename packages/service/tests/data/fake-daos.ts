@@ -3,6 +3,7 @@ import {
   Dashboard,
   Monitor,
   MonitorStateChange,
+  Notifier,
   Job,
   LaunchInstruction,
   ReplacementVariables,
@@ -102,6 +103,21 @@ import {
   UpdateMonitorInput,
   UpdateMonitorOutput,
 } from '../../src/data/monitor-dao';
+import {
+  CreateNotifierInput,
+  CreateNotifierOutput,
+  DeleteNotifierInput,
+  DeleteNotifierOutput,
+  GetNotifierInput,
+  GetNotifierOutput,
+  ListDeliveryTargetsInput,
+  ListDeliveryTargetsOutput,
+  ListNotifiersOutput,
+  NotifierCredentials,
+  NotifierDao,
+  UpdateNotifierInput,
+  UpdateNotifierOutput,
+} from '../../src/data/notifier-dao';
 import { ListVariablesOutput, ReplaceVariablesInput, ReplaceVariablesOutput, VariableDao } from '../../src/data/variable-dao';
 import { AgentCommander } from '../../src/facades/agent-commander';
 
@@ -639,4 +655,89 @@ export class FakeMonitorDao implements MonitorDao {
         .slice(0, input.limit),
     };
   }
+}
+
+/**
+ * Holds the unique name, the version guard and the refusal to delete a notifier in use,
+ * since callers rely on all three. Which monitors use one comes from `monitorDao`, as the
+ * join table would.
+ */
+export class FakeNotifierDao implements NotifierDao {
+  readonly notifiers = new Map<string, Notifier>();
+  readonly credentials = new Map<string, NotifierCredentials>();
+
+  constructor(private readonly monitorDao?: FakeMonitorDao) {}
+
+  seed(notifier: Notifier, credentials: NotifierCredentials = { type: 'discord', webhookUrl: `https://discord.com/api/webhooks/1/${notifier.notifierId}` }): this {
+    this.notifiers.set(notifier.notifierId, notifier);
+    this.credentials.set(notifier.notifierId, credentials);
+    return this;
+  }
+
+  async listNotifiers(): Promise<ListNotifiersOutput> {
+    return { notifiers: [...this.notifiers.values()].sort((a, b) => a.name.localeCompare(b.name)) };
+  }
+
+  async getNotifier(input: GetNotifierInput): Promise<GetNotifierOutput> {
+    return { notifier: this.notifiers.get(input.notifierId) };
+  }
+
+  async createNotifier(input: CreateNotifierInput): Promise<CreateNotifierOutput> {
+    if ([...this.notifiers.values()].some((notifier) => notifier.name === input.name)) {
+      return {};
+    }
+    const { credentials, ...rest } = input;
+    const notifier: Notifier = { ...rest, version: 1, createdAt: NOW, updatedAt: NOW };
+    this.seed(notifier, credentials);
+    return { notifier };
+  }
+
+  async updateNotifier(input: UpdateNotifierInput): Promise<UpdateNotifierOutput> {
+    const current = this.notifiers.get(input.notifierId);
+    const nameTaken = [...this.notifiers.values()].some((notifier) => notifier.name === input.name && notifier.notifierId !== input.notifierId);
+    if (current === undefined || current.version !== input.version || nameTaken) {
+      return {};
+    }
+    const { credentials, version, ...rest } = input;
+    const notifier: Notifier = { ...rest, version: version + 1, createdAt: current.createdAt, updatedAt: NOW };
+    this.notifiers.set(input.notifierId, notifier);
+    if (credentials !== undefined) {
+      this.credentials.set(input.notifierId, credentials);
+    }
+    return { notifier };
+  }
+
+  async deleteNotifier(input: DeleteNotifierInput): Promise<DeleteNotifierOutput> {
+    const usedBy = [...(this.monitorDao?.monitors.values() ?? [])]
+      .filter((monitor) => monitor.notifierIds.includes(input.notifierId))
+      .map((monitor) => monitor.name)
+      .sort();
+    if (usedBy.length > 0) {
+      return { deleted: false, usedBy };
+    }
+    this.credentials.delete(input.notifierId);
+    return { deleted: this.notifiers.delete(input.notifierId), usedBy: [] };
+  }
+
+  async listDeliveryTargets(input: ListDeliveryTargetsInput): Promise<ListDeliveryTargetsOutput> {
+    return {
+      targets: input.notifierIds.flatMap((notifierId) => {
+        const notifier = this.notifiers.get(notifierId);
+        const credentials = this.credentials.get(notifierId);
+        return notifier === undefined || credentials === undefined ? [] : [{ notifier, credentials }];
+      }),
+    };
+  }
+}
+
+export function aNotifier(overrides: Partial<Notifier> = {}): Notifier {
+  return {
+    notifierId: 'ntf-alerts',
+    name: 'Alerts',
+    target: { type: 'discord', channel: '#alerts', webhookId: '1' },
+    version: 1,
+    createdAt: NOW,
+    updatedAt: NOW,
+    ...overrides,
+  };
 }

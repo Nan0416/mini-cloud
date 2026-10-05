@@ -4,6 +4,7 @@ import { migrate } from '../../src/data/migrate';
 import { PgAgentDao } from '../../src/data/pg-agent-dao';
 import { PgDashboardDao } from '../../src/data/pg-dashboard-dao';
 import { PgMonitorDao } from '../../src/data/pg-monitor-dao';
+import { PgNotifierDao } from '../../src/data/pg-notifier-dao';
 import { PgTaskDao } from '../../src/data/pg-task-dao';
 import { PgTaskDynamicsDao } from '../../src/data/pg-task-dynamics-dao';
 import { PgTaskInstanceDao } from '../../src/data/pg-task-instance-dao';
@@ -37,6 +38,7 @@ describeIfDatabase('PostgreSQL DAOs', () => {
   let variableDao: PgVariableDao;
   let dashboardDao: PgDashboardDao;
   let monitorDao: PgMonitorDao;
+  let notifierDao: PgNotifierDao;
 
   beforeAll(async () => {
     pool = createPool({ connectionString: DATABASE_URL ?? '' });
@@ -48,6 +50,7 @@ describeIfDatabase('PostgreSQL DAOs', () => {
     variableDao = new PgVariableDao(pool);
     dashboardDao = new PgDashboardDao(pool);
     monitorDao = new PgMonitorDao(pool);
+    notifierDao = new PgNotifierDao(pool);
   });
 
   afterAll(async () => {
@@ -55,7 +58,9 @@ describeIfDatabase('PostgreSQL DAOs', () => {
   });
 
   beforeEach(async () => {
-    await pool.query('TRUNCATE task, task_dynamics, task_instance, task_event, agent, replacement_variable, dashboard, monitor, monitor_state_change CASCADE');
+    await pool.query(
+      'TRUNCATE task, task_dynamics, task_instance, task_event, agent, replacement_variable, dashboard, monitor, monitor_state_change, notifier, monitor_notifier CASCADE',
+    );
   });
 
   const jobInput = (taskId: string, version: number, overrides: Record<string, unknown> = {}) => ({
@@ -324,7 +329,9 @@ describeIfDatabase('PostgreSQL DAOs', () => {
       comparison: 'GreaterThanOrEqualToThreshold' as const,
       threshold: 95.5,
       treatMissingData: 'breaching' as const,
+      severity: 2 as const,
       notify: true,
+      notifierIds: [],
     };
     const change = (fromState: 'OK' | 'ALARM' | 'INSUFFICIENT_DATA', toState: 'OK' | 'ALARM' | 'INSUFFICIENT_DATA', changedAt: number, version = 1) => ({
       name: 'nas-cpu',
@@ -403,6 +410,160 @@ describeIfDatabase('PostgreSQL DAOs', () => {
       await monitorDao.deleteMonitor({ name: 'nas-cpu' });
 
       expect((await pool.query('SELECT count(*)::int AS n FROM monitor_state_change')).rows[0].n).toBe(0);
+    });
+  });
+
+  describe('notifiers', () => {
+    const target = { type: 'discord' as const, channel: '#alerts', webhookId: '123' };
+    const credentials = { type: 'discord' as const, webhookUrl: 'https://discord.com/api/webhooks/123/token' };
+    const monitor = {
+      metric: { namespace: 'MiniCloud/Agent', metricName: 'CpuUtilization', dimensions: { AgentId: 'nas' }, statistic: 'avg' as const },
+      periodMs: 300_000,
+      evaluationPeriods: 3,
+      datapointsToAlarm: 2,
+      comparison: 'GreaterThanThreshold' as const,
+      threshold: 80,
+      treatMissingData: 'missing' as const,
+      severity: 3 as const,
+      notify: true,
+      stateReason: 'new',
+    };
+
+    it('stores a notifier, and hands its credentials back only for delivery', async () => {
+      const { notifier } = await notifierDao.createNotifier({ notifierId: 'ntf-a', name: 'Alerts', description: 'Home', target, credentials });
+
+      const { notifier: read } = await notifierDao.getNotifier({ notifierId: 'ntf-a' });
+      const { targets } = await notifierDao.listDeliveryTargets({ notifierIds: ['ntf-a', 'ntf-gone'] });
+
+      expect(read).toEqual(notifier);
+      expect(read).toMatchObject({ name: 'Alerts', description: 'Home', target, version: 1 });
+      expect(JSON.stringify(read)).not.toContain('token');
+      expect(targets).toEqual([{ notifier, credentials }]);
+    });
+
+    it('refuses a second notifier of one name, on create and on rename', async () => {
+      await notifierDao.createNotifier({ notifierId: 'ntf-a', name: 'Alerts', target, credentials });
+      await notifierDao.createNotifier({ notifierId: 'ntf-b', name: 'Pager', target, credentials });
+
+      const { notifier: duplicate } = await notifierDao.createNotifier({ notifierId: 'ntf-c', name: 'Alerts', target, credentials });
+      const { notifier: renamed } = await notifierDao.updateNotifier({ notifierId: 'ntf-b', version: 1, name: 'Alerts', target });
+
+      expect(duplicate).toBeUndefined();
+      expect(renamed).toBeUndefined();
+    });
+
+    it('renames and keeps its webhook when an edit brings no new one, and replaces it when one does', async () => {
+      await notifierDao.createNotifier({ notifierId: 'ntf-a', name: 'Alerts', target, credentials });
+
+      const { notifier: renamed } = await notifierDao.updateNotifier({ notifierId: 'ntf-a', version: 1, name: 'Home alerts', target: { ...target, channel: '#home' } });
+      const kept = await notifierDao.listDeliveryTargets({ notifierIds: ['ntf-a'] });
+      await notifierDao.updateNotifier({
+        notifierId: 'ntf-a',
+        version: 2,
+        name: 'Home alerts',
+        target,
+        credentials: { ...credentials, webhookUrl: 'https://discord.com/api/webhooks/123/new' },
+      });
+      const replaced = await notifierDao.listDeliveryTargets({ notifierIds: ['ntf-a'] });
+
+      expect(renamed).toMatchObject({ name: 'Home alerts', target: { channel: '#home' }, version: 2 });
+      expect(kept.targets[0].credentials.webhookUrl).toBe(credentials.webhookUrl);
+      expect(replaced.targets[0].credentials.webhookUrl).toBe('https://discord.com/api/webhooks/123/new');
+    });
+
+    it('links a monitor to its notifiers, and replaces the links on an edit', async () => {
+      await notifierDao.createNotifier({ notifierId: 'ntf-a', name: 'Alerts', target, credentials });
+      await notifierDao.createNotifier({ notifierId: 'ntf-b', name: 'Pager', target, credentials });
+
+      const { monitor: created } = await monitorDao.createMonitor({ name: 'nas-cpu', ...monitor, notifierIds: ['ntf-b', 'ntf-a'] });
+      await monitorDao.updateMonitor({ name: 'nas-cpu', version: 1, ...monitor, notifierIds: ['ntf-b'] });
+
+      expect(created?.notifierIds).toEqual(['ntf-a', 'ntf-b']);
+      expect((await monitorDao.getMonitor({ name: 'nas-cpu' })).monitor?.notifierIds).toEqual(['ntf-b']);
+      expect((await monitorDao.listMonitors({})).monitors.map((entry) => entry.notifierIds)).toEqual([['ntf-b']]);
+    });
+
+    it('writes no monitor at all when a notifier it names does not exist, and says so', async () => {
+      const result = await monitorDao.createMonitor({ name: 'nas-cpu', ...monitor, notifierIds: ['ntf-gone'] });
+
+      expect(result).toEqual({ notifierMissing: true });
+      expect((await monitorDao.getMonitor({ name: 'nas-cpu' })).monitor).toBeUndefined();
+    });
+
+    /** Runs `work` in its own transaction and leaves it open, so a DAO call made meanwhile races it. */
+    const holdOpen = async (work: (sql: (text: string) => Promise<unknown>) => Promise<void>) => {
+      const client = await pool.connect();
+      await client.query('BEGIN');
+      await work((text) => client.query(text));
+      return {
+        /** Commits once the racing statement is waiting on this transaction's locks, so the race is certain to happen. */
+        commit: async () => {
+          for (let attempt = 0; attempt < 200; attempt++) {
+            const blocked = await pool.query<{ readonly n: number }>(
+              "SELECT count(*)::int AS n FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'",
+            );
+            if (blocked.rows[0].n > 0) {
+              break;
+            }
+            await new Promise((resolve) => setTimeout(resolve, 10));
+          }
+          await client.query('COMMIT');
+          client.release();
+        },
+      };
+    };
+
+    it('reports a monitor save that raced the delete of its notifier as a missing notifier', async () => {
+      await notifierDao.createNotifier({ notifierId: 'ntf-a', name: 'Alerts', target, credentials });
+      const deleting = await holdOpen((sql) => sql("DELETE FROM notifier WHERE notifier_id = 'ntf-a'").then(() => undefined));
+
+      const saving = monitorDao.createMonitor({ name: 'nas-cpu', ...monitor, notifierIds: ['ntf-a'] });
+      await deleting.commit();
+
+      await expect(saving).resolves.toEqual({ notifierMissing: true });
+    });
+
+    it('reports a delete that raced a monitor linking the notifier as in use', async () => {
+      await notifierDao.createNotifier({ notifierId: 'ntf-a', name: 'Alerts', target, credentials });
+      await monitorDao.createMonitor({ name: 'nas-cpu', ...monitor, notifierIds: [] });
+      const linking = await holdOpen((sql) => sql("INSERT INTO monitor_notifier (monitor_name, notifier_id) VALUES ('nas-cpu', 'ntf-a')").then(() => undefined));
+
+      const deleting = notifierDao.deleteNotifier({ notifierId: 'ntf-a' });
+      await linking.commit();
+
+      await expect(deleting).resolves.toEqual({ deleted: false, usedBy: ['nas-cpu'] });
+    });
+
+    it('reports a rename that raced another onto the same name as nothing written', async () => {
+      await notifierDao.createNotifier({ notifierId: 'ntf-a', name: 'Alerts', target, credentials });
+      await notifierDao.createNotifier({ notifierId: 'ntf-b', name: 'Pager', target, credentials });
+      const renaming = await holdOpen((sql) => sql("UPDATE notifier SET name = 'Home' WHERE notifier_id = 'ntf-a'").then(() => undefined));
+
+      const racing = notifierDao.updateNotifier({ notifierId: 'ntf-b', version: 1, name: 'Home', target });
+      await renaming.commit();
+
+      await expect(racing).resolves.toEqual({});
+    });
+
+    it('refuses to delete a notifier a monitor sends to, naming the monitor, and deletes it once nothing does', async () => {
+      await notifierDao.createNotifier({ notifierId: 'ntf-a', name: 'Alerts', target, credentials });
+      await monitorDao.createMonitor({ name: 'nas-cpu', ...monitor, notifierIds: ['ntf-a'] });
+
+      const refused = await notifierDao.deleteNotifier({ notifierId: 'ntf-a' });
+      await monitorDao.deleteMonitor({ name: 'nas-cpu' });
+      const deleted = await notifierDao.deleteNotifier({ notifierId: 'ntf-a' });
+      const missing = await notifierDao.deleteNotifier({ notifierId: 'ntf-a' });
+
+      expect(refused).toEqual({ deleted: false, usedBy: ['nas-cpu'] });
+      expect(deleted).toEqual({ deleted: true, usedBy: [] });
+      expect(missing).toEqual({ deleted: false, usedBy: [] });
+    });
+
+    it('makes every monitor written say its severity, the backfill default having been dropped', async () => {
+      const insert = `INSERT INTO monitor (name, namespace, metric_name, dimensions, statistic, period_ms, evaluation_periods, datapoints_to_alarm, comparison, threshold, treat_missing_data, notify, state_reason)
+                      VALUES ('old', 'n', 'm', '{}', 'avg', 60000, 1, 1, 'GreaterThanThreshold', 1, 'missing', true, 'r')`;
+
+      await expect(pool.query(insert)).rejects.toThrow(/severity/);
     });
   });
 
