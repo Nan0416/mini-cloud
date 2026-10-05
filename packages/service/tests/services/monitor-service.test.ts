@@ -109,4 +109,22 @@ describe('MonitorService', () => {
 
     expect(changes.map((change) => change.toState)).toEqual(['ALARM', 'OK']);
   });
+
+  it('pages a monitor’s history from newest to oldest, each change on exactly one page', async () => {
+    const { service, monitorDao } = context();
+    await service.createMonitor({ name: 'nas-cpu', ...aDefinition() });
+    const states = ['OK', 'ALARM', 'OK', 'ALARM', 'OK'] as const;
+    let from: (typeof states)[number] | 'INSUFFICIENT_DATA' = 'INSUFFICIENT_DATA';
+    for (const [index, toState] of states.entries()) {
+      await monitorDao.changeState({ name: 'nas-cpu', version: 1, fromState: from, toState, reason: `change ${index}`, datapoints: [], threshold: 80, changedAt: index });
+      from = toState;
+    }
+
+    const first = await service.listMonitorHistory({ name: 'nas-cpu', limit: 2 });
+    const second = await service.listMonitorHistory({ name: 'nas-cpu', limit: 2, after: first.nextCursor });
+    const third = await service.listMonitorHistory({ name: 'nas-cpu', limit: 2, after: second.nextCursor });
+
+    expect([first, second, third].map((page) => page.changes.map((change) => change.reason))).toEqual([['change 4', 'change 3'], ['change 2', 'change 1'], ['change 0']]);
+    expect(third.nextCursor).toBeUndefined();
+  });
 });

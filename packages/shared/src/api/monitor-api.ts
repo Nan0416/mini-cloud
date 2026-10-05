@@ -1,7 +1,7 @@
 import { Monitor, MonitorDefinition, MonitorStateChange } from '../models/monitor';
 
 /** Most state changes one history request returns, newest first. */
-export const MONITOR_HISTORY_PAGE_SIZE = { default: 50, max: 500 } as const;
+export const MONITOR_HISTORY_PAGE_SIZE = { default: 20, max: 500 } as const;
 
 export interface ListMonitorsRequest {}
 
@@ -44,12 +44,17 @@ export interface DeleteMonitorRequest {
 
 export interface DeleteMonitorResponse {}
 
+/** Paged by keyset, like the metric listings, so a change recorded while paging cannot shift an older page. */
 export interface ListMonitorHistoryRequest {
   readonly name: string;
   readonly limit?: number;
+  /** The previous page's `nextCursor`. Omit for the newest page. */
+  readonly after?: number;
 }
 
 export interface ListMonitorHistoryResponse {
   /** Newest first. */
   readonly changes: ReadonlyArray<MonitorStateChange>;
+  /** Pass back as `after`. Absent when this was the oldest page. */
+  readonly nextCursor?: number;
 }

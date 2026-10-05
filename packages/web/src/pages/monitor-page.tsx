@@ -1,5 +1,5 @@
 import type { Monitor } from '@mini-cloud/shared';
-import { ArrowRight, Pencil, Trash2 } from 'lucide-react';
+import { ArrowRight, ChevronLeft, ChevronRight, Pencil, Trash2 } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
@@ -159,7 +159,7 @@ function MonitorView({ monitor }: { readonly monitor: Monitor }) {
         </CardContent>
       </Card>
 
-      <History name={monitor.name} />
+      <History key={monitor.name} name={monitor.name} />
 
       <AlertDialog open={deleting} onOpenChange={setDeleting}>
         <AlertDialogContent>
@@ -190,7 +190,10 @@ function MonitorView({ monitor }: { readonly monitor: Monitor }) {
 }
 
 function History({ name }: { readonly name: string }) {
-  const history = useMonitorHistory(name);
+  // The cursor of every page older than the newest one walked through, so Newer can step back.
+  const [cursors, setCursors] = useState<ReadonlyArray<number>>([]);
+  const history = useMonitorHistory(name, cursors[cursors.length - 1]);
+  const nextCursor = history.data?.nextCursor;
 
   return (
     <Card className="overflow-hidden">
@@ -232,6 +235,25 @@ function History({ name }: { readonly name: string }) {
           </TableBody>
         </Table>
       )}
+      {cursors.length > 0 || nextCursor !== undefined ? (
+        <div className="flex items-center justify-between gap-3 border-t border-border px-4 py-2.5 text-sm text-muted-foreground">
+          <span className="tabular">Page {cursors.length + 1}</span>
+          <div className="flex items-center gap-1">
+            <Button variant="outline" size="icon-sm" disabled={cursors.length === 0} onClick={() => setCursors(cursors.slice(0, -1))} aria-label="Newer changes">
+              <ChevronLeft className="size-4" />
+            </Button>
+            <Button
+              variant="outline"
+              size="icon-sm"
+              disabled={nextCursor === undefined || history.isPlaceholderData}
+              onClick={() => nextCursor !== undefined && setCursors([...cursors, nextCursor])}
+              aria-label="Older changes"
+            >
+              <ChevronRight className="size-4" />
+            </Button>
+          </div>
+        </div>
+      ) : null}
     </Card>
   );
 }

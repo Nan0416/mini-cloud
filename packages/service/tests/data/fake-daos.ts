@@ -647,13 +647,18 @@ export class FakeMonitorDao implements MonitorDao {
     return { change };
   }
 
+  /** Ids are positions in `changes`, one-based like a BIGSERIAL; the order and cursor are the real ones. */
   async listStateChanges(input: ListStateChangesInput): Promise<ListStateChangesOutput> {
-    return {
-      changes: this.changes
-        .filter((change) => change.monitorName === input.name)
-        .reverse()
-        .slice(0, input.limit),
-    };
+    const newestFirst = (left: { change: MonitorStateChange; id: number }, right: { change: MonitorStateChange; id: number }) =>
+      right.change.changedAt - left.change.changedAt || right.id - left.id;
+    const ordered = this.changes
+      .map((change, index) => ({ change, id: index + 1 }))
+      .filter((entry) => entry.change.monitorName === input.name)
+      .sort(newestFirst);
+    const cursor = ordered.find((entry) => entry.id === input.after);
+    const older = input.after === undefined ? ordered : cursor === undefined ? [] : ordered.filter((entry) => newestFirst(cursor, entry) < 0);
+    const page = older.slice(0, input.limit);
+    return { changes: page.map((entry) => entry.change), nextCursor: older.length > input.limit ? page[page.length - 1]?.id : undefined };
   }
 }
 

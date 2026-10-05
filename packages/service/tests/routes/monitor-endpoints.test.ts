@@ -68,6 +68,20 @@ describe('monitor routes', () => {
     expect((await server.get('/monitors/nas-cpu/history?limit=501')).status).toBe(400);
   });
 
+  it('pages a monitor’s history by the cursor the previous page handed back', async () => {
+    await server.post('/monitors', { name: 'nas-cpu', ...aBody() });
+    await monitorDao.changeState({ name: 'nas-cpu', version: 1, fromState: 'INSUFFICIENT_DATA', toState: 'OK', reason: 'fine', datapoints: [], threshold: 95.5, changedAt: 1 });
+    await monitorDao.changeState({ name: 'nas-cpu', version: 1, fromState: 'OK', toState: 'ALARM', reason: 'hot', datapoints: [], threshold: 95.5, changedAt: 2 });
+
+    const first = await server.get<ListMonitorHistoryResponse>('/monitors/nas-cpu/history?limit=1');
+    const second = await server.get<ListMonitorHistoryResponse>(`/monitors/nas-cpu/history?limit=1&after=${first.body.nextCursor}`);
+
+    expect(first.body.changes.map((change) => change.toState)).toEqual(['ALARM']);
+    expect(second.body.changes.map((change) => change.toState)).toEqual(['OK']);
+    expect(second.body.nextCursor).toBeUndefined();
+    expect((await server.get('/monitors/nas-cpu/history?after=latest')).status).toBe(400);
+  });
+
   it('deletes a monitor, and answers 404 for it afterwards', async () => {
     await server.post('/monitors', { name: 'nas-cpu', ...aBody() });
 

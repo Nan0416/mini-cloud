@@ -476,7 +476,7 @@ export function parseListMonitorHistoryRequest(query: unknown): ListMonitorHisto
   if (limit !== undefined && (limit < 1 || limit > MONITOR_HISTORY_PAGE_SIZE.max)) {
     throw new InvalidRequestError(`limit must be between 1 and ${MONITOR_HISTORY_PAGE_SIZE.max}`);
   }
-  return { name: assertNonEmptyString(record['name'], 'name'), limit };
+  return { name: assertNonEmptyString(record['name'], 'name'), limit, after: parseOptionalIntegerParam(record['after'], 'after') };
 }
 
 const NOTIFIER_KEYS = ['name', 'description', 'target'];

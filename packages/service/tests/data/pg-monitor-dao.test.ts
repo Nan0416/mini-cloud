@@ -169,4 +169,28 @@ describe('PgMonitorDao', () => {
     expect(pool.statements.some((sql) => sql.includes('INSERT INTO monitor_state_change'))).toBe(false);
     expect(pool.releases).toBe(1);
   });
+
+  it('asks for one change more than a page, and hands back the oldest id as the cursor only when that extra one came', async () => {
+    const aChange = (id: string, hour: number) => ({
+      change_id: id,
+      monitor_name: 'nas-cpu',
+      from_state: 'OK',
+      to_state: 'ALARM',
+      reason: 'hot',
+      datapoints: [],
+      threshold: 80,
+      changed_at: new Date(Date.UTC(2026, 8, 1, hour)),
+    });
+    const full = fakePool().on('FROM monitor_state_change', { rows: [aChange('9', 3), aChange('7', 2), aChange('4', 1)] });
+    const last = fakePool().on('FROM monitor_state_change', { rows: [aChange('4', 1)] });
+
+    const page = await new PgMonitorDao(full.asPool()).listStateChanges({ name: 'nas-cpu', limit: 2, after: 12 });
+    const end = await new PgMonitorDao(last.asPool()).listStateChanges({ name: 'nas-cpu', limit: 2 });
+
+    expect(page.changes.map((change) => change.changedAt)).toEqual([Date.UTC(2026, 8, 1, 3), Date.UTC(2026, 8, 1, 2)]);
+    expect(page.nextCursor).toBe(7);
+    expect(full.find('FROM monitor_state_change').values).toEqual(['nas-cpu', 3, 12]);
+    expect(end.nextCursor).toBeUndefined();
+    expect(last.find('FROM monitor_state_change').values).toEqual(['nas-cpu', 3, null]);
+  });
 });

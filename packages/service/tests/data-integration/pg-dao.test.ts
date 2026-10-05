@@ -372,6 +372,21 @@ describeIfDatabase('PostgreSQL DAOs', () => {
       expect(changes[0].datapoints).toEqual(change('OK', 'ALARM', Date.UTC(2026, 8, 1, 13)).datapoints);
     });
 
+    it('pages the history by keyset, breaking a tie on the time by the order the changes were recorded', async () => {
+      await monitorDao.createMonitor({ name: 'nas-cpu', ...definition, stateReason: 'new' });
+      const tied = Date.UTC(2026, 8, 1, 12);
+      await monitorDao.changeState(change('INSUFFICIENT_DATA', 'OK', tied));
+      await monitorDao.changeState(change('OK', 'ALARM', tied));
+      await monitorDao.changeState(change('ALARM', 'OK', tied));
+
+      const first = await monitorDao.listStateChanges({ name: 'nas-cpu', limit: 2 });
+      const second = await monitorDao.listStateChanges({ name: 'nas-cpu', limit: 2, after: first.nextCursor });
+
+      expect(first.changes.map((entry) => entry.reason)).toEqual(['ALARM to OK', 'OK to ALARM']);
+      expect(second.changes.map((entry) => entry.reason)).toEqual(['INSUFFICIENT_DATA to OK']);
+      expect(second.nextCursor).toBeUndefined();
+    });
+
     it('records nothing when the monitor is no longer in the state it was judged from', async () => {
       await monitorDao.createMonitor({ name: 'nas-cpu', ...definition, stateReason: 'new' });
 

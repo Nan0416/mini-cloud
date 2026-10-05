@@ -76,11 +76,15 @@ export interface ChangeStateOutput {
 export interface ListStateChangesInput {
   readonly name: string;
   readonly limit: number;
+  /** Keyset cursor: return only changes older than the one with this id. */
+  readonly after?: number;
 }
 
 export interface ListStateChangesOutput {
   /** Newest first. */
   readonly changes: ReadonlyArray<MonitorStateChange>;
+  /** The id of the oldest change returned, when there are older ones still. */
+  readonly nextCursor?: number;
 }
 
 export interface MonitorDao {

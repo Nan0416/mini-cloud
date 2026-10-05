@@ -30,7 +30,7 @@ export const queryKeys = {
 
   monitors: () => ['monitors'] as const,
   monitor: (name: string) => ['monitors', name] as const,
-  monitorHistory: (name: string) => ['monitors', name, 'history'] as const,
+  monitorHistory: (name: string, after?: number) => ['monitors', name, 'history', after ?? 'newest'] as const,
 
   notifiers: () => ['notifiers'] as const,
 
