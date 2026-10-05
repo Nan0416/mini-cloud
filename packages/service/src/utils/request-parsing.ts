@@ -476,7 +476,12 @@ export function parseListMonitorHistoryRequest(query: unknown): ListMonitorHisto
   if (limit !== undefined && (limit < 1 || limit > MONITOR_HISTORY_PAGE_SIZE.max)) {
     throw new InvalidRequestError(`limit must be between 1 and ${MONITOR_HISTORY_PAGE_SIZE.max}`);
   }
-  return { name: assertNonEmptyString(record['name'], 'name'), limit, after: parseOptionalIntegerParam(record['after'], 'after') };
+  // Bound here, or a number past a BIGINT reaches Postgres and comes back a 500.
+  const after = parseOptionalIntegerParam(record['after'], 'after');
+  if (after !== undefined && (after < 1 || !Number.isSafeInteger(after))) {
+    throw new InvalidRequestError('after must be a positive integer: pass back the previous page’s nextCursor, or omit it for the newest page');
+  }
+  return { name: assertNonEmptyString(record['name'], 'name'), limit, after };
 }
 
 const NOTIFIER_KEYS = ['name', 'description', 'target'];

@@ -79,7 +79,9 @@ describe('monitor routes', () => {
     expect(first.body.changes.map((change) => change.toState)).toEqual(['ALARM']);
     expect(second.body.changes.map((change) => change.toState)).toEqual(['OK']);
     expect(second.body.nextCursor).toBeUndefined();
-    expect((await server.get('/monitors/nas-cpu/history?after=latest')).status).toBe(400);
+    for (const after of ['latest', '0', '-1', '1e30', '99999999999999999999']) {
+      expect((await server.get(`/monitors/nas-cpu/history?after=${after}`)).status).toBe(400);
+    }
   });
 
   it('deletes a monitor, and answers 404 for it afterwards', async () => {
