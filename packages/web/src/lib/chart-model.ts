@@ -382,13 +382,21 @@ export function buildChartModel(input: ChartModelInput): ChartModel {
     }),
     bands: (input.bands ?? []).flatMap((band): BandModel[] => {
       const start = Math.max(band.from, domain[0]);
-      const end = Math.min(band.to, domain[1]);
+      const end = Math.min(band.to, input.to);
       if (start >= end) {
         return [];
       }
-      const left = x(new Date(start));
+      // The last bucket's point stands for the whole of its period, which runs past the
+      // plot's right edge in time, so a band anywhere in it reaches that edge.
+      const left = x(new Date(Math.min(start, domain[1])));
+      const right = end > domain[1] ? plot.right : x(new Date(end));
       // A minute of alarm in a week's window is a fraction of a pixel, and should still show.
-      return [{ left, right: Math.min(plot.right, Math.max(x(new Date(end)), left + MIN_BAND_WIDTH)), tone: band.tone }];
+      if (right - left >= MIN_BAND_WIDTH) {
+        return [{ left, right, tone: band.tone }];
+      }
+      return right + MIN_BAND_WIDTH <= plot.right
+        ? [{ left, right: left + MIN_BAND_WIDTH, tone: band.tone }]
+        : [{ left: plot.right - MIN_BAND_WIDTH, right: plot.right, tone: band.tone }];
     }),
   };
 }

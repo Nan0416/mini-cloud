@@ -31,7 +31,7 @@ export function MonitorChart({ metric, threshold, window, monitor }: MonitorChar
     () =>
       monitor === undefined || frame === undefined || history.data === undefined
         ? []
-        : stateBands({ changes: history.data, currentState: monitor.state, createdAt: monitor.createdAt, from: frame.from, to: frame.to }),
+        : stateBands({ changes: history.data, createdAt: monitor.createdAt, from: frame.from, to: frame.to }),
     [monitor, frame, history.data],
   );
   const tones = new Set(bands.map((band) => band.tone));

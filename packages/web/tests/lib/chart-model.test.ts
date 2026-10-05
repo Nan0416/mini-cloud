@@ -53,6 +53,20 @@ describe('buildChartModel', () => {
     ]);
   });
 
+  it('reaches the right edge with a band in the last period, which the last point stands for', () => {
+    const model = build([aSeries([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])], {
+      bands: [
+        { from: FROM + 9 * MINUTE + 20_000, to: FROM + 10 * MINUTE, tone: 'alarm' },
+        { from: FROM + 5 * MINUTE, to: FROM + 9 * MINUTE + 30_000, tone: 'muted' },
+      ],
+    });
+
+    expect(model.bands).toEqual([
+      { left: model.plot.right - 2, right: model.plot.right, tone: 'alarm' },
+      { left: model.xs[5], right: model.plot.right, tone: 'muted' },
+    ]);
+  });
+
   it('drops a band outside the plot, and widens one too narrow to see', () => {
     const model = build([aSeries([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])], {
       from: FROM,
