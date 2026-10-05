@@ -20,7 +20,7 @@ import path from 'node:path';
 import { AgentConfig, metricsOffsetsPath, metricsPendingDir, offlineReportPath, stderrDir, stdoutDir } from './agent-config';
 import { HealthMonitor, healthCheckPeriodMs } from './health/health-monitor';
 import { HostMetrics } from './metrics/host-metrics';
-import { MetricsCollector } from './metrics/metrics-collector';
+import { COLLECT_JITTER_MS, MetricsCollector, msUntilNextCollect } from './metrics/metrics-collector';
 import { SpoolReader } from './metrics/spool-reader';
 import { OfflineReportReplayer } from './offline-report-replayer';
 import { ReporterServer } from './reporter-endpoints';
@@ -137,7 +137,7 @@ export class MiniCloudAgent {
 
     this.heartbeatTimer = setInterval(() => void this.sendHeartbeat(), config.heartbeatIntervalMs);
     this.healthTimer = setInterval(() => void this.runHealthChecks(), config.healthCheckTickMs);
-    this.metricsTimer = setInterval(() => void this.collectMetrics(), config.metricsTickMs);
+    this.scheduleMetrics();
 
     logger.info(`Agent ${config.agentId} is ready.`);
   }
@@ -149,11 +149,12 @@ export class MiniCloudAgent {
     this.stopping = true;
     logger.info('Stopping agent.');
 
-    for (const timer of [this.heartbeatTimer, this.healthTimer, this.metricsTimer]) {
+    for (const timer of [this.heartbeatTimer, this.healthTimer]) {
       if (timer !== undefined) {
         clearInterval(timer);
       }
     }
+    clearTimeout(this.metricsTimer);
     // Finish any command already in flight rather than abandoning a half-done launch.
     await this.commandQueue.drain();
     await this.subscriber.close();
@@ -170,6 +171,24 @@ export class MiniCloudAgent {
    */
   private async collectMetrics(): Promise<void> {
     await this.safely('collect metrics', () => this.metricsCollector.collect());
+  }
+
+  /**
+   * Re-aims at the next collect from the wall clock each time, rather than repeating an
+   * interval, so the tick stays on its second through drift and sleep, and a slow
+   * collect is never overlapped by the next.
+   */
+  private scheduleMetrics(): void {
+    this.metricsTimer = setTimeout(
+      () => {
+        void this.collectMetrics().finally(() => {
+          if (!this.stopping) {
+            this.scheduleMetrics();
+          }
+        });
+      },
+      msUntilNextCollect(Date.now(), Math.random() * COLLECT_JITTER_MS),
+    );
   }
 
   // ---- commands from the service ----

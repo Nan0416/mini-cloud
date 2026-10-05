@@ -3,7 +3,7 @@ import { mkdtempSync, readdirSync, rmSync } from 'node:fs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { MetricPublisher, MetricsCollector } from '../../src/metrics/metrics-collector';
+import { COLLECT_JITTER_MS, COLLECT_OFFSET_MS, MetricPublisher, MetricsCollector, msUntilNextCollect } from '../../src/metrics/metrics-collector';
 import { SpoolReader } from '../../src/metrics/spool-reader';
 
 const HOUR = Date.UTC(2026, 8, 19, 14);
@@ -198,5 +198,29 @@ describe('MetricsCollector', () => {
     await collector.collect(MINUTE + 61_000);
 
     expect(readdirSync(pendingDir())).toEqual([]);
+  });
+});
+
+describe('msUntilNextCollect', () => {
+  it('aims at the offset plus jitter into the current minute when that is still ahead', () => {
+    expect(msUntilNextCollect(MINUTE + 1_000, 2_000)).toBe(COLLECT_OFFSET_MS + 2_000 - 1_000);
+  });
+
+  it('aims at the next minute once the offset has passed', () => {
+    expect(msUntilNextCollect(MINUTE + 30_000, 0)).toBe(60_000 - 30_000 + COLLECT_OFFSET_MS);
+  });
+
+  it('never collects twice in a minute when a smaller jitter follows a larger one', () => {
+    const late = MINUTE + COLLECT_OFFSET_MS + 4_000;
+    expect(late + msUntilNextCollect(late, 1_000)).toBe(MINUTE + 60_000 + COLLECT_OFFSET_MS + 1_000);
+  });
+
+  it('lands every collect within the jitter window past the offset, wherever it starts', () => {
+    for (const start of [MINUTE, MINUTE + 4_999, MINUTE + 9_999, MINUTE + 17_123, MINUTE + 59_999]) {
+      for (const jitter of [0, 2_500, COLLECT_JITTER_MS - 1]) {
+        const second = (start + msUntilNextCollect(start, jitter)) % 60_000;
+        expect(second).toBe(COLLECT_OFFSET_MS + jitter);
+      }
+    }
   });
 });

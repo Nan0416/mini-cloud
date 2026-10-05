@@ -19,8 +19,6 @@ export interface AgentSettings {
   readonly healthCheckTickMs?: number;
   readonly passiveToleranceMs?: number;
   readonly pingFailureThreshold?: number;
-  /** How often the agent drains the metrics spool. One aggregation window. */
-  readonly metricsTickMs?: number;
   /** Where launched programs write their EMF documents for the agent to pick up. */
   readonly metricsSpoolDir?: string;
   /** Report this machine's own CPU, memory and disk. */

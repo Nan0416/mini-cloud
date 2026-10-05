@@ -1,4 +1,4 @@
-import { LoggerFactory, MetricDatum, PutMetricDataRequest } from '@mini-cloud/shared';
+import { LoggerFactory, METRIC_RESOLUTION_MS, MetricDatum, PutMetricDataRequest, floorToResolution } from '@mini-cloud/shared';
 import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { HostMetrics } from './host-metrics';
@@ -21,6 +21,29 @@ export interface MetricsCollectorProps {
   readonly hostMetrics?: HostMetrics;
   /** Generates a batch id. Injected so a test can make one predictable. */
   readonly newBatchId: () => string;
+}
+
+/**
+ * How far into each minute the collector runs, at the earliest.
+ *
+ * The reporter writes a closed minute to the spool a second after it ends, so this
+ * leaves it room; and every agent sending a minute within a known few seconds is what
+ * lets the service know when that minute's data is in.
+ */
+export const COLLECT_OFFSET_MS = 5_000;
+
+/** The spread past the offset, so a fleet's batches do not all contend for the same rows at once. */
+export const COLLECT_JITTER_MS = 5_000;
+
+/**
+ * Milliseconds from `now` until the next collect, `jitterMs` past the offset.
+ *
+ * Counted from the offset rather than from the jittered moment, so a collect at :09
+ * followed by a jitter of 1s waits for the next minute instead of running again at :06.
+ */
+export function msUntilNextCollect(now: number, jitterMs: number): number {
+  const minute = METRIC_RESOLUTION_MS['1m'];
+  return floorToResolution(now - COLLECT_OFFSET_MS, '1m') + minute + COLLECT_OFFSET_MS + jitterMs - now;
 }
 
 interface PendingBatch {

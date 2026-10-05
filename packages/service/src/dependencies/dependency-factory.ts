@@ -138,8 +138,7 @@ export class DependencyFactory {
       metricDao,
       dispatcher: notificationDispatcher,
       config: {
-        tickMs: config.monitors.evaluationTickMs,
-        queryLagMs: config.metrics.queryLagMs,
+        queryLagMs: config.monitors.queryLagMs,
         rawRetentionDays: config.metrics.rawRetentionDays,
         consoleUrl: config.consoleUrl,
       },

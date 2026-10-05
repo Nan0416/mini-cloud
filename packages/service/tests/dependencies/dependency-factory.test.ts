@@ -55,7 +55,7 @@ const aConfig = (overrides: Partial<ServiceConfig> = {}): ServiceConfig => ({
     ingestBatchRetentionMs: 86_400_000,
     retentionTickMs: 3600_000,
   },
-  monitors: { evaluationTickMs: 60_000 },
+  monitors: { queryLagMs: 30_000 },
   ...overrides,
 });
 

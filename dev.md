@@ -147,10 +147,10 @@ mini-cloud reads anywhere.
 | `scheduler.retentionTickMs` | `3600000` | How often that history is pruned |
 | `metrics.rawRetentionDays` | `28` | How long 1-minute metrics live. Also bounds how far back percentiles can be answered and how late an agent may report |
 | `metrics.rollupRetentionDays` | `400` | How long the hour and day rollups live |
-| `metrics.queryLagMs` | `180000` | How far behind now reads stop, so every agent has reported the newest bucket |
+| `metrics.queryLagMs` | `30000` | How far behind now graph reads stop, so every agent has reported the newest bucket |
 | `metrics.ingestBatchRetentionMs` | `86400000` | How long a delivered batch is remembered, for recognising a retry |
 | `metrics.retentionTickMs` | `3600000` | How often metric partitions are created and expired ones dropped |
-| `monitors.evaluationTickMs` | `60000` | How often every monitor is evaluated |
+| `monitors.queryLagMs` | `30000` | How far behind now a monitor's window ends; monitors are evaluated once a minute, just after it |
 | `cli.serviceUrl` / `.internalUrl` | `:3001` / `:3000` | Where the CLI points |
 | `agent.id` | this machine's hostname | Unique per agent; two sharing an id receive each other's commands |
 | `agent.name` | the agent id | Display name |
@@ -161,7 +161,6 @@ mini-cloud reads anywhere.
 | `agent.healthCheckTickMs` | `5000` | How often instance health is checked |
 | `agent.passiveToleranceMs` | `2000` | Grace before a passive heartbeat counts as missed |
 | `agent.pingFailureThreshold` | `3` | Failed probes before an instance is unhealthy |
-| `agent.metricsTickMs` | `60000` | How often the metrics spool is drained and reported |
 | `agent.metricsSpoolDir` | `~/.mini-cloud/metrics` | Where launched programs write metrics for this agent to collect |
 | `agent.hostMetrics` | `true` | Report this machine's own CPU, memory and disk |
 | `agent.maxHistogramBuckets` | `100` | Distinct values one minute of one series keeps before they are rounded |
@@ -385,7 +384,7 @@ exits.
 
 Each flush appends one JSON document to an hourly file under `agent.metricsSpoolDir`.
 The local agent tails those files, folds a minute's observations into one datum per
-series, and posts once a minute. Going through disk is what lets a metric survive the
+series, and posts each closed minute between five and ten seconds past the next. Going through disk is what lets a metric survive the
 agent restarting, or the program exiting between flushes.
 
 Reading them back, on the public listener:
