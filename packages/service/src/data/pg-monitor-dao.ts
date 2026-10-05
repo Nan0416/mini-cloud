@@ -53,6 +53,8 @@ interface MonitorWithNotifiersRow extends MonitorRow {
 }
 
 interface StateChangeRow {
+  // BIGSERIAL, so a string; see `period_ms`.
+  readonly change_id: string;
   readonly monitor_name: string;
   readonly from_state: string;
   readonly to_state: string;
@@ -226,11 +228,19 @@ export class PgMonitorDao implements MonitorDao {
   }
 
   async listStateChanges(input: ListStateChangesInput): Promise<ListStateChangesOutput> {
-    const result = await this.pool.query<StateChangeRow>('SELECT * FROM monitor_state_change WHERE monitor_name = $1 ORDER BY changed_at DESC, change_id DESC LIMIT $2', [
-      input.name,
-      input.limit,
-    ]);
-    return { changes: result.rows.map(toStateChange) };
+    // The cursor is an id rather than the pair the order runs on, so it stays one number;
+    // the pair is looked up from it. One extra row tells the last page from a full one.
+    const result = await this.pool.query<StateChangeRow>(
+      `SELECT * FROM monitor_state_change
+        WHERE monitor_name = $1
+          AND ($3::bigint IS NULL OR (changed_at, change_id) < (SELECT changed_at, change_id FROM monitor_state_change WHERE monitor_name = $1 AND change_id = $3))
+        ORDER BY changed_at DESC, change_id DESC
+        LIMIT $2`,
+      [input.name, input.limit + 1, input.after ?? null],
+    );
+    const page = result.rows.slice(0, input.limit);
+    const last = page[page.length - 1];
+    return { changes: page.map(toStateChange), nextCursor: result.rows.length > input.limit && last !== undefined ? Number(last.change_id) : undefined };
   }
 
   private async linkNotifiers(client: PoolClient, monitorName: string, notifierIds: ReadonlyArray<string>): Promise<void> {

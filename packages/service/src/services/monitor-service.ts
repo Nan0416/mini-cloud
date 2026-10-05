@@ -96,8 +96,12 @@ export class MonitorService {
   async listMonitorHistory(request: ListMonitorHistoryRequest): Promise<ListMonitorHistoryResponse> {
     // Asked first, so a monitor that does not exist is a 404 rather than an empty history.
     await this.getMonitor({ name: request.name });
-    const { changes } = await this.monitorDao.listStateChanges({ name: request.name, limit: request.limit ?? MONITOR_HISTORY_PAGE_SIZE.default });
-    return { changes };
+    const { changes, nextCursor } = await this.monitorDao.listStateChanges({
+      name: request.name,
+      limit: request.limit ?? MONITOR_HISTORY_PAGE_SIZE.default,
+      after: request.after,
+    });
+    return { changes, nextCursor };
   }
 
   /** A notifier was deleted between the check and the save: the check, run again, names it. */

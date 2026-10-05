@@ -1,5 +1,5 @@
 import type { CreateMonitorRequest, UpdateMonitorRequest } from '@mini-cloud/shared';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useApi } from '@/hooks/use-connection';
 import { queryKeys } from '@/lib/query-keys';
 
@@ -16,9 +16,16 @@ export function useMonitor(name: string) {
   return useQuery({ queryKey: queryKeys.monitor(name), queryFn: () => api.getMonitor({ name }), refetchInterval: MONITOR_POLL_MS });
 }
 
-export function useMonitorHistory(name: string) {
+/** Only the newest page polls: a change is only ever recorded at the top, so an older page cannot gain one. */
+export function useMonitorHistory(name: string, after?: number) {
   const api = useApi();
-  return useQuery({ queryKey: queryKeys.monitorHistory(name), queryFn: () => api.listMonitorHistory({ name }), refetchInterval: MONITOR_POLL_MS });
+  return useQuery({
+    queryKey: queryKeys.monitorHistory(name, after),
+    queryFn: () => api.listMonitorHistory({ name, after }),
+    refetchInterval: after === undefined ? MONITOR_POLL_MS : false,
+    // The page being left stays on screen until the next arrives, rather than collapsing to a skeleton.
+    placeholderData: keepPreviousData,
+  });
 }
 
 export function useCreateMonitor() {
