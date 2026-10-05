@@ -22,6 +22,8 @@ import {
   requireInstanceIdParam,
   requireStringField,
   requireTaskIdParam,
+  parseCreateNotifierRequest,
+  parseUpdateNotifierRequest,
 } from '../../src/utils/request-parsing';
 
 /**
@@ -523,5 +525,26 @@ describe('metric data paging', () => {
 
   it('refuses a cursor that is not a timestamp', () => {
     expect(() => parseGetMetricDataRequest({ ...aQuery, after: 'm-9' })).toThrow(/after must be an integer/);
+  });
+});
+
+describe('parseCreateNotifierRequest', () => {
+  const target = { type: 'discord', channel: '#alerts', webhookUrl: 'https://discord.com/api/webhooks/1/token' };
+
+  it('accepts a notifier, dropping a blank description', () => {
+    expect(parseCreateNotifierRequest({ name: ' Alerts ', description: '  ', target })).toEqual({ name: 'Alerts', description: undefined, target });
+  });
+
+  it('refuses a stray field, rather than let a typo pass for a setting', () => {
+    expect(() => parseCreateNotifierRequest({ name: 'Alerts', target, channel: '#alerts' })).toThrow(/body.channel is not a field/);
+  });
+});
+
+describe('parseUpdateNotifierRequest', () => {
+  it('needs the version the edit was made from, and lets the webhook URL be left out', () => {
+    const body = { notifierId: 'ntf-a', name: 'Alerts', target: { type: 'discord', channel: '#alerts' } };
+
+    expect(parseUpdateNotifierRequest({ ...body, version: 2 })).toEqual({ ...body, version: 2, description: undefined });
+    expect(() => parseUpdateNotifierRequest(body)).toThrow(/version/);
   });
 });

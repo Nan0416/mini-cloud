@@ -6,10 +6,11 @@ import { toast } from 'sonner';
 import { KeyValueGrid } from '@/components/common/key-value-grid';
 import { PageHeader } from '@/components/common/page-header';
 import { EmptyState, ErrorState, LoadingRows } from '@/components/common/states';
-import { MonitorStateBadge } from '@/components/common/status-badge';
+import { MonitorStateBadge, SeverityBadge } from '@/components/common/status-badge';
 import { Timestamp } from '@/components/common/timestamp';
 import { TimeRangeControls } from '@/components/metrics/time-range-controls';
 import { MonitorChart } from '@/components/monitor/monitor-chart';
+import { MonitorNotifiers } from '@/components/notifier/notifier-names';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -71,6 +72,7 @@ function MonitorView({ monitor }: { readonly monitor: Monitor }) {
           <span className="flex items-center gap-3">
             {monitor.name}
             <MonitorStateBadge state={monitor.state} />
+            <SeverityBadge severity={monitor.severity} />
           </span>
         }
         description={monitor.description}
@@ -150,7 +152,8 @@ function MonitorView({ monitor }: { readonly monitor: Monitor }) {
               { label: 'Comparison', value: COMPARISON_LABELS[monitor.comparison] },
               { label: 'Threshold', value: <span className="tabular">{monitor.threshold}</span> },
               { label: 'Missing data', value: TREAT_MISSING_DATA_LABELS[monitor.treatMissingData].label },
-              { label: 'Notifies', value: monitor.notify ? 'On every change of state' : 'No' },
+              { label: 'Severity', value: <SeverityBadge severity={monitor.severity} /> },
+              { label: 'Notifies', value: <MonitorNotifiers monitor={monitor} />, wide: true },
             ]}
           />
         </CardContent>

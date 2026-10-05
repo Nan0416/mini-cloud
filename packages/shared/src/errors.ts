@@ -1,4 +1,4 @@
-export type ErrorCode = 'INVALID_REQUEST' | 'UNAUTHENTICATED' | 'FORBIDDEN' | 'NOT_FOUND' | 'CONFLICT' | 'AGENT_OFFLINE' | 'INTERNAL';
+export type ErrorCode = 'INVALID_REQUEST' | 'UNAUTHENTICATED' | 'FORBIDDEN' | 'NOT_FOUND' | 'CONFLICT' | 'AGENT_OFFLINE' | 'DELIVERY_FAILED' | 'INTERNAL';
 
 /**
  * Base class for every expected failure. The service's error handler maps these to
@@ -56,6 +56,13 @@ export class ConflictError extends AppError {
 export class AgentOfflineError extends AppError {
   constructor(message: string) {
     super(message, 409, 'AGENT_OFFLINE');
+  }
+}
+
+/** 502 — a message was handed to somewhere outside mini-cloud, such as Discord, and it refused or did not answer. */
+export class DeliveryFailedError extends AppError {
+  constructor(message: string) {
+    super(message, 502, 'DELIVERY_FAILED');
   }
 }
 

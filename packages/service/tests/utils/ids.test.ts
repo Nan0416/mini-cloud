@@ -1,4 +1,4 @@
-import { generateEventId, generateInstanceId, generateTaskId } from '../../src/utils/ids';
+import { generateEventId, generateInstanceId, generateNotifierId, generateTaskId } from '../../src/utils/ids';
 
 /**
  * Each alphabet was chosen for where its ids end up, so the constraint worth pinning
@@ -63,5 +63,13 @@ describe('id namespaces', () => {
     expect(generateTaskId()).toHaveLength(10);
     expect(generateInstanceId()).toHaveLength(12);
     expect(generateEventId()).toHaveLength(16);
+  });
+});
+
+describe('generateNotifierId', () => {
+  it('says what it names, and is otherwise lowercase alphanumerics, because it appears in URLs and log lines', () => {
+    for (let attempt = 0; attempt < 100; attempt += 1) {
+      expect(generateNotifierId()).toMatch(/^ntf-[0-9a-z]{12}$/);
+    }
   });
 });

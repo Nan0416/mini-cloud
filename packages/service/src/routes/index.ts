@@ -8,3 +8,4 @@ export * from './metric-endpoints';
 export * from './metric-report-endpoints';
 export * from './dashboard-endpoints';
 export * from './monitor-endpoints';
+export * from './notifier-endpoints';

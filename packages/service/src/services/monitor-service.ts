@@ -6,6 +6,7 @@ import {
   DeleteMonitorResponse,
   GetMonitorRequest,
   GetMonitorResponse,
+  InvalidRequestError,
   ListMonitorHistoryRequest,
   ListMonitorHistoryResponse,
   ListMonitorsRequest,
@@ -17,19 +18,23 @@ import {
   UpdateMonitorResponse,
 } from '@mini-cloud/shared';
 import { MonitorDao } from '../data/monitor-dao';
+import { NotifierDao } from '../data/notifier-dao';
 
 const logger = LoggerFactory.getLogger('MonitorService');
 
 export interface MonitorServiceProps {
   readonly monitorDao: MonitorDao;
+  readonly notifierDao: NotifierDao;
 }
 
 /** Monitor definitions, and the state history the evaluator writes. */
 export class MonitorService {
   private readonly monitorDao: MonitorDao;
+  private readonly notifierDao: NotifierDao;
 
   constructor(props: MonitorServiceProps) {
     this.monitorDao = props.monitorDao;
+    this.notifierDao = props.notifierDao;
   }
 
   async listMonitors(_request: ListMonitorsRequest = {}): Promise<ListMonitorsResponse> {
@@ -46,6 +51,7 @@ export class MonitorService {
   }
 
   async createMonitor(request: CreateMonitorRequest): Promise<CreateMonitorResponse> {
+    await this.requireNotifiers(request.notifierIds);
     const { monitor } = await this.monitorDao.createMonitor({ ...request, stateReason: 'Not evaluated yet; the first evaluation is within a minute.' });
     if (monitor === undefined) {
       throw new ConflictError(`Monitor "${request.name}" already exists. Edit it instead, or choose another name.`);
@@ -55,6 +61,7 @@ export class MonitorService {
   }
 
   async updateMonitor(request: UpdateMonitorRequest): Promise<UpdateMonitorResponse> {
+    await this.requireNotifiers(request.notifierIds);
     const { monitor } = await this.monitorDao.updateMonitor(request);
     if (monitor !== undefined) {
       logger.info(`Saved monitor "${monitor.name}" as version ${monitor.version}.`);
@@ -85,5 +92,20 @@ export class MonitorService {
     await this.getMonitor({ name: request.name });
     const { changes } = await this.monitorDao.listStateChanges({ name: request.name, limit: request.limit ?? MONITOR_HISTORY_PAGE_SIZE.default });
     return { changes };
+  }
+
+  /** Checked here so a missing one is a 400 that names it; the foreign key still holds against a delete in between. */
+  private async requireNotifiers(notifierIds: ReadonlyArray<string>): Promise<void> {
+    if (notifierIds.length === 0) {
+      return;
+    }
+    const { notifiers } = await this.notifierDao.listNotifiers({});
+    const known = new Set(notifiers.map((notifier) => notifier.notifierId));
+    const missing = notifierIds.filter((id) => !known.has(id));
+    if (missing.length > 0) {
+      throw new InvalidRequestError(
+        `notifierIds names ${missing.length === 1 ? 'a notifier' : 'notifiers'} that no longer ${missing.length === 1 ? 'exists' : 'exist'}: ${missing.join(', ')}. Remove ${missing.length === 1 ? 'it' : 'them'} from the monitor.`,
+      );
+    }
   }
 }

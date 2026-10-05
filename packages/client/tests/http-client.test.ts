@@ -1,6 +1,7 @@
 import {
   AgentOfflineError,
   ConflictError,
+  DeliveryFailedError,
   ForbiddenError,
   InternalServiceError,
   InvalidRequestError,
@@ -197,6 +198,7 @@ describe('HttpClient error reconstruction', () => {
     ['NOT_FOUND', 404, NotFoundError],
     ['CONFLICT', 409, ConflictError],
     ['AGENT_OFFLINE', 409, AgentOfflineError],
+    ['DELIVERY_FAILED', 502, DeliveryFailedError],
   ];
 
   it.each(cases)('rebuilds a %s response as the class the service threw', async (errorCode, status, expected) => {

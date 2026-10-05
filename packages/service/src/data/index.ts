@@ -18,3 +18,5 @@ export * from './dashboard-dao';
 export * from './pg-dashboard-dao';
 export * from './monitor-dao';
 export * from './pg-monitor-dao';
+export * from './notifier-dao';
+export * from './pg-notifier-dao';

@@ -55,6 +55,7 @@ export const urls = {
   /** Without a window, the graph opens on one sized to the monitor's own period. */
   monitor: (name: string, window?: GraphWindow): string => `/monitors/${encodeURIComponent(name)}${window === undefined ? '' : `?${windowSearch(window)}`}`,
   editMonitor: (name: string): string => `/monitors/${encodeURIComponent(name)}/edit`,
+  notifiers: (): string => '/notifiers',
   /** Without a window, the dashboard opens on its own default. */
   dashboard: (name: string, window?: GraphWindow): string => `/dashboards/${encodeURIComponent(name)}${window === undefined ? '' : `?${windowSearch(window)}`}`,
   variables: (): string => '/variables',

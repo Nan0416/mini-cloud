@@ -1,5 +1,5 @@
 import { InternalServiceError } from '@mini-cloud/shared';
-import { toAgentStatus, toTaskEventLevel, toTaskEventSource, toTaskInstanceStatus } from '../../src/data/row-parsers';
+import { toAgentStatus, toMonitorSeverity, toNotifierType, toTaskEventLevel, toTaskEventSource, toTaskInstanceStatus } from '../../src/data/row-parsers';
 
 /**
  * These narrowers are the seam between a `TEXT` column and a TypeScript union. The
@@ -61,5 +61,20 @@ describe('toAgentStatus', () => {
 
   it('rejects anything else', () => {
     expect(() => toAgentStatus('unknown', 'a1')).toThrow(/a1.*status.*unknown/);
+  });
+});
+
+describe('toMonitorSeverity', () => {
+  it('accepts 1 to 5 and rejects anything else, naming the monitor', () => {
+    expect(toMonitorSeverity(1, 'nas-cpu')).toBe(1);
+    expect(toMonitorSeverity(5, 'nas-cpu')).toBe(5);
+    expect(() => toMonitorSeverity(6, 'nas-cpu')).toThrow(/nas-cpu.*severity 6/);
+  });
+});
+
+describe('toNotifierType', () => {
+  it('accepts the types there are senders for, and rejects anything else', () => {
+    expect(toNotifierType('discord', 'ntf-a')).toBe('discord');
+    expect(() => toNotifierType('email', 'ntf-a')).toThrow(InternalServiceError);
   });
 });

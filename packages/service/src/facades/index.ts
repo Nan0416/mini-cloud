@@ -3,5 +3,7 @@ export * from './agent-commander';
 export * from './task-dispatcher';
 export * from './scheduler';
 export * from './metric-retention';
-export * from './alarm-notifier';
+export * from './notification-sender';
+export * from './discord-webhook-sender';
+export * from './notification-dispatcher';
 export * from './monitor-evaluator';

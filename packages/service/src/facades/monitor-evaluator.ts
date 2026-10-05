@@ -2,7 +2,8 @@ import { LoggerFactory, Monitor, evaluateMonitor, hashDimensions } from '@mini-c
 import { MetricDao } from '../data/metric-dao';
 import { MonitorDao } from '../data/monitor-dao';
 import { metricReadWindow, metricResolutionFor } from '../utils/metric-read';
-import { AlarmNotifier } from './alarm-notifier';
+import { alarmMessage } from '../utils/notification-message';
+import { NotificationDispatcher } from './notification-dispatcher';
 
 const logger = LoggerFactory.getLogger('MonitorEvaluator');
 
@@ -12,18 +13,20 @@ export interface MonitorEvaluatorConfig {
   /** The metrics' own, so a monitor reads the periods a graph would draw and no newer. */
   readonly queryLagMs: number;
   readonly rawRetentionDays: number;
+  /** Where a notification links to the monitor; empty for no link. */
+  readonly consoleUrl: string;
 }
 
 export interface MonitorEvaluatorProps {
   readonly monitorDao: MonitorDao;
   readonly metricDao: MetricDao;
-  readonly notifier: AlarmNotifier;
+  readonly dispatcher: NotificationDispatcher;
   readonly config: MonitorEvaluatorConfig;
 }
 
 /**
- * Evaluates every monitor once a tick and records each change of state, then hands
- * the change to the notifier.
+ * Evaluates every monitor once a tick and records each change of state, then sends
+ * the change to the monitor's notifiers.
  *
  * The window ends where a graph's read would: at the last period every agent has had
  * time to report. Judging a period only some agents have reported would alarm on a dip
@@ -120,14 +123,20 @@ export class MonitorEvaluator {
     logger.info(`Monitor "${monitor.name}" moved from ${change.fromState} to ${change.toState}.`);
 
     if (!monitor.notify) {
-      logger.debug(`Monitor "${monitor.name}" does not notify, so the change is only recorded.`);
+      logger.debug(`Monitor "${monitor.name}" is muted, so the change is only recorded.`);
       return;
     }
-    try {
-      await this.props.notifier.notify({ monitor: { ...monitor, state: change.toState, stateReason: change.reason, stateChangedAt: change.changedAt }, change });
-    } catch (err) {
-      // Not retried: the change is recorded either way, and the history shows it.
-      logger.error(`The notification that monitor "${monitor.name}" is ${change.toState} could not be sent.`, err);
+    if (monitor.notifierIds.length === 0) {
+      logger.debug(`Monitor "${monitor.name}" has no notifiers, so the change is only recorded.`);
+      return;
     }
+    // Not retried, and never thrown: the change is recorded either way, and the history shows it.
+    const message = alarmMessage({
+      monitor: { ...monitor, state: change.toState, stateReason: change.reason, stateChangedAt: change.changedAt },
+      change,
+      consoleUrl: config.consoleUrl,
+    });
+    const { delivered, failed, missing } = await this.props.dispatcher.dispatch({ notifierIds: monitor.notifierIds, message });
+    logger.info(`Monitor "${monitor.name}" is ${change.toState}: sent to ${delivered.length} notifier(s), ${failed.length} failed, ${missing.length} missing.`);
   }
 }

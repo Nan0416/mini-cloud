@@ -1,8 +1,11 @@
 import { LoggerFactory, Monitor, MetricDatapoint } from '@mini-cloud/shared';
 import { MetricDao, ReadSeriesInput, ReadSeriesOutput } from '../../src/data/metric-dao';
-import { AlarmNotification, AlarmNotifier } from '../../src/facades/alarm-notifier';
+import { DiscordCredentials } from '../../src/data/notifier-dao';
 import { MonitorEvaluator } from '../../src/facades/monitor-evaluator';
-import { FakeMonitorDao } from '../data/fake-daos';
+import { NotificationDispatcher } from '../../src/facades/notification-dispatcher';
+import { NotificationSender } from '../../src/facades/notification-sender';
+import { NotificationMessage } from '../../src/utils/notification-message';
+import { FakeMonitorDao, FakeNotifierDao, aNotifier } from '../data/fake-daos';
 
 const MINUTE = 60_000;
 const LAG = 3 * MINUTE;
@@ -28,17 +31,26 @@ class FakeSeries {
   }
 }
 
-class RecordingNotifier implements AlarmNotifier {
-  readonly sent: AlarmNotification[] = [];
-  failWith: Error | undefined = undefined;
+interface Sent {
+  readonly webhookUrl: string;
+  readonly message: NotificationMessage;
+}
 
-  async notify(notification: AlarmNotification): Promise<void> {
-    if (this.failWith !== undefined) {
-      throw this.failWith;
+/** Stands in for Discord: records what it was handed, or refuses for the webhooks told to. */
+class RecordingSender implements NotificationSender<DiscordCredentials> {
+  readonly sent: Sent[] = [];
+  readonly failing = new Set<string>();
+
+  async send({ webhookUrl }: DiscordCredentials, message: NotificationMessage): Promise<void> {
+    if (this.failing.has(webhookUrl)) {
+      throw new Error('discord is down');
     }
-    this.sent.push(notification);
+    this.sent.push({ webhookUrl, message });
   }
 }
+
+const ALERTS_URL = 'https://discord.com/api/webhooks/1/alerts';
+const PAGER_URL = 'https://discord.com/api/webhooks/2/pager';
 
 const aMonitor = (overrides: Partial<Monitor> = {}): Monitor => ({
   name: 'nas-cpu',
@@ -49,7 +61,9 @@ const aMonitor = (overrides: Partial<Monitor> = {}): Monitor => ({
   comparison: 'GreaterThanThreshold',
   threshold: 80,
   treatMissingData: 'missing',
+  severity: 3,
   notify: true,
+  notifierIds: ['ntf-alerts'],
   state: 'OK',
   stateReason: 'fine',
   stateChangedAt: 0,
@@ -64,9 +78,18 @@ const WINDOW_END = Date.UTC(2026, 8, 27, 11, 55);
 
 const context = (...monitors: Monitor[]) => {
   const monitorDao = new FakeMonitorDao().seed(...monitors);
+  const notifierDao = new FakeNotifierDao(monitorDao)
+    .seed(aNotifier({ notifierId: 'ntf-alerts', name: 'Alerts' }), { type: 'discord', webhookUrl: ALERTS_URL })
+    .seed(aNotifier({ notifierId: 'ntf-pager', name: 'Pager' }), { type: 'discord', webhookUrl: PAGER_URL });
   const series = new FakeSeries();
-  const notifier = new RecordingNotifier();
-  const evaluator = new MonitorEvaluator({ monitorDao, metricDao: series.asDao(), notifier, config: { tickMs: MINUTE, queryLagMs: LAG, rawRetentionDays: 28 } });
+  const notifier = new RecordingSender();
+  const dispatcher = new NotificationDispatcher({ notifierDao, senders: { discord: notifier } });
+  const evaluator = new MonitorEvaluator({
+    monitorDao,
+    metricDao: series.asDao(),
+    dispatcher,
+    config: { tickMs: MINUTE, queryLagMs: LAG, rawRetentionDays: 28, consoleUrl: 'https://console.example' },
+  });
   return { monitorDao, series, notifier, evaluator };
 };
 
@@ -76,6 +99,8 @@ const valuesEndingAt = (end: number, ...values: number[]): MetricDatapoint[] => 
 beforeAll(() => {
   // Failures below are on purpose; their stack traces would only be noise.
   jest.spyOn(LoggerFactory.getLogger('MonitorEvaluator'), 'error').mockImplementation(() => {});
+  jest.spyOn(LoggerFactory.getLogger('NotificationDispatcher'), 'error').mockImplementation(() => {});
+  jest.spyOn(LoggerFactory.getLogger('NotificationDispatcher'), 'warn').mockImplementation(() => {});
 });
 
 describe('MonitorEvaluator', () => {
@@ -99,7 +124,28 @@ describe('MonitorEvaluator', () => {
     expect(monitorDao.changes[0]).toMatchObject({ fromState: 'OK', toState: 'ALARM', threshold: 80, changedAt: NOW });
     expect(monitorDao.changes[0].datapoints.map((datapoint) => datapoint.value)).toEqual([50, 90, 95]);
     expect(notifier.sent).toHaveLength(1);
-    expect(notifier.sent[0].monitor.state).toBe('ALARM');
+    expect(notifier.sent[0].message).toMatchObject({ title: '[SEV-3] nas-cpu is in ALARM', tone: 'problem', link: 'https://console.example/monitors/nas-cpu' });
+  });
+
+  it('sends a change to every notifier the monitor names, whatever happens to the others', async () => {
+    const { series, monitorDao, notifier, evaluator } = context(aMonitor({ notifierIds: ['ntf-alerts', 'ntf-gone', 'ntf-pager'] }));
+    series.datapoints = valuesEndingAt(WINDOW_END, 90, 90, 90);
+    notifier.failing.add(ALERTS_URL);
+
+    await evaluator.runTick(NOW);
+
+    expect(monitorDao.changes).toHaveLength(1);
+    expect(notifier.sent.map((sent) => sent.webhookUrl)).toEqual([PAGER_URL]);
+  });
+
+  it('records a change without sending it for a monitor with no notifiers', async () => {
+    const { series, monitorDao, notifier, evaluator } = context(aMonitor({ notifierIds: [] }));
+    series.datapoints = valuesEndingAt(WINDOW_END, 90, 90, 90);
+
+    await evaluator.runTick(NOW);
+
+    expect(monitorDao.changes).toHaveLength(1);
+    expect(notifier.sent).toHaveLength(0);
   });
 
   it('records nothing and notifies no one when the state holds, but marks the evaluation', async () => {
@@ -113,7 +159,7 @@ describe('MonitorEvaluator', () => {
     expect(monitorDao.monitors.get('nas-cpu')?.lastEvaluatedAt).toBe(NOW);
   });
 
-  it('records a change without notifying for a monitor that does not notify', async () => {
+  it('records a change without notifying for a muted monitor', async () => {
     const { series, monitorDao, notifier, evaluator } = context(aMonitor({ notify: false }));
     series.datapoints = valuesEndingAt(WINDOW_END, 90, 90, 90);
 
@@ -136,7 +182,7 @@ describe('MonitorEvaluator', () => {
   it('keeps the change recorded when the notifier fails', async () => {
     const { series, monitorDao, notifier, evaluator } = context(aMonitor());
     series.datapoints = valuesEndingAt(WINDOW_END, 90, 90, 90);
-    notifier.failWith = new Error('discord is down');
+    notifier.failing.add(ALERTS_URL);
 
     await evaluator.runTick(NOW);
 

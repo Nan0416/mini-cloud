@@ -12,7 +12,9 @@ const aDefinition = (overrides: Partial<MonitorDefinition> = {}): MonitorDefinit
   comparison: 'GreaterThanThreshold',
   threshold: 80,
   treatMissingData: 'missing',
+  severity: 3,
   notify: true,
+  notifierIds: [],
   ...overrides,
 });
 
@@ -123,6 +125,17 @@ describe('parseMonitorDefinition', () => {
     expect(() => parseMonitorDefinition(aBody({ comparison: '>' }), 'monitor')).toThrow(/monitor.comparison must be one of/);
     expect(() => parseMonitorDefinition(aBody({ treatMissingData: 'zero' }), 'monitor')).toThrow(/monitor.treatMissingData must be one of/);
     expect(() => parseMonitorDefinition(aBody({ enabled: true }), 'monitor')).toThrow(/monitor.enabled is not a field/);
+  });
+
+  it('refuses a severity outside 1 to 5', () => {
+    expect(() => parseMonitorDefinition(aBody({ severity: 0 }), 'monitor')).toThrow(/monitor.severity must be 1 to 5/);
+    expect(() => parseMonitorDefinition(aBody({ severity: 2.5 }), 'monitor')).toThrow(/monitor.severity/);
+  });
+
+  it('keeps each notifier once, and refuses more than a monitor may send to', () => {
+    expect(parseMonitorDefinition(aBody({ notifierIds: ['ntf-a', 'ntf-a', 'ntf-b'] }), 'monitor').notifierIds).toEqual(['ntf-a', 'ntf-b']);
+    expect(() => parseMonitorDefinition(aBody({ notifierIds: Array.from({ length: 11 }, (_, index) => `ntf-${index}`) }), 'monitor')).toThrow(/at most 10/);
+    expect(() => parseMonitorDefinition(aBody({ notifierIds: undefined }), 'monitor')).toThrow(/monitor.notifierIds must be an array/);
   });
 
   it('refuses a statistic the service cannot compute', () => {
