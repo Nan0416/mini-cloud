@@ -21,8 +21,10 @@ export interface CreateMonitorInput extends MonitorDefinition {
 }
 
 export interface CreateMonitorOutput {
-  /** Absent when the name was already taken, and nothing was written. */
+  /** Absent when the name was already taken or a notifier was missing, and nothing was written. */
   readonly monitor?: Monitor;
+  /** A notifier it names did not exist by the time it was linked, and nothing was written. */
+  readonly notifierMissing?: boolean;
 }
 
 export interface UpdateMonitorInput extends MonitorDefinition {
@@ -32,8 +34,10 @@ export interface UpdateMonitorInput extends MonitorDefinition {
 }
 
 export interface UpdateMonitorOutput {
-  /** Absent when no monitor of that name holds that version, and nothing was written. */
+  /** Absent when no monitor of that name holds that version or a notifier was missing, and nothing was written. */
   readonly monitor?: Monitor;
+  /** A notifier it names did not exist by the time it was linked, and nothing was written. */
+  readonly notifierMissing?: boolean;
 }
 
 export interface DeleteMonitorInput {

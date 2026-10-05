@@ -483,10 +483,66 @@ describeIfDatabase('PostgreSQL DAOs', () => {
       expect((await monitorDao.listMonitors({})).monitors.map((entry) => entry.notifierIds)).toEqual([['ntf-b']]);
     });
 
-    it('writes no monitor at all when a notifier it names does not exist', async () => {
-      await expect(monitorDao.createMonitor({ name: 'nas-cpu', ...monitor, notifierIds: ['ntf-gone'] })).rejects.toThrow(/foreign key/);
+    it('writes no monitor at all when a notifier it names does not exist, and says so', async () => {
+      const result = await monitorDao.createMonitor({ name: 'nas-cpu', ...monitor, notifierIds: ['ntf-gone'] });
 
+      expect(result).toEqual({ notifierMissing: true });
       expect((await monitorDao.getMonitor({ name: 'nas-cpu' })).monitor).toBeUndefined();
+    });
+
+    /** Runs `work` in its own transaction and leaves it open, so a DAO call made meanwhile races it. */
+    const holdOpen = async (work: (sql: (text: string) => Promise<unknown>) => Promise<void>) => {
+      const client = await pool.connect();
+      await client.query('BEGIN');
+      await work((text) => client.query(text));
+      return {
+        /** Commits once the racing statement is waiting on this transaction's locks, so the race is certain to happen. */
+        commit: async () => {
+          for (let attempt = 0; attempt < 200; attempt++) {
+            const blocked = await pool.query<{ readonly n: number }>(
+              "SELECT count(*)::int AS n FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'",
+            );
+            if (blocked.rows[0].n > 0) {
+              break;
+            }
+            await new Promise((resolve) => setTimeout(resolve, 10));
+          }
+          await client.query('COMMIT');
+          client.release();
+        },
+      };
+    };
+
+    it('reports a monitor save that raced the delete of its notifier as a missing notifier', async () => {
+      await notifierDao.createNotifier({ notifierId: 'ntf-a', name: 'Alerts', target, credentials });
+      const deleting = await holdOpen((sql) => sql("DELETE FROM notifier WHERE notifier_id = 'ntf-a'").then(() => undefined));
+
+      const saving = monitorDao.createMonitor({ name: 'nas-cpu', ...monitor, notifierIds: ['ntf-a'] });
+      await deleting.commit();
+
+      await expect(saving).resolves.toEqual({ notifierMissing: true });
+    });
+
+    it('reports a delete that raced a monitor linking the notifier as in use', async () => {
+      await notifierDao.createNotifier({ notifierId: 'ntf-a', name: 'Alerts', target, credentials });
+      await monitorDao.createMonitor({ name: 'nas-cpu', ...monitor, notifierIds: [] });
+      const linking = await holdOpen((sql) => sql("INSERT INTO monitor_notifier (monitor_name, notifier_id) VALUES ('nas-cpu', 'ntf-a')").then(() => undefined));
+
+      const deleting = notifierDao.deleteNotifier({ notifierId: 'ntf-a' });
+      await linking.commit();
+
+      await expect(deleting).resolves.toEqual({ deleted: false, usedBy: ['nas-cpu'] });
+    });
+
+    it('reports a rename that raced another onto the same name as nothing written', async () => {
+      await notifierDao.createNotifier({ notifierId: 'ntf-a', name: 'Alerts', target, credentials });
+      await notifierDao.createNotifier({ notifierId: 'ntf-b', name: 'Pager', target, credentials });
+      const renaming = await holdOpen((sql) => sql("UPDATE notifier SET name = 'Home' WHERE notifier_id = 'ntf-a'").then(() => undefined));
+
+      const racing = notifierDao.updateNotifier({ notifierId: 'ntf-b', version: 1, name: 'Home', target });
+      await renaming.commit();
+
+      await expect(racing).resolves.toEqual({});
     });
 
     it('refuses to delete a notifier a monitor sends to, naming the monitor, and deletes it once nothing does', async () => {

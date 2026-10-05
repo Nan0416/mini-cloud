@@ -52,7 +52,10 @@ export class MonitorService {
 
   async createMonitor(request: CreateMonitorRequest): Promise<CreateMonitorResponse> {
     await this.requireNotifiers(request.notifierIds);
-    const { monitor } = await this.monitorDao.createMonitor({ ...request, stateReason: 'Not evaluated yet; the first evaluation is within a minute.' });
+    const { monitor, notifierMissing } = await this.monitorDao.createMonitor({ ...request, stateReason: 'Not evaluated yet; the first evaluation is within a minute.' });
+    if (notifierMissing === true) {
+      await this.refuseMissingNotifiers(request.notifierIds);
+    }
     if (monitor === undefined) {
       throw new ConflictError(`Monitor "${request.name}" already exists. Edit it instead, or choose another name.`);
     }
@@ -62,7 +65,10 @@ export class MonitorService {
 
   async updateMonitor(request: UpdateMonitorRequest): Promise<UpdateMonitorResponse> {
     await this.requireNotifiers(request.notifierIds);
-    const { monitor } = await this.monitorDao.updateMonitor(request);
+    const { monitor, notifierMissing } = await this.monitorDao.updateMonitor(request);
+    if (notifierMissing === true) {
+      await this.refuseMissingNotifiers(request.notifierIds);
+    }
     if (monitor !== undefined) {
       logger.info(`Saved monitor "${monitor.name}" as version ${monitor.version}.`);
       return { monitor };
@@ -92,6 +98,12 @@ export class MonitorService {
     await this.getMonitor({ name: request.name });
     const { changes } = await this.monitorDao.listStateChanges({ name: request.name, limit: request.limit ?? MONITOR_HISTORY_PAGE_SIZE.default });
     return { changes };
+  }
+
+  /** A notifier was deleted between the check and the save: the check, run again, names it. */
+  private async refuseMissingNotifiers(notifierIds: ReadonlyArray<string>): Promise<never> {
+    await this.requireNotifiers(notifierIds);
+    throw new InvalidRequestError('A notifier this monitor names was deleted while it was being saved. Reload the notifiers and choose again.');
   }
 
   /** Checked here so a missing one is a 400 that names it; the foreign key still holds against a delete in between. */

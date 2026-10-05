@@ -40,8 +40,13 @@ interface Sent {
 class RecordingSender implements NotificationSender<DiscordCredentials> {
   readonly sent: Sent[] = [];
   readonly failing = new Set<string>();
+  /** While set, every send waits on it, as a send to a Discord that is not answering would. */
+  gate: Promise<void> | undefined = undefined;
 
   async send({ webhookUrl }: DiscordCredentials, message: NotificationMessage): Promise<void> {
+    if (this.gate !== undefined) {
+      await this.gate;
+    }
     if (this.failing.has(webhookUrl)) {
       throw new Error('discord is down');
     }
@@ -109,6 +114,8 @@ describe('MonitorEvaluator', () => {
 
     await evaluator.runTick(NOW);
 
+    await evaluator.notificationsSent();
+
     expect(series.reads).toHaveLength(1);
     expect(series.reads[0]).toMatchObject({ from: WINDOW_END - 15 * MINUTE, to: WINDOW_END, periodMs: 5 * MINUTE, statistic: 'avg', limit: 3, resolution: '1m' });
   });
@@ -118,6 +125,8 @@ describe('MonitorEvaluator', () => {
     series.datapoints = valuesEndingAt(WINDOW_END, 50, 90, 95);
 
     await evaluator.runTick(NOW);
+
+    await evaluator.notificationsSent();
 
     expect(monitorDao.monitors.get('nas-cpu')?.state).toBe('ALARM');
     expect(monitorDao.changes).toHaveLength(1);
@@ -134,8 +143,40 @@ describe('MonitorEvaluator', () => {
 
     await evaluator.runTick(NOW);
 
+    await evaluator.notificationsSent();
+
     expect(monitorDao.changes).toHaveLength(1);
     expect(notifier.sent.map((sent) => sent.webhookUrl)).toEqual([PAGER_URL]);
+  });
+
+  it('finishes a tick without waiting for its notifications to be delivered', async () => {
+    const { series, monitorDao, notifier, evaluator } = context(aMonitor());
+    series.datapoints = valuesEndingAt(WINDOW_END, 90, 90, 90);
+    let release = () => {};
+    notifier.gate = new Promise((resolve) => (release = resolve));
+
+    await evaluator.runTick(NOW);
+
+    expect(monitorDao.changes).toHaveLength(1);
+    expect(notifier.sent).toHaveLength(0);
+    release();
+    await evaluator.notificationsSent();
+    expect(notifier.sent).toHaveLength(1);
+  });
+
+  it('delivers changes in the order they happened, even when the first is slow to send', async () => {
+    const { series, notifier, evaluator } = context(aMonitor());
+    let release = () => {};
+    notifier.gate = new Promise((resolve) => (release = resolve));
+    series.datapoints = valuesEndingAt(WINDOW_END, 90, 90, 90);
+    await evaluator.runTick(NOW);
+    series.datapoints = valuesEndingAt(WINDOW_END, 10, 10, 10);
+    await evaluator.runTick(NOW + MINUTE);
+
+    release();
+    await evaluator.notificationsSent();
+
+    expect(notifier.sent.map((sent) => sent.message.title)).toEqual(['[SEV-3] nas-cpu is in ALARM', 'nas-cpu is OK']);
   });
 
   it('records a change without sending it for a monitor with no notifiers', async () => {
@@ -143,6 +184,8 @@ describe('MonitorEvaluator', () => {
     series.datapoints = valuesEndingAt(WINDOW_END, 90, 90, 90);
 
     await evaluator.runTick(NOW);
+
+    await evaluator.notificationsSent();
 
     expect(monitorDao.changes).toHaveLength(1);
     expect(notifier.sent).toHaveLength(0);
@@ -153,6 +196,8 @@ describe('MonitorEvaluator', () => {
     series.datapoints = valuesEndingAt(WINDOW_END, 50, 60, 70);
 
     await evaluator.runTick(NOW);
+
+    await evaluator.notificationsSent();
 
     expect(monitorDao.changes).toHaveLength(0);
     expect(notifier.sent).toHaveLength(0);
@@ -165,6 +210,8 @@ describe('MonitorEvaluator', () => {
 
     await evaluator.runTick(NOW);
 
+    await evaluator.notificationsSent();
+
     expect(monitorDao.changes).toHaveLength(1);
     expect(notifier.sent).toHaveLength(0);
   });
@@ -175,6 +222,7 @@ describe('MonitorEvaluator', () => {
 
     await evaluator.runTick(NOW);
     await evaluator.runTick(NOW + MINUTE);
+    await evaluator.notificationsSent();
 
     expect(notifier.sent).toHaveLength(1);
   });
@@ -185,6 +233,8 @@ describe('MonitorEvaluator', () => {
     notifier.failing.add(ALERTS_URL);
 
     await evaluator.runTick(NOW);
+
+    await evaluator.notificationsSent();
 
     expect(monitorDao.monitors.get('nas-cpu')?.state).toBe('ALARM');
     expect(monitorDao.changes).toHaveLength(1);
@@ -204,6 +254,8 @@ describe('MonitorEvaluator', () => {
 
     await evaluator.runTick(NOW);
 
+    await evaluator.notificationsSent();
+
     expect(monitorDao.monitors.get('a')?.state).toBe('OK');
     expect(monitorDao.monitors.get('b')?.state).toBe('ALARM');
   });
@@ -219,6 +271,8 @@ describe('MonitorEvaluator', () => {
     };
 
     await evaluator.runTick(NOW);
+
+    await evaluator.notificationsSent();
 
     expect(monitorDao.monitors.get('nas-cpu')?.state).toBe('OK');
     expect(monitorDao.changes).toHaveLength(0);
@@ -236,6 +290,8 @@ describe('MonitorEvaluator', () => {
     };
 
     await evaluator.runTick(NOW);
+
+    await evaluator.notificationsSent();
 
     expect(monitorDao.changes).toHaveLength(0);
     expect(notifier.sent).toHaveLength(0);

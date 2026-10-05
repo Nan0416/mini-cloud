@@ -111,17 +111,29 @@ describe('PgMonitorDao', () => {
     expect(pool.statements.some((sql) => sql.includes('monitor_notifier'))).toBe(false);
   });
 
-  it('replaces its notifiers on an edit, and rolls the edit back when a notifier cannot be linked', async () => {
+  it('replaces its notifiers on an edit, and rolls the edit back, reporting it, when a notifier has gone', async () => {
     const pool = fakePool()
       .on('UPDATE monitor', { rows: [aRow()] })
-      .failOn('INSERT INTO monitor_notifier', new Error('violates foreign key constraint'));
+      .failOn('INSERT INTO monitor_notifier', Object.assign(new Error('violates foreign key constraint'), { code: '23503', constraint: 'monitor_notifier_notifier_id_fkey' }));
 
-    await expect(new PgMonitorDao(pool.asPool()).updateMonitor({ name: 'nas-cpu', version: 2, ...aDefinition, notifierIds: ['ntf-gone'] })).rejects.toThrow(/foreign key/);
+    const result = await new PgMonitorDao(pool.asPool()).updateMonitor({ name: 'nas-cpu', version: 2, ...aDefinition, notifierIds: ['ntf-gone'] });
+
+    expect(result).toEqual({ notifierMissing: true });
 
     const inTransaction = pool.queries.filter((query) => query.onClient).map((query) => query.sql.replace(/\s+/g, ' ').trim());
     expect(inTransaction[2]).toBe('DELETE FROM monitor_notifier WHERE monitor_name = $1');
     expect(inTransaction.at(-1)).toBe('ROLLBACK');
     expect(pool.releases).toBe(1);
+  });
+
+  it('passes on any other failure to link notifiers', async () => {
+    const pool = fakePool()
+      .on('INSERT INTO monitor ', { rows: [aRow()] })
+      .failOn('INSERT INTO monitor_notifier', new Error('connection reset'));
+
+    await expect(new PgMonitorDao(pool.asPool()).createMonitor({ name: 'nas-cpu', ...aDefinition, notifierIds: ['ntf-a'], stateReason: 'new' })).rejects.toThrow(
+      'connection reset',
+    );
   });
 
   it('guards an update on the version it was made from, in the same statement', async () => {

@@ -19,6 +19,7 @@ import {
   UpdateMonitorInput,
   UpdateMonitorOutput,
 } from './monitor-dao';
+import { FOREIGN_KEY_VIOLATION, isPgError } from './pg-errors';
 import { toMetricStatistic, toMonitorComparison, toMonitorSeverity, toMonitorState, toTreatMissingData } from './row-parsers';
 
 interface MonitorRow {
@@ -141,7 +142,7 @@ export class PgMonitorDao implements MonitorDao {
   }
 
   async createMonitor(input: CreateMonitorInput): Promise<CreateMonitorOutput> {
-    return this.inTransaction(async (client) => {
+    return this.refusingMissingNotifiers(async (client) => {
       // DO NOTHING rather than a read first, so two creates of one name cannot both succeed.
       const result = await client.query<MonitorRow>(
         `INSERT INTO monitor (name, description, namespace, metric_name, dimensions, statistic, period_ms, evaluation_periods, datapoints_to_alarm, comparison, threshold, treat_missing_data, severity, notify, state_reason)
@@ -160,7 +161,7 @@ export class PgMonitorDao implements MonitorDao {
   }
 
   async updateMonitor(input: UpdateMonitorInput): Promise<UpdateMonitorOutput> {
-    return this.inTransaction(async (client) => {
+    return this.refusingMissingNotifiers(async (client) => {
       const result = await client.query<MonitorRow>(
         `UPDATE monitor
             SET description = $3, namespace = $4, metric_name = $5, dimensions = $6::jsonb, statistic = $7, period_ms = $8, evaluation_periods = $9,
@@ -237,6 +238,22 @@ export class PgMonitorDao implements MonitorDao {
       return;
     }
     await client.query('INSERT INTO monitor_notifier (monitor_name, notifier_id) SELECT $1, UNNEST($2::text[])', [monitorName, [...notifierIds]]);
+  }
+
+  /**
+   * A monitor save, in a transaction, with a notifier deleted since the caller checked it
+   * reported as such rather than thrown. The foreign key is what catches it; the check
+   * before the transaction cannot.
+   */
+  private async refusingMissingNotifiers<T extends object>(work: (client: PoolClient) => Promise<T>): Promise<T | { readonly notifierMissing: true }> {
+    try {
+      return await this.inTransaction(work);
+    } catch (err) {
+      if (isPgError(err, FOREIGN_KEY_VIOLATION, 'monitor_notifier_notifier_id_fkey')) {
+        return { notifierMissing: true };
+      }
+      throw err;
+    }
   }
 
   private async inTransaction<T>(work: (client: PoolClient) => Promise<T>): Promise<T> {

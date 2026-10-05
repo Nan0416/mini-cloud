@@ -89,6 +89,23 @@ describe('PgNotifierDao', () => {
     expect(result).toEqual({ deleted: false, usedBy: ['nas-cpu', 'nas-disk'] });
   });
 
+  it('reports a rename that lost a race for its name as nothing written', async () => {
+    const pool = fakePool().failOn('UPDATE notifier', Object.assign(new Error('duplicate key'), { code: '23505', constraint: 'notifier_name_key' }));
+
+    await expect(new PgNotifierDao(pool.asPool()).updateNotifier({ notifierId: 'ntf-a', version: 2, name: 'Alerts', target: TARGET })).resolves.toEqual({});
+  });
+
+  it('reports a delete that a monitor linking it got past the guard as in use, naming the monitor', async () => {
+    const pool = fakePool()
+      .failOn(
+        'DELETE FROM notifier',
+        Object.assign(new Error('violates RESTRICT setting of foreign key constraint'), { code: '23001', constraint: 'monitor_notifier_notifier_id_fkey' }),
+      )
+      .on('SELECT monitor_name FROM monitor_notifier', { rows: [{ monitor_name: 'nas-cpu' }] });
+
+    await expect(new PgNotifierDao(pool.asPool()).deleteNotifier({ notifierId: 'ntf-a' })).resolves.toEqual({ deleted: false, usedBy: ['nas-cpu'] });
+  });
+
   it('reports a delete that removed the row', async () => {
     const pool = fakePool().on('DELETE FROM notifier', { rows: [], rowCount: 1 });
 

@@ -1,9 +1,9 @@
-import { LoggerFactory, Monitor, evaluateMonitor, hashDimensions } from '@mini-cloud/shared';
+import { AsyncQueue, LoggerFactory, Monitor, evaluateMonitor, hashDimensions } from '@mini-cloud/shared';
 import { MetricDao } from '../data/metric-dao';
 import { MonitorDao } from '../data/monitor-dao';
 import { metricReadWindow, metricResolutionFor } from '../utils/metric-read';
 import { alarmMessage } from '../utils/notification-message';
-import { NotificationDispatcher } from './notification-dispatcher';
+import { DispatchInput, NotificationDispatcher } from './notification-dispatcher';
 
 const logger = LoggerFactory.getLogger('MonitorEvaluator');
 
@@ -24,6 +24,11 @@ export interface MonitorEvaluatorProps {
   readonly config: MonitorEvaluatorConfig;
 }
 
+/** A change of state waiting to be sent, and the monitor it is about, for the log. */
+interface PendingNotification extends DispatchInput {
+  readonly monitorName: string;
+}
+
 /**
  * Evaluates every monitor once a tick and records each change of state, then sends
  * the change to the monitor's notifiers.
@@ -40,8 +45,14 @@ export class MonitorEvaluator {
   // second's change would be refused by the state guard after the first had notified.
   private running = false;
 
+  // Sends are queued rather than awaited, so a Discord that is slow or unreachable cannot
+  // hold a tick past the next one. One queue rather than a send each, so a slow ALARM
+  // cannot arrive after the OK that followed it.
+  private readonly notifications: AsyncQueue<PendingNotification>;
+
   constructor(props: MonitorEvaluatorProps) {
     this.props = props;
+    this.notifications = new AsyncQueue((pending) => this.send(pending));
   }
 
   start(): void {
@@ -55,6 +66,11 @@ export class MonitorEvaluator {
       clearInterval(this.timer);
       this.timer = undefined;
     }
+  }
+
+  /** Resolves once every change recorded so far has been handed to its notifiers. */
+  async notificationsSent(): Promise<void> {
+    await this.notifications.drain();
   }
 
   async runTick(now: number = Date.now()): Promise<void> {
@@ -130,13 +146,21 @@ export class MonitorEvaluator {
       logger.debug(`Monitor "${monitor.name}" has no notifiers, so the change is only recorded.`);
       return;
     }
-    // Not retried, and never thrown: the change is recorded either way, and the history shows it.
     const message = alarmMessage({
       monitor: { ...monitor, state: change.toState, stateReason: change.reason, stateChangedAt: change.changedAt },
       change,
       consoleUrl: config.consoleUrl,
     });
-    const { delivered, failed, missing } = await this.props.dispatcher.dispatch({ notifierIds: monitor.notifierIds, message });
-    logger.info(`Monitor "${monitor.name}" is ${change.toState}: sent to ${delivered.length} notifier(s), ${failed.length} failed, ${missing.length} missing.`);
+    this.notifications.enqueue({ monitorName: monitor.name, notifierIds: monitor.notifierIds, message });
+    // `size` counts what waits, not the send in flight, so a nonzero size means this one waits behind as many.
+    if (this.notifications.size > 0) {
+      logger.info(`Queued "${message.title}" behind ${this.notifications.size} other notification(s).`);
+    }
+  }
+
+  /** Not retried, and never thrown: the change is recorded either way, and the history shows it. */
+  private async send({ monitorName, notifierIds, message }: PendingNotification): Promise<void> {
+    const { delivered, failed, missing } = await this.props.dispatcher.dispatch({ notifierIds, message });
+    logger.info(`Notified "${message.title}" for monitor "${monitorName}": sent to ${delivered.length} notifier(s), ${failed.length} failed, ${missing.length} missing.`);
   }
 }

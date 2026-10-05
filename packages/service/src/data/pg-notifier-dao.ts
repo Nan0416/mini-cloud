@@ -16,6 +16,7 @@ import {
   UpdateNotifierInput,
   UpdateNotifierOutput,
 } from './notifier-dao';
+import { RESTRICT_VIOLATION, UNIQUE_VIOLATION, isPgError } from './pg-errors';
 import { toNotifierType } from './row-parsers';
 
 interface NotifierRow {
@@ -120,35 +121,51 @@ export class PgNotifierDao implements NotifierDao {
 
   async updateNotifier(input: UpdateNotifierInput): Promise<UpdateNotifierOutput> {
     // The name check is in the statement, so a rename onto a taken name writes nothing
-    // instead of failing on the unique constraint.
-    const result = await this.pool.query<NotifierRow>(
-      `UPDATE notifier
-          SET name = $3, description = $4, type = $5, settings = $6::jsonb, secrets = COALESCE($7::jsonb, secrets),
-              version = version + 1, updated_at = now()
-        WHERE notifier_id = $1 AND version = $2
-          AND NOT EXISTS (SELECT 1 FROM notifier other WHERE other.name = $3 AND other.notifier_id <> $1)
-        RETURNING ${NOTIFIER_COLUMNS}`,
-      [
-        input.notifierId,
-        input.version,
-        input.name,
-        input.description ?? null,
-        input.target.type,
-        settingsOf(input.target),
-        input.credentials === undefined ? null : secretsOf(input.credentials),
-      ],
-    );
-    const row = result.rows[0];
-    return { notifier: row === undefined ? undefined : toNotifier(row) };
+    // instead of failing on the unique constraint. Two renames racing onto one name can
+    // both pass it, and the loser is reported the same way.
+    try {
+      const result = await this.pool.query<NotifierRow>(
+        `UPDATE notifier
+            SET name = $3, description = $4, type = $5, settings = $6::jsonb, secrets = COALESCE($7::jsonb, secrets),
+                version = version + 1, updated_at = now()
+          WHERE notifier_id = $1 AND version = $2
+            AND NOT EXISTS (SELECT 1 FROM notifier other WHERE other.name = $3 AND other.notifier_id <> $1)
+          RETURNING ${NOTIFIER_COLUMNS}`,
+        [
+          input.notifierId,
+          input.version,
+          input.name,
+          input.description ?? null,
+          input.target.type,
+          settingsOf(input.target),
+          input.credentials === undefined ? null : secretsOf(input.credentials),
+        ],
+      );
+      const row = result.rows[0];
+      return { notifier: row === undefined ? undefined : toNotifier(row) };
+    } catch (err) {
+      if (isPgError(err, UNIQUE_VIOLATION, 'notifier_name_key')) {
+        return {};
+      }
+      throw err;
+    }
   }
 
   async deleteNotifier(input: DeleteNotifierInput): Promise<DeleteNotifierOutput> {
-    // Guarded in the statement rather than left to the foreign key, so a notifier in use
-    // is a refusal to report, not an error to catch. The key still holds against a
-    // monitor that links it in between.
-    const result = await this.pool.query('DELETE FROM notifier WHERE notifier_id = $1 AND NOT EXISTS (SELECT 1 FROM monitor_notifier WHERE notifier_id = $1)', [input.notifierId]);
-    if ((result.rowCount ?? 0) > 0) {
-      return { deleted: true, usedBy: [] };
+    // Guarded in the statement, so a notifier in use is a refusal to report. A monitor
+    // linking it while the delete runs gets past the guard to the foreign key instead,
+    // and is reported the same way.
+    try {
+      const result = await this.pool.query('DELETE FROM notifier WHERE notifier_id = $1 AND NOT EXISTS (SELECT 1 FROM monitor_notifier WHERE notifier_id = $1)', [
+        input.notifierId,
+      ]);
+      if ((result.rowCount ?? 0) > 0) {
+        return { deleted: true, usedBy: [] };
+      }
+    } catch (err) {
+      if (!isPgError(err, RESTRICT_VIOLATION, 'monitor_notifier_notifier_id_fkey')) {
+        throw err;
+      }
     }
     const users = await this.pool.query<{ readonly monitor_name: string }>('SELECT monitor_name FROM monitor_notifier WHERE notifier_id = $1 ORDER BY monitor_name', [
       input.notifierId,

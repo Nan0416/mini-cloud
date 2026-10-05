@@ -58,6 +58,17 @@ describe('MonitorService', () => {
     await expect(service.updateMonitor({ name: 'nas-cpu', version: monitor.version, ...aDefinition({ notifierIds: ['ntf-gone'] }) })).rejects.toThrow(InvalidRequestError);
   });
 
+  it('names a notifier deleted between the check and the save, rather than failing', async () => {
+    const { monitorDao, notifierDao, service } = context();
+    notifierDao.seed(aNotifier({ notifierId: 'ntf-a' }));
+    monitorDao.createMonitor = async () => {
+      notifierDao.notifiers.delete('ntf-a');
+      return { notifierMissing: true };
+    };
+
+    await expect(service.createMonitor({ name: 'nas-cpu', ...aDefinition({ notifierIds: ['ntf-a'] }) })).rejects.toThrow(/no longer exists: ntf-a/);
+  });
+
   it('saves an edit made from the current version, and refuses one made from an older one', async () => {
     const { service } = context();
     await service.createMonitor({ name: 'nas-cpu', ...aDefinition() });
