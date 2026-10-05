@@ -189,8 +189,16 @@ describe('PgMonitorDao', () => {
 
     expect(page.changes.map((change) => change.changedAt)).toEqual([Date.UTC(2026, 8, 1, 3), Date.UTC(2026, 8, 1, 2)]);
     expect(page.nextCursor).toBe(7);
-    expect(full.find('FROM monitor_state_change').values).toEqual(['nas-cpu', 3, 12]);
+    expect(full.find('FROM monitor_state_change').values).toEqual(['nas-cpu', 3, 12, null, null]);
     expect(end.nextCursor).toBeUndefined();
-    expect(last.find('FROM monitor_state_change').values).toEqual(['nas-cpu', 3, null]);
+    expect(last.find('FROM monitor_state_change').values).toEqual(['nas-cpu', 3, null, null, null]);
+  });
+
+  it('binds a time range as timestamps', async () => {
+    const pool = fakePool().on('FROM monitor_state_change', { rows: [] });
+
+    await new PgMonitorDao(pool.asPool()).listStateChanges({ name: 'nas-cpu', limit: 2, from: Date.UTC(2026, 8, 1), to: Date.UTC(2026, 8, 2) });
+
+    expect(pool.find('FROM monitor_state_change').values).toEqual(['nas-cpu', 3, null, new Date(Date.UTC(2026, 8, 1)), new Date(Date.UTC(2026, 8, 2))]);
   });
 });

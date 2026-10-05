@@ -84,6 +84,18 @@ describe('monitor routes', () => {
     }
   });
 
+  it('serves the history in a time range, and refuses one that ends before it starts', async () => {
+    await server.post('/monitors', { name: 'nas-cpu', ...aBody() });
+    await monitorDao.changeState({ name: 'nas-cpu', version: 1, fromState: 'INSUFFICIENT_DATA', toState: 'OK', reason: 'fine', datapoints: [], threshold: 95.5, changedAt: 1 });
+    await monitorDao.changeState({ name: 'nas-cpu', version: 1, fromState: 'OK', toState: 'ALARM', reason: 'hot', datapoints: [], threshold: 95.5, changedAt: 20 });
+
+    const history = await server.get<ListMonitorHistoryResponse>('/monitors/nas-cpu/history?from=10&to=15');
+
+    expect(history.body.changes.map((change) => change.toState)).toEqual(['OK']);
+    expect((await server.get('/monitors/nas-cpu/history?from=15&to=10')).status).toBe(400);
+    expect((await server.get('/monitors/nas-cpu/history?from=99999999999999999999')).status).toBe(400);
+  });
+
   it('deletes a monitor, and answers 404 for it afterwards', async () => {
     await server.post('/monitors', { name: 'nas-cpu', ...aBody() });
 

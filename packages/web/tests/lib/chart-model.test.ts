@@ -37,6 +37,50 @@ describe('buildChartModel', () => {
     expect(model.thresholds).toHaveLength(1);
   });
 
+  it('places a band where its times fall, and clips one that runs past the plot', () => {
+    const model = build([aSeries([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])], {
+      bands: [
+        { from: FROM + 2 * MINUTE, to: FROM + 4 * MINUTE, tone: 'alarm' },
+        { from: FROM - 60 * MINUTE, to: FROM + MINUTE, tone: 'muted' },
+        { from: FROM + 8 * MINUTE, to: FROM + 60 * MINUTE, tone: 'alarm' },
+      ],
+    });
+
+    expect(model.bands).toEqual([
+      { left: model.xs[2], right: model.xs[4], tone: 'alarm' },
+      { left: model.plot.left, right: model.xs[1], tone: 'muted' },
+      { left: model.xs[8], right: model.plot.right, tone: 'alarm' },
+    ]);
+  });
+
+  it('reaches the right edge with a band in the last period, which the last point stands for', () => {
+    const model = build([aSeries([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])], {
+      bands: [
+        { from: FROM + 9 * MINUTE + 20_000, to: FROM + 10 * MINUTE, tone: 'alarm' },
+        { from: FROM + 5 * MINUTE, to: FROM + 9 * MINUTE + 30_000, tone: 'muted' },
+      ],
+    });
+
+    expect(model.bands).toEqual([
+      { left: model.plot.right - 2, right: model.plot.right, tone: 'alarm' },
+      { left: model.xs[5], right: model.plot.right, tone: 'muted' },
+    ]);
+  });
+
+  it('drops a band outside the plot, and widens one too narrow to see', () => {
+    const model = build([aSeries([1, 2, 3, 4, 5, 6, 7, 8, 9, 10])], {
+      from: FROM,
+      to: FROM + 10 * MINUTE,
+      bands: [
+        { from: FROM - 10 * MINUTE, to: FROM, tone: 'alarm' },
+        { from: FROM + 3 * MINUTE, to: FROM + 3 * MINUTE + 1, tone: 'alarm' },
+      ],
+    });
+
+    expect(model.bands).toHaveLength(1);
+    expect(model.bands[0].right - model.bands[0].left).toBeCloseTo(2);
+  });
+
   it('spans the window, not the data, so a series that started late is drawn late', () => {
     // Spanning the data instead would stretch ten minutes across a whole day's chart.
     const model = build([aSeries([undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined, 5, 6])]);

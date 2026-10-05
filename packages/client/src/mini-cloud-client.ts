@@ -253,7 +253,9 @@ export class MiniCloudClient {
   }
 
   async listMonitorHistory(request: ListMonitorHistoryRequest): Promise<ListMonitorHistoryResponse> {
-    return this.http.request('GET', `/monitors/${encodeURIComponent(request.name)}/history`, { query: { limit: request.limit, after: request.after } });
+    return this.http.request('GET', `/monitors/${encodeURIComponent(request.name)}/history`, {
+      query: { limit: request.limit, after: request.after, from: request.from, to: request.to },
+    });
   }
 
   // ---- notifiers ----

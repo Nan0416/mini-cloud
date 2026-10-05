@@ -655,8 +655,12 @@ export class FakeMonitorDao implements MonitorDao {
       .map((change, index) => ({ change, id: index + 1 }))
       .filter((entry) => entry.change.monitorName === input.name)
       .sort(newestFirst);
+    const { from, to } = input;
+    // The newest change before `from` is kept: it says what state the monitor was in at `from`.
+    const start = from === undefined ? undefined : (ordered.find((entry) => entry.change.changedAt < from)?.change.changedAt ?? from);
+    const inRange = ordered.filter((entry) => (start === undefined || entry.change.changedAt >= start) && (to === undefined || entry.change.changedAt < to));
     const cursor = ordered.find((entry) => entry.id === input.after);
-    const older = input.after === undefined ? ordered : cursor === undefined ? [] : ordered.filter((entry) => newestFirst(cursor, entry) < 0);
+    const older = input.after === undefined ? inRange : cursor === undefined ? [] : inRange.filter((entry) => newestFirst(cursor, entry) < 0);
     const page = older.slice(0, input.limit);
     return { changes: page.map((entry) => entry.change), nextCursor: older.length > input.limit ? page[page.length - 1]?.id : undefined };
   }
