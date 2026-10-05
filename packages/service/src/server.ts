@@ -17,6 +17,12 @@ import { consoleLink } from './utils/console-link';
 
 const logger = LoggerFactory.getLogger('MiniCloudServer');
 
+/**
+ * How long shutdown waits for alarms still being sent. Well inside the 30s launchd and
+ * systemd allow before killing the process, which would cut the rest of shutdown short.
+ */
+const MONITOR_SHUTDOWN_GRACE_MS = 10_000;
+
 export interface StartServerOptions {
   /** Apply pending migrations on startup. Defaults to true. */
   readonly runMigrations?: boolean;
@@ -124,7 +130,8 @@ export class MiniCloudServer {
     logger.info('Shutting down.');
     this.scheduler.stop();
     this.metricRetention.stop();
-    this.monitorEvaluator.stop();
+    // Before the pool closes, since a queued notification reads its webhook from it.
+    await this.monitorEvaluator.stop(MONITOR_SHUTDOWN_GRACE_MS);
     await this.hub.terminate();
     await Promise.all([new Promise<void>((resolve) => this.internalServer.close(() => resolve())), new Promise<void>((resolve) => this.publicServer.close(() => resolve()))]);
     await this.pool.end();

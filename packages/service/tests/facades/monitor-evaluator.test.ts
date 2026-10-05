@@ -179,6 +179,48 @@ describe('MonitorEvaluator', () => {
     expect(notifier.sent.map((sent) => sent.message.title)).toEqual(['[SEV-3] nas-cpu is in ALARM', 'nas-cpu is OK']);
   });
 
+  it('on stopping, waits for a notification still being sent', async () => {
+    const { series, notifier, evaluator } = context(aMonitor());
+    series.datapoints = valuesEndingAt(WINDOW_END, 90, 90, 90);
+    let release = () => {};
+    notifier.gate = new Promise((resolve) => (release = resolve));
+    await evaluator.runTick(NOW);
+
+    const stopping = evaluator.stop(5_000);
+    release();
+    await stopping;
+
+    expect(notifier.sent).toHaveLength(1);
+  });
+
+  it('on stopping, gives up after the grace period, says so, and sends nothing still queued', async () => {
+    const warn = jest.spyOn(LoggerFactory.getLogger('MonitorEvaluator'), 'warn').mockImplementation(() => {});
+    const { series, notifier, evaluator } = context(aMonitor({ name: 'a' }), aMonitor({ name: 'b' }));
+    series.datapoints = valuesEndingAt(WINDOW_END, 90, 90, 90);
+    let release = () => {};
+    notifier.gate = new Promise((resolve) => (release = resolve));
+    await evaluator.runTick(NOW);
+
+    await evaluator.stop(10);
+    release();
+    await evaluator.notificationsSent();
+
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('1 notification(s) still queued'));
+    // The send already under way finishes; the one behind it is dropped.
+    expect(notifier.sent.map((sent) => sent.message.title)).toEqual(['[SEV-3] a is in ALARM']);
+    warn.mockRestore();
+  });
+
+  it('evaluates nothing once stopped', async () => {
+    const { series, monitorDao, evaluator } = context(aMonitor());
+    series.datapoints = valuesEndingAt(WINDOW_END, 90, 90, 90);
+
+    await evaluator.stop();
+    await evaluator.runTick(NOW);
+
+    expect(monitorDao.changes).toHaveLength(0);
+  });
+
   it('records a change without sending it for a monitor with no notifiers', async () => {
     const { series, monitorDao, notifier, evaluator } = context(aMonitor({ notifierIds: [] }));
     series.datapoints = valuesEndingAt(WINDOW_END, 90, 90, 90);
