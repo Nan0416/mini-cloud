@@ -78,6 +78,10 @@ export interface ListStateChangesInput {
   readonly limit: number;
   /** Keyset cursor: return only changes older than the one with this id. */
   readonly after?: number;
+  /** Only changes at or after this time, plus the newest one before it. */
+  readonly from?: number;
+  /** Only changes before this time. */
+  readonly to?: number;
 }
 
 export interface ListStateChangesOutput {

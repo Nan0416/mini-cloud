@@ -5,7 +5,7 @@ import { Spinner } from '@/components/common/states';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { useElementWidth } from '@/hooks/use-element-width';
-import { buildChartModel, formatBucket, nearestBucket, pointsWithin, type ChartModel, type ChartThreshold } from '@/lib/chart-model';
+import { buildChartModel, formatBucket, nearestBucket, pointsWithin, type ChartBand, type ChartBandTone, type ChartModel, type ChartThreshold } from '@/lib/chart-model';
 import { NA } from '@/lib/format';
 import { formatMetricValue } from '@/lib/metric-units';
 import { cn } from '@/lib/utils';
@@ -42,6 +42,8 @@ export interface TimeSeriesChartProps {
   readonly series: ReadonlyArray<ChartSeriesView>;
   /** Horizontal rules, such as a monitor's threshold, in the unit of the axis they name. */
   readonly thresholds?: ReadonlyArray<ChartThreshold>;
+  /** Spans of time shaded behind the series, such as when a monitor was in alarm. */
+  readonly bands?: ReadonlyArray<ChartBand>;
   /** The window read, as `GetMetricDataResponse` reports it; `to` is exclusive. */
   readonly from: number;
   readonly to: number;
@@ -63,6 +65,11 @@ interface ReadySeries {
 const HEIGHT = 280;
 
 const color = (slot: number): string => `var(--chart-${slot})`;
+
+export const BAND_FILLS: Readonly<Record<ChartBandTone, { readonly color: string; readonly opacity: number }>> = {
+  alarm: { color: 'var(--destructive)', opacity: 0.14 },
+  muted: { color: 'var(--muted-foreground)', opacity: 0.16 },
+};
 
 /**
  * Time series drawn as SVG by React from geometry `buildChartModel` computed with d3.
@@ -115,6 +122,7 @@ export function TimeSeriesChart(props: TimeSeriesChartProps) {
         <ChartView
           series={ready}
           thresholds={props.thresholds}
+          bands={props.bands}
           from={props.from}
           to={props.to}
           periodMs={props.periodMs}
@@ -174,6 +182,7 @@ function Failures(props: { readonly series: ReadonlyArray<ChartSeriesView> }) {
 interface ChartViewProps {
   readonly series: ReadonlyArray<ReadySeries>;
   readonly thresholds: ReadonlyArray<ChartThreshold> | undefined;
+  readonly bands: ReadonlyArray<ChartBand> | undefined;
   readonly from: number;
   readonly to: number;
   readonly periodMs: number;
@@ -182,10 +191,10 @@ interface ChartViewProps {
 
 function ChartView(props: ChartViewProps) {
   const [ref, width] = useElementWidth<HTMLDivElement>();
-  const { series, thresholds, from, to, periodMs } = props;
+  const { series, thresholds, bands, from, to, periodMs } = props;
   const model = useMemo(
-    () => (width === 0 ? undefined : buildChartModel({ series, thresholds, from, to, periodMs, width, height: HEIGHT })),
-    [series, thresholds, from, to, periodMs, width],
+    () => (width === 0 ? undefined : buildChartModel({ series, thresholds, bands, from, to, periodMs, width, height: HEIGHT })),
+    [series, thresholds, bands, from, to, periodMs, width],
   );
   const hasData = series.some((candidate) => candidate.datapoints.length > 0);
 
@@ -225,6 +234,18 @@ const Plot = memo(function Plot({ model, series, from, to }: PlotProps) {
       role="img"
       aria-label={`${series.length === 1 ? series[0].label : `${series.length} series`} from ${formatBucket(from)} to ${formatBucket(to)}. The table view lists every value.`}
     >
+      {model.bands.map((band) => (
+        <rect
+          key={`${band.tone}:${band.left}`}
+          x={band.left}
+          y={plot.top}
+          width={band.right - band.left}
+          height={plot.bottom - plot.top}
+          fill={BAND_FILLS[band.tone].color}
+          fillOpacity={BAND_FILLS[band.tone].opacity}
+        />
+      ))}
+
       {model.gridlines.map((y) => (
         <line key={y} x1={plot.left} x2={plot.right} y1={y} y2={y} stroke="var(--border)" strokeWidth={1} shapeRendering="crispEdges" />
       ))}

@@ -127,4 +127,23 @@ describe('MonitorService', () => {
     expect([first, second, third].map((page) => page.changes.map((change) => change.reason))).toEqual([['change 4', 'change 3'], ['change 2', 'change 1'], ['change 0']]);
     expect(third.nextCursor).toBeUndefined();
   });
+
+  it('lists the changes in a time range together with the one before it, which says the state the range opens in', async () => {
+    const { service, monitorDao } = context();
+    await service.createMonitor({ name: 'nas-cpu', ...aDefinition() });
+    const states = ['OK', 'ALARM', 'OK', 'ALARM', 'OK'] as const;
+    let from: (typeof states)[number] | 'INSUFFICIENT_DATA' = 'INSUFFICIENT_DATA';
+    for (const [index, toState] of states.entries()) {
+      await monitorDao.changeState({ name: 'nas-cpu', version: 1, fromState: from, toState, reason: `change ${index}`, datapoints: [], threshold: 80, changedAt: index * 10 });
+      from = toState;
+    }
+
+    const inside = await service.listMonitorHistory({ name: 'nas-cpu', from: 15, to: 40 });
+    const onAChange = await service.listMonitorHistory({ name: 'nas-cpu', from: 20, to: 21 });
+    const beforeAll = await service.listMonitorHistory({ name: 'nas-cpu', from: -5, to: 5 });
+
+    expect(inside.changes.map((change) => change.reason)).toEqual(['change 3', 'change 2', 'change 1']);
+    expect(onAChange.changes.map((change) => change.reason)).toEqual(['change 2', 'change 1']);
+    expect(beforeAll.changes.map((change) => change.reason)).toEqual(['change 0']);
+  });
 });

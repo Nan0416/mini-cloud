@@ -387,6 +387,20 @@ describeIfDatabase('PostgreSQL DAOs', () => {
       expect(second.nextCursor).toBeUndefined();
     });
 
+    it('reads a time range of the history with the change just before it', async () => {
+      await monitorDao.createMonitor({ name: 'nas-cpu', ...definition, stateReason: 'new' });
+      await monitorDao.changeState(change('INSUFFICIENT_DATA', 'OK', Date.UTC(2026, 8, 1, 12)));
+      await monitorDao.changeState(change('OK', 'ALARM', Date.UTC(2026, 8, 1, 13)));
+      await monitorDao.changeState(change('ALARM', 'OK', Date.UTC(2026, 8, 1, 14)));
+      await monitorDao.changeState(change('OK', 'ALARM', Date.UTC(2026, 8, 1, 15)));
+
+      const { changes } = await monitorDao.listStateChanges({ name: 'nas-cpu', limit: 10, from: Date.UTC(2026, 8, 1, 13, 30), to: Date.UTC(2026, 8, 1, 15) });
+      const early = await monitorDao.listStateChanges({ name: 'nas-cpu', limit: 10, from: Date.UTC(2026, 8, 1, 10), to: Date.UTC(2026, 8, 1, 11) });
+
+      expect(changes.map((entry) => entry.reason)).toEqual(['ALARM to OK', 'OK to ALARM']);
+      expect(early.changes).toEqual([]);
+    });
+
     it('records nothing when the monitor is no longer in the state it was judged from', async () => {
       await monitorDao.createMonitor({ name: 'nas-cpu', ...definition, stateReason: 'new' });
 

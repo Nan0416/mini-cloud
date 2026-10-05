@@ -50,6 +50,13 @@ export interface ListMonitorHistoryRequest {
   readonly limit?: number;
   /** The previous page's `nextCursor`. Omit for the newest page. */
   readonly after?: number;
+  /**
+   * Only changes at or after this time, plus the last one before it, which says what
+   * state the monitor was already in at `from`. Milliseconds since the epoch.
+   */
+  readonly from?: number;
+  /** Only changes before this time, exclusive. */
+  readonly to?: number;
 }
 
 export interface ListMonitorHistoryResponse {

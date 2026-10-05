@@ -60,6 +60,7 @@ import {
   assertOptionalStringMap,
   assertRecord,
   assertString,
+  assertTimestamp,
   assertStringArray,
   assertStringMap,
   parseDashboardContent,
@@ -481,7 +482,17 @@ export function parseListMonitorHistoryRequest(query: unknown): ListMonitorHisto
   if (after !== undefined && (after < 1 || !Number.isSafeInteger(after))) {
     throw new InvalidRequestError('after must be a positive integer: pass back the previous page’s nextCursor, or omit it for the newest page');
   }
-  return { name: assertNonEmptyString(record['name'], 'name'), limit, after };
+  const from = optionalTimestamp(record['from'], 'from');
+  const to = optionalTimestamp(record['to'], 'to');
+  if (from !== undefined && to !== undefined && from >= to) {
+    throw new InvalidRequestError('from must be before to');
+  }
+  return { name: assertNonEmptyString(record['name'], 'name'), limit, after, from, to };
+}
+
+function optionalTimestamp(value: unknown, field: string): number | undefined {
+  const ms = parseOptionalIntegerParam(value, field);
+  return ms === undefined ? undefined : assertTimestamp(ms, field);
 }
 
 const NOTIFIER_KEYS = ['name', 'description', 'target'];

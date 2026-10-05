@@ -234,9 +234,11 @@ export class PgMonitorDao implements MonitorDao {
       `SELECT * FROM monitor_state_change
         WHERE monitor_name = $1
           AND ($3::bigint IS NULL OR (changed_at, change_id) < (SELECT changed_at, change_id FROM monitor_state_change WHERE monitor_name = $1 AND change_id = $3))
+          AND ($4::timestamptz IS NULL OR changed_at >= COALESCE((SELECT MAX(changed_at) FROM monitor_state_change WHERE monitor_name = $1 AND changed_at < $4), $4))
+          AND ($5::timestamptz IS NULL OR changed_at < $5)
         ORDER BY changed_at DESC, change_id DESC
         LIMIT $2`,
-      [input.name, input.limit + 1, input.after ?? null],
+      [input.name, input.limit + 1, input.after ?? null, input.from === undefined ? null : new Date(input.from), input.to === undefined ? null : new Date(input.to)],
     );
     const page = result.rows.slice(0, input.limit);
     const last = page[page.length - 1];

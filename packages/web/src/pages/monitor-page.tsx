@@ -108,8 +108,8 @@ function MonitorView({ monitor }: { readonly monitor: Monitor }) {
             {monitor.metric.statistic} of {monitor.metric.metricName}
           </CardTitle>
           <CardDescription>
-            The dashed line is the threshold. The monitor judges the last {monitor.evaluationPeriods} {monitor.evaluationPeriods === 1 ? 'period' : 'periods'} of{' '}
-            {formatDuration(monitor.periodMs)}; set the period to that to see the buckets it judges.
+            The dashed line is the threshold; shading marks when the monitor was in alarm or short of data. It judges the last {monitor.evaluationPeriods}{' '}
+            {monitor.evaluationPeriods === 1 ? 'period' : 'periods'} of {formatDuration(monitor.periodMs)}; set the period to that to see the buckets it judges.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -131,7 +131,7 @@ function MonitorView({ monitor }: { readonly monitor: Monitor }) {
                 onRangeChange={(range) => read.window !== undefined && showWindow(withWindowRange(read.window, range))}
                 onPeriodChange={(periodMs) => read.window !== undefined && showWindow({ range: read.window.range, periodMs })}
               />
-              <MonitorChart metric={monitor.metric} threshold={monitor.threshold} window={read.window} />
+              <MonitorChart metric={monitor.metric} threshold={monitor.threshold} window={read.window} monitor={monitor} />
             </>
           )}
         </CardContent>

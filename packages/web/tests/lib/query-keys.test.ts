@@ -90,6 +90,7 @@ describe('queryKeys', () => {
   it('nests a monitor and its history under the monitors prefix, so saving one refreshes every view of it', () => {
     expect(startsWith(queryKeys.monitor('nas-cpu'), queryKeys.monitors())).toBe(true);
     expect(startsWith(queryKeys.monitorHistory('nas-cpu'), queryKeys.monitor('nas-cpu'))).toBe(true);
+    expect(startsWith(queryKeys.monitorHistoryBetween('nas-cpu', 1, 2), queryKeys.monitor('nas-cpu'))).toBe(true);
   });
 
   it('keeps notifiers apart from monitors, so saving a monitor does not refetch them', () => {

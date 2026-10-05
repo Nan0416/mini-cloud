@@ -100,6 +100,8 @@ export class MonitorService {
       name: request.name,
       limit: request.limit ?? MONITOR_HISTORY_PAGE_SIZE.default,
       after: request.after,
+      from: request.from,
+      to: request.to,
     });
     return { changes, nextCursor };
   }

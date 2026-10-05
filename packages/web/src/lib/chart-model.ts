@@ -28,10 +28,21 @@ export interface ChartThreshold {
   readonly axis: MetricAxis;
 }
 
+/** A span of time shaded behind the series, such as a stretch a monitor spent in alarm. */
+export interface ChartBand {
+  readonly from: number;
+  /** Exclusive. */
+  readonly to: number;
+  readonly tone: ChartBandTone;
+}
+
+export type ChartBandTone = 'alarm' | 'muted';
+
 export interface ChartModelInput {
   readonly series: ReadonlyArray<ChartSeries>;
   /** Kept inside the axis range, so a line far from the data is still drawn. */
   readonly thresholds?: ReadonlyArray<ChartThreshold>;
+  readonly bands?: ReadonlyArray<ChartBand>;
   /** Start of the first bucket. */
   readonly from: number;
   /** End of the window, exclusive, so the last bucket starts one period before it. */
@@ -94,6 +105,12 @@ export interface ThresholdModel {
   readonly label: string;
 }
 
+export interface BandModel {
+  readonly left: number;
+  readonly right: number;
+  readonly tone: ChartBandTone;
+}
+
 export interface ChartModel {
   readonly width: number;
   readonly height: number;
@@ -107,6 +124,8 @@ export interface ChartModel {
   readonly gridlines: ReadonlyArray<number>;
   readonly series: ReadonlyArray<SeriesModel>;
   readonly thresholds: ReadonlyArray<ThresholdModel>;
+  /** Clipped to the plot. */
+  readonly bands: ReadonlyArray<BandModel>;
 }
 
 const MARGIN_TOP = 10;
@@ -122,6 +141,7 @@ const Y_TICK_SPACING = 48;
 const X_TICK_SPACING = 110;
 /** The closest two time labels may sit before the second is dropped. */
 const MIN_X_TICK_GAP = 60;
+const MIN_BAND_WIDTH = 2;
 
 /** No unit, no scaling: what an axis of several units is labelled in. */
 const BARE_NUMBERS = { divisor: 1, symbol: '', separator: '' };
@@ -359,6 +379,16 @@ export function buildChartModel(input: ChartModelInput): ChartModel {
       // Drawn against the side it names, or the left when that side has no axis.
       const axis = threshold.axis === 'right' && right !== undefined ? right : (left ?? right);
       return axis === undefined ? [] : [{ y: axis.scale(threshold.value), label: axis.format(threshold.value) }];
+    }),
+    bands: (input.bands ?? []).flatMap((band): BandModel[] => {
+      const start = Math.max(band.from, domain[0]);
+      const end = Math.min(band.to, domain[1]);
+      if (start >= end) {
+        return [];
+      }
+      const left = x(new Date(start));
+      // A minute of alarm in a week's window is a fraction of a pixel, and should still show.
+      return [{ left, right: Math.min(plot.right, Math.max(x(new Date(end)), left + MIN_BAND_WIDTH)), tone: band.tone }];
     }),
   };
 }
