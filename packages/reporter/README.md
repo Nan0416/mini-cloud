@@ -75,6 +75,32 @@ Constructing one directly is also supported, for a program that knows its own id
 new TaskReporter({ instanceId, agentUrl, offlineReportPath, healthCheckPeriodMs, timeoutMs });
 ```
 
+## Metrics
+
+`MetricLogger` records metrics in the AWS embedded metric format, with the method names of
+`aws-embedded-metrics`. Each flush appends one document to a spool file the agent on the
+same machine collects from, whoever wrote it.
+
+```js
+const { MetricLogger } = require('@mini-cloud/reporter');
+
+// Launched by mini-cloud: the agent's spool, from the environment. Undefined otherwise.
+const metrics = MetricLogger.fromEnvironment('MyApp');
+
+// Not launched by mini-cloud — a daemon under launchd or systemd — but on a machine with an agent.
+const daemonMetrics = MetricLogger.fromConfig({ namespace: 'MyApp', writerId: 'my-daemon' });
+
+daemonMetrics.setDimensions({ Queue: 'orders' });
+daemonMetrics.putMetric('Depth', 12, 'Count');
+await daemonMetrics.flush();
+```
+
+| Method | What it does |
+| --- | --- |
+| `MetricLogger.fromEnvironment(namespace)` | Spools to the directory the agent injected, or `undefined` when not launched by mini-cloud. |
+| `MetricLogger.fromConfig({ namespace, spoolDir?, writerId?, ... })` | Spools to `spoolDir`, which must be the agent's `metricsSpoolDir`; defaults to `~/.mini-cloud/metrics`. `writerId` names the file and defaults to the pid. |
+| `MetricLogger.toConsole(namespace)` | Prints each document to stdout. |
+
 ## Environment
 
 The agent injects these; `fromEnvironment()` reads them. Nothing else needs setting.
@@ -85,6 +111,7 @@ The agent injects these; `fromEnvironment()` reads them. Nothing else needs sett
 | `MINI_CLOUD_AGENT_URL` | The local agent's loopback address. Required. |
 | `MINI_CLOUD_OFFLINE_REPORT_PATH` | Where to buffer reports the agent could not accept. |
 | `MINI_CLOUD_HEALTH_CHECK_PERIOD_MS` | Heartbeat interval for a passive health check. Absent disables it. |
+| `MINI_CLOUD_METRICS_SPOOL_DIR` | Where `MetricLogger.fromEnvironment` spools metrics. Absent disables them. |
 
 The agent injects these *last*, after the task's own `env`, so a task cannot overwrite
 its own identity and report against somebody else's instance.

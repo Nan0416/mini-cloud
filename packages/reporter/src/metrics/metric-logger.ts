@@ -45,6 +45,21 @@ export interface MetricLoggerProps {
   readonly clock?: () => number;
 }
 
+/**
+ * For a program mini-cloud did not launch, such as a daemon under launchd or systemd. The
+ * agent collects every file in its spool directory, whoever wrote it.
+ */
+export interface MetricLoggerConfig {
+  readonly namespace: string;
+  /** The agent's `metricsSpoolDir`. Defaults to {@link defaultSpoolDir}. */
+  readonly spoolDir?: string;
+  /** Names this program's spool file, so two programs never append to one. Defaults to the pid. */
+  readonly writerId?: string;
+  readonly defaultDimensions?: MetricDimensions;
+  readonly defaultProperties?: Record<string, unknown>;
+  readonly flushOnMinuteBoundary?: boolean;
+}
+
 interface PendingMetric {
   readonly values: number[];
   readonly unit?: MetricUnit;
@@ -123,6 +138,17 @@ export class MetricLogger {
       sink: new SpoolSink({ spoolDir, writerId: instanceId ?? String(process.pid) }),
       namespace,
       defaultProperties,
+    });
+  }
+
+  /** A logger writing to the spool of the agent on this machine, without the environment a launch injects. */
+  static fromConfig(config: MetricLoggerConfig): MetricLogger {
+    return new MetricLogger({
+      sink: new SpoolSink({ spoolDir: config.spoolDir ?? defaultSpoolDir(), writerId: config.writerId ?? String(process.pid) }),
+      namespace: config.namespace,
+      defaultDimensions: config.defaultDimensions,
+      defaultProperties: config.defaultProperties,
+      flushOnMinuteBoundary: config.flushOnMinuteBoundary,
     });
   }
 
