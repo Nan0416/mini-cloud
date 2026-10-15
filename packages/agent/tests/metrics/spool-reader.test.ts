@@ -1,3 +1,4 @@
+import { MetricLogger } from '@mini-cloud/reporter';
 import { appendFile, mkdir, readFile, writeFile } from 'node:fs/promises';
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -52,6 +53,16 @@ describe('SpoolReader', () => {
     const empty = new SpoolReader({ spoolDir: path.join(dir, 'missing'), offsetsPath: path.join(dir, 'offsets.json') });
 
     expect((await empty.read()).lines).toEqual([]);
+  });
+
+  it('collects what a program it did not launch spools through MetricLogger.fromConfig, whatever writer it names', async () => {
+    for (const writerId of ['fleece-prod-4242', 'fleece/prod:1', '']) {
+      const metrics = MetricLogger.fromConfig({ namespace: 'Fleece', spoolDir: path.join(dir, 'spool'), writerId });
+      metrics.putMetric('TotalValue', 1, 'None');
+      await metrics.flush();
+    }
+
+    expect((await reader.read()).lines).toHaveLength(3);
   });
 
   it('reads whole lines', async () => {

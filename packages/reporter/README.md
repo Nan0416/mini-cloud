@@ -1,7 +1,8 @@
 # @mini-cloud/reporter
 
 Imported by programs [mini-cloud](https://github.com/Nan0416/mini-cloud) launches, to
-report their own lifecycle back to the local agent.
+report their own lifecycle back to the local agent — and by any program on a machine with
+an agent, to report metrics (see [Metrics](#metrics)).
 
 The agent spawns tasks **detached**, so that restarting or upgrading the agent does not
 take down the services it is supervising. The consequence is that the agent cannot
@@ -90,9 +91,17 @@ const metrics = MetricLogger.fromEnvironment('MyApp');
 // Not launched by mini-cloud — a daemon under launchd or systemd — but on a machine with an agent.
 const daemonMetrics = MetricLogger.fromConfig({ namespace: 'MyApp', writerId: 'my-daemon' });
 
-daemonMetrics.setDimensions({ Queue: 'orders' });
-daemonMetrics.putMetric('Depth', 12, 'Count');
-await daemonMetrics.flush();
+async function report(depth) {
+  daemonMetrics.setDimensions({ Queue: 'orders' });
+  daemonMetrics.putMetric('Depth', depth, 'Count');
+  await daemonMetrics.flush();
+}
+
+process.on('SIGTERM', async () => {
+  // Writes a minute still open; an unref'd boundary timer may not fire before exit.
+  await daemonMetrics.close();
+  process.exit(0);
+});
 ```
 
 | Method | What it does |
@@ -100,6 +109,10 @@ await daemonMetrics.flush();
 | `MetricLogger.fromEnvironment(namespace)` | Spools to the directory the agent injected, or `undefined` when not launched by mini-cloud. |
 | `MetricLogger.fromConfig({ namespace, spoolDir?, writerId?, ... })` | Spools to `spoolDir`, which must be the agent's `metricsSpoolDir`; defaults to `~/.mini-cloud/metrics`. `writerId` names the file and defaults to the pid. |
 | `MetricLogger.toConsole(namespace)` | Prints each document to stdout. |
+
+`fromConfig` spools whether or not an agent is running, and only the agent deletes spool
+files once it has read them. On a machine without one, the directory grows until something
+removes it — so turn metrics off there rather than pointing them at a spool nobody reads.
 
 ## Environment
 

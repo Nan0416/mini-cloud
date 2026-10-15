@@ -491,7 +491,7 @@ describe('MetricLogger.fromConfig', () => {
     }));
   }
 
-  it('spools each flush where the agent collects, under the writer named, with no mini-cloud environment', async () => {
+  it('spools each flush to the directory named, under the writer named', async () => {
     const metrics = MetricLogger.fromConfig({ namespace: 'Fleece', spoolDir, writerId: 'fleece-prod', defaultDimensions: { Stage: 'prod' } });
     metrics.setDimensions({ AccountId: 'GROWTH' }, true);
     metrics.putMetric('TotalValue', 10_250.5, 'None');
@@ -510,8 +510,11 @@ describe('MetricLogger.fromConfig', () => {
     });
   });
 
-  it('names the spool file after the pid when no writer is given', async () => {
-    const metrics = MetricLogger.fromConfig({ namespace: 'Fleece', spoolDir });
+  it.each([
+    ['no writer is given', undefined],
+    ['the writer is empty, which would name a file the agent never reads', ''],
+  ])('names the spool file after the pid when %s', async (_case, writerId) => {
+    const metrics = MetricLogger.fromConfig({ namespace: 'Fleece', spoolDir, writerId });
     metrics.putMetric('TotalValue', 1, 'None');
 
     await metrics.flush();
