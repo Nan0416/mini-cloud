@@ -1,4 +1,7 @@
 import { EmfDocument, expandEmfDocument, validateEmfDocument } from '@mini-cloud/shared';
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { MetricLogger } from '../../src/metrics/metric-logger';
 import { MetricSink } from '../../src/metrics/metric-sink';
 
@@ -464,5 +467,58 @@ describe('MetricLogger validation', () => {
     await metrics.flush();
 
     expect(sink.only._aws.CloudWatchMetrics[0].Namespace).toBe('MyApp');
+  });
+});
+
+describe('MetricLogger.fromConfig', () => {
+  let spoolDir: string;
+
+  beforeEach(() => {
+    spoolDir = mkdtempSync(path.join(tmpdir(), 'mini-cloud-spool-'));
+  });
+
+  afterEach(() => {
+    rmSync(spoolDir, { recursive: true, force: true });
+  });
+
+  function spooled(): ReadonlyArray<{ readonly file: string; readonly documents: ReadonlyArray<EmfDocument> }> {
+    return readdirSync(spoolDir).map((file) => ({
+      file,
+      documents: readFileSync(path.join(spoolDir, file), 'utf-8')
+        .split('\n')
+        .filter((line) => line.length > 0)
+        .map((line): EmfDocument => JSON.parse(line)),
+    }));
+  }
+
+  it('spools each flush to the directory named, under the writer named', async () => {
+    const metrics = MetricLogger.fromConfig({ namespace: 'Fleece', spoolDir, writerId: 'fleece-prod', defaultDimensions: { Stage: 'prod' } });
+    metrics.setDimensions({ AccountId: 'GROWTH' }, true);
+    metrics.putMetric('TotalValue', 10_250.5, 'None');
+
+    await metrics.flush();
+
+    const [only] = spooled();
+    expect(only.file).toMatch(/^fleece-prod-\d{4}-\d{2}-\d{2}-\d{2}\.emf$/);
+    expect(only.documents).toHaveLength(1);
+    expect(validateEmfDocument(only.documents[0])).toEqual({ valid: true });
+    expect(only.documents[0]).toMatchObject({
+      Stage: 'prod',
+      AccountId: 'GROWTH',
+      TotalValue: 10_250.5,
+      _aws: { CloudWatchMetrics: [{ Namespace: 'Fleece', Dimensions: [['Stage', 'AccountId']] }] },
+    });
+  });
+
+  it.each([
+    ['no writer is given', undefined],
+    ['the writer is empty, which would name a file the agent never reads', ''],
+  ])('names the spool file after the pid when %s', async (_case, writerId) => {
+    const metrics = MetricLogger.fromConfig({ namespace: 'Fleece', spoolDir, writerId });
+    metrics.putMetric('TotalValue', 1, 'None');
+
+    await metrics.flush();
+
+    expect(spooled().map((entry) => entry.file)).toEqual([expect.stringMatching(new RegExp(`^${process.pid}-\\d{4}-`))]);
   });
 });

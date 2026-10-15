@@ -45,6 +45,21 @@ export interface MetricLoggerProps {
   readonly clock?: () => number;
 }
 
+/**
+ * For a program mini-cloud did not launch, such as a daemon under launchd or systemd. The
+ * agent collects every file in its spool directory, whoever wrote it, and is also what
+ * deletes them: without an agent on the machine the spool only grows.
+ */
+export interface MetricLoggerConfig extends Pick<MetricLoggerProps, 'namespace' | 'defaultDimensions' | 'defaultProperties' | 'flushOnMinuteBoundary'> {
+  /** The agent's `metricsSpoolDir`. Defaults to {@link defaultSpoolDir}; empty counts as unset. */
+  readonly spoolDir?: string;
+  /**
+   * Names this program's spool file, so two programs never append to one. Defaults to the
+   * pid; empty counts as unset, since the agent reads no file named `-<hour>.emf`.
+   */
+  readonly writerId?: string;
+}
+
 interface PendingMetric {
   readonly values: number[];
   readonly unit?: MetricUnit;
@@ -123,6 +138,17 @@ export class MetricLogger {
       sink: new SpoolSink({ spoolDir, writerId: instanceId ?? String(process.pid) }),
       namespace,
       defaultProperties,
+    });
+  }
+
+  /** A logger writing to the spool of the agent on this machine, without the environment a launch injects. */
+  static fromConfig(config: MetricLoggerConfig): MetricLogger {
+    return new MetricLogger({
+      sink: new SpoolSink({ spoolDir: nonEmpty(config.spoolDir) ?? defaultSpoolDir(), writerId: nonEmpty(config.writerId) ?? String(process.pid) }),
+      namespace: config.namespace,
+      defaultDimensions: config.defaultDimensions,
+      defaultProperties: config.defaultProperties,
+      flushOnMinuteBoundary: config.flushOnMinuteBoundary,
     });
   }
 
@@ -428,6 +454,10 @@ export function metricScope<T, A extends unknown[]>(metrics: MetricLogger, handl
 /** Two sets are the same series when they carry the same names and values. */
 function identify(dimensions: MetricDimensions): string {
   return JSON.stringify(Object.entries(dimensions).sort((left, right) => (left[0] < right[0] ? -1 : 1)));
+}
+
+function nonEmpty(value: string | undefined): string | undefined {
+  return value === undefined || value.length === 0 ? undefined : value;
 }
 
 /** Where a spool lives when nothing configures one. */

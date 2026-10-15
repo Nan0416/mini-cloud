@@ -1,3 +1,4 @@
+import { defaultSpoolDir } from '@mini-cloud/reporter';
 import { AgentSettings, InvalidRequestError } from '@mini-cloud/shared';
 import os from 'node:os';
 import path from 'node:path';
@@ -80,7 +81,7 @@ export function resolveAgentConfig(settings: AgentSettings = {}): AgentConfig {
     pingFailureThreshold: settings.pingFailureThreshold ?? 3,
     // Outside workDir on purpose: programs write here, and workDir holds the agent's
     // own state.
-    metricsSpoolDir: settings.metricsSpoolDir ?? path.join(os.homedir(), '.mini-cloud', 'metrics'),
+    metricsSpoolDir: settings.metricsSpoolDir ?? defaultSpoolDir(),
     hostMetrics: settings.hostMetrics ?? true,
     // The format's own cap on values per metric, so a minute never needs more.
     maxHistogramBuckets: settings.maxHistogramBuckets ?? 100,
