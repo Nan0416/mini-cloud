@@ -52,17 +52,32 @@ export class SpoolSink implements MetricSink {
 
   async write(document: EmfDocument): Promise<void> {
     const target = this.filePath();
+    // One append per document, terminated by a newline. A reader that stops at the
+    // last newline it sees can never consume half a record.
+    const line = `${JSON.stringify(document)}\n`;
     try {
-      if (!this.created) {
-        await mkdir(this.props.spoolDir, { recursive: true });
-        this.created = true;
-      }
-      // One append per document, terminated by a newline. A reader that stops at the
-      // last newline it sees can never consume half a record.
-      await appendFile(target, `${JSON.stringify(document)}\n`, { encoding: 'utf-8' });
+      await this.append(target, line);
     } catch (err) {
       // Swallowing keeps the promise that metrics cannot take down the task.
       logger.warn(`Failed to spool a metric document to ${target}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
+  private async append(target: string, line: string): Promise<void> {
+    if (!this.created) {
+      await mkdir(this.props.spoolDir, { recursive: true });
+      this.created = true;
+    }
+    try {
+      await appendFile(target, line, { encoding: 'utf-8' });
+    } catch (err) {
+      if (!(typeof err === 'object' && err !== null && 'code' in err && err.code === 'ENOENT')) {
+        throw err;
+      }
+      // The directory was removed after it was made. Without this a long-running program
+      // fails every write until it restarts.
+      await mkdir(this.props.spoolDir, { recursive: true });
+      await appendFile(target, line, { encoding: 'utf-8' });
     }
   }
 }
