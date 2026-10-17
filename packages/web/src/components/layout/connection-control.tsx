@@ -36,7 +36,7 @@ export function ConnectionControl() {
     <>
       <Tooltip>
         <TooltipTrigger asChild>
-          <Button variant="ghost" size="sm" onClick={() => setOpen(true)} className="max-w-[14rem] gap-1.5 font-mono text-xs text-muted-foreground">
+          <Button variant="ghost" size="sm" onClick={() => setOpen(true)} className="min-w-0 max-w-[14rem] gap-1.5 font-mono text-xs text-muted-foreground">
             <Server className="size-3.5 shrink-0" />
             <span className="truncate">{shortLabel(connection.apiUrl)}</span>
           </Button>

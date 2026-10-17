@@ -16,20 +16,25 @@ export function TopBar(props: { readonly onOpenNav: () => void }) {
 
   return (
     <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-2 border-b border-border bg-background/85 px-4 backdrop-blur">
-      <Button variant="ghost" size="icon" className="lg:hidden" onClick={props.onOpenNav} aria-label="Open navigation">
+      <Button variant="ghost" size="icon" className="shrink-0 lg:hidden" onClick={props.onOpenNav} aria-label="Open navigation">
         <Menu className="size-4" />
       </Button>
 
-      <Link to={urls.overview()} className="flex items-center gap-2 rounded font-semibold tracking-tight focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring">
+      <Link
+        to={urls.overview()}
+        className="flex shrink-0 items-center gap-2 rounded font-semibold tracking-tight focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
         <Cloud className="size-5 text-primary" />
         <span>mini-cloud</span>
       </Link>
 
-      <div className="ml-auto flex items-center gap-1">
+      {/* On a phone the row is wider than the screen, and only the service address
+          gives way: it truncates, while the logo and the icon buttons keep their size. */}
+      <div className="ml-auto flex min-w-0 items-center gap-1">
         <ConnectionControl />
         <Tooltip>
           <TooltipTrigger asChild>
-            <Button variant="ghost" size="icon" onClick={() => client.invalidateQueries()} aria-label="Refresh all data">
+            <Button variant="ghost" size="icon" className="shrink-0" onClick={() => client.invalidateQueries()} aria-label="Refresh all data">
               <RefreshCw className={cn('size-4', fetching && 'animate-spin')} />
             </Button>
           </TooltipTrigger>
