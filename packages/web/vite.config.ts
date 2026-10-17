@@ -31,11 +31,12 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     sourcemap: true,
-    // Vite's default, with Safari lowered from 16.4 to 15 for iPads stranded on
+    // Vite 8's default, with Safari lowered from 16.4 to 15.4 for iPads stranded on
     // iPadOS 15. Against the default the bundle fails to parse there — Radix ships a
     // class static block — and every breakpoint is dead, since Tailwind writes
-    // `@media (width >= …)`. Also the CSS target, so both get lowered.
-    target: ['chrome111', 'edge111', 'firefox114', 'safari15', 'ios15'],
+    // `@media (width >= …)`. Also the CSS target, so both get lowered. Not below 15.4:
+    // Tailwind's output sits in `@layer`, which earlier Safari ignores wholesale.
+    target: ['chrome111', 'edge111', 'firefox114', 'safari15.4', 'ios15.4'],
     rolldownOptions: {
       output: {
         codeSplitting: {
