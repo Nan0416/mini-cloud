@@ -15,7 +15,7 @@ export function ThemeToggle() {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon" aria-label={`Theme: ${LABELS[theme]}`}>
+        <Button variant="ghost" size="icon" className="shrink-0" aria-label={`Theme: ${LABELS[theme]}`}>
           <Icon className="size-4" />
         </Button>
       </DropdownMenuTrigger>
