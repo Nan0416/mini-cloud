@@ -46,10 +46,10 @@ export interface OfflineEventReport extends BaseOfflineReport {
 }
 
 /**
- * A report a task could not deliver because its agent was down.
+ * A report a task could not deliver because it could not reach its agent.
  *
  * Written as one JSON object per line to an append-only file, which makes the format
  * crash-safe: a process killed mid-write loses at most the final partial line, and
- * the agent replays the rest on its next start.
+ * the agent replays the rest once it can reach the service.
  */
 export type OfflineReport = OfflinePidReport | OfflineExitReport | OfflineTerminationReport | OfflineEventReport;

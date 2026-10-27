@@ -1,4 +1,4 @@
-import { MiniCloudClient, WsSubscriber } from '@mini-cloud/client';
+import { MiniCloudClient, WsSubscriber, WsSubscriberProps } from '@mini-cloud/client';
 import {
   AGENT_BROADCAST_TOPIC,
   AgentCommand,
@@ -28,6 +28,12 @@ import { TaskLauncher } from './task-launcher';
 
 const logger = LoggerFactory.getLogger('Agent');
 
+/** The agent's connections to the service. Built from the config unless given. */
+export interface AgentDependencies {
+  readonly client?: MiniCloudClient;
+  readonly newSubscriber?: (props: WsSubscriberProps) => WsSubscriber;
+}
+
 /**
  * The mini-cloud worker process.
  *
@@ -56,20 +62,20 @@ export class MiniCloudAgent {
   private stopping = false;
   private onShutdownRequest?: () => void;
 
-  constructor(config: AgentConfig) {
+  constructor(config: AgentConfig, dependencies: AgentDependencies = {}) {
     this.config = config;
     // No token: the internal listener authorizes by source address, so an agent holds
     // no credential to present.
-    this.client = new MiniCloudClient({ baseUrl: config.serviceUrl });
+    this.client = dependencies.client ?? new MiniCloudClient({ baseUrl: config.serviceUrl });
     this.healthMonitor = new HealthMonitor({
       passiveToleranceMs: config.passiveToleranceMs,
       pingFailureThreshold: config.pingFailureThreshold,
     });
     this.reporterServer = new ReporterServer({
-      onPid: (instanceId, pid) => this.handleTaskPid(instanceId, pid),
-      onTermination: (instanceId) => this.handleTaskTermination(instanceId),
-      onExit: (instanceId, code) => this.handleTaskExit(instanceId, code),
-      onEvent: (instanceId, level, payload, timestamp) => this.handleTaskEvent(instanceId, level, payload, timestamp),
+      onPid: (instanceId, pid) => this.safely(`report pid for ${instanceId}`, () => this.handleTaskPid(instanceId, pid)),
+      onTermination: (instanceId) => this.safely(`report termination for ${instanceId}`, () => this.handleTaskTermination(instanceId)),
+      onExit: (instanceId, code) => this.safely(`report the exit of ${instanceId}`, () => this.handleTaskExit(instanceId, code)),
+      onEvent: (instanceId, level, payload, timestamp) => this.safely(`forward an event for ${instanceId}`, () => this.handleTaskEvent(instanceId, level, payload, timestamp)),
       onHealthCheck: async (instanceId) => this.healthMonitor.recordHeartbeat(instanceId),
     });
     this.replayer = new OfflineReportReplayer(offlineReportPath(config));
@@ -89,15 +95,16 @@ export class MiniCloudAgent {
     this.commandQueue = new AsyncQueue<AgentCommand>((command) => this.applyCommand(command));
 
     const wsUrl = `${config.serviceUrl.replace(/^http/, 'ws').replace(/\/+$/, '')}/ws`;
-    this.subscriber = new WsSubscriber({
+    const subscriberProps: WsSubscriberProps = {
       url: wsUrl,
       onEvent: (envelope) => this.onEnvelope(envelope),
       onStateChange: (state) => logger.info(`Connection to the service is ${state}.`),
-    });
+    };
+    this.subscriber = dependencies.newSubscriber?.(subscriberProps) ?? new WsSubscriber(subscriberProps);
   }
 
-  static async start(config: AgentConfig): Promise<MiniCloudAgent> {
-    const agent = new MiniCloudAgent(config);
+  static async start(config: AgentConfig, dependencies: AgentDependencies = {}): Promise<MiniCloudAgent> {
+    const agent = new MiniCloudAgent(config, dependencies);
     await agent.start();
     return agent;
   }
@@ -125,17 +132,12 @@ export class MiniCloudAgent {
     await this.subscriber.subscribe(agentTopic(config.agentId));
     await this.subscriber.subscribe(AGENT_BROADCAST_TOPIC);
 
-    await this.replayer.replay({
-      onPid: (instanceId, pid) => this.handleTaskPid(instanceId, pid),
-      onTermination: (instanceId) => this.handleTaskTermination(instanceId),
-      onExit: (instanceId, code) => this.handleTaskExit(instanceId, code),
-      onEvent: (instanceId, level, payload, timestamp) => this.handleTaskEvent(instanceId, level, payload, timestamp),
-    });
-
-    await this.sendHeartbeat();
+    // Ticking before the first heartbeat's replay is done: a long replay would otherwise
+    // outlast the service's offline window, and the agent would show offline as it starts.
+    this.heartbeatTimer = setInterval(() => void this.heartbeat(), config.heartbeatIntervalMs);
+    await this.heartbeat();
     await this.resumeHealthChecks();
 
-    this.heartbeatTimer = setInterval(() => void this.sendHeartbeat(), config.heartbeatIntervalMs);
     this.healthTimer = setInterval(() => void this.runHealthChecks(), config.healthCheckTickMs);
     this.scheduleMetrics();
 
@@ -282,41 +284,67 @@ export class MiniCloudAgent {
 
   // ---- reports from tasks ----
 
-  private async handleTaskPid(instanceId: string, pid: number): Promise<void> {
-    await this.safely(`report pid for ${instanceId}`, async () => {
-      await this.client.reportInstancePid({ instanceId, pid });
-      await this.client.reportInstanceStatus({ instanceId, status: 'running' });
-    });
+  // These throw when the service does not take the report. A task's live report goes
+  // through `safely`; a replayed one needs the failure, to decide whether to keep it.
 
+  private async handleTaskPid(instanceId: string, pid: number): Promise<void> {
+    // Before the report: the pid arriving is what makes the task checkable, whether or
+    // not the service hears about it.
     const check = this.pendingHealthChecks.get(instanceId);
     if (check !== undefined) {
       this.pendingHealthChecks.delete(instanceId);
       this.healthMonitor.watch(instanceId, check);
     }
+
+    await this.client.reportInstancePid({ instanceId, pid });
+    await this.client.reportInstanceStatus({ instanceId, status: 'running' });
   }
 
   private async handleTaskTermination(instanceId: string): Promise<void> {
     this.stopWatching(instanceId);
-    await this.safely(`report termination for ${instanceId}`, () => this.client.reportInstanceStatus({ instanceId, status: 'terminated' }).then(() => undefined));
+    await this.client.reportInstanceStatus({ instanceId, status: 'terminated' });
   }
 
   private async handleTaskExit(instanceId: string, code: number): Promise<void> {
     this.stopWatching(instanceId);
     const status: AgentReportedStatus = code === 0 ? 'exit_success' : 'exit_failure';
-    await this.report(instanceId, status, code === 0 ? 'success' : 'error', `Process exited with code ${code}.`);
+    await this.sendReport(instanceId, status, code === 0 ? 'success' : 'error', `Process exited with code ${code}.`);
   }
 
   private async handleTaskEvent(instanceId: string, level: TaskEventLevel, payload: unknown, timestamp: number): Promise<void> {
-    await this.safely(`forward an event for ${instanceId}`, async () => {
-      await this.client.reportTaskEvent({ instanceId, source: 'task', timestamp, level, payload });
-    });
+    await this.client.reportTaskEvent({ instanceId, source: 'task', timestamp, level, payload });
   }
 
   // ---- background work ----
 
-  private async sendHeartbeat(): Promise<void> {
-    await this.safely('send a heartbeat', async () => {
+  /**
+   * Replays buffered reports only once the service has answered: it accepts the
+   * agent's socket while still starting, and refuses every report with a 503 until done.
+   */
+  private async heartbeat(): Promise<void> {
+    if (await this.sendHeartbeat()) {
+      await this.replayBufferedReports();
+    }
+  }
+
+  private async sendHeartbeat(): Promise<boolean> {
+    try {
       await this.client.heartbeat({ agentId: this.config.agentId, name: this.config.name });
+      return true;
+    } catch (err) {
+      logger.warn('Failed to send a heartbeat.', err);
+      return false;
+    }
+  }
+
+  private async replayBufferedReports(): Promise<void> {
+    await this.safely('replay buffered reports', async () => {
+      await this.replayer.replay({
+        onPid: (instanceId, pid) => this.handleTaskPid(instanceId, pid),
+        onTermination: (instanceId) => this.handleTaskTermination(instanceId),
+        onExit: (instanceId, code) => this.handleTaskExit(instanceId, code),
+        onEvent: (instanceId, level, payload, timestamp) => this.handleTaskEvent(instanceId, level, payload, timestamp),
+      });
     });
   }
 
@@ -393,10 +421,12 @@ export class MiniCloudAgent {
   }
 
   private async report(instanceId: string, status: AgentReportedStatus, level: TaskEventLevel, message: string): Promise<void> {
-    await this.safely(`report "${status}" for ${instanceId}`, async () => {
-      await this.client.reportInstanceStatus({ instanceId, status });
-      await this.client.reportTaskEvent({ instanceId, source: 'agent', timestamp: Date.now(), level, payload: message });
-    });
+    await this.safely(`report "${status}" for ${instanceId}`, () => this.sendReport(instanceId, status, level, message));
+  }
+
+  private async sendReport(instanceId: string, status: AgentReportedStatus, level: TaskEventLevel, message: string): Promise<void> {
+    await this.client.reportInstanceStatus({ instanceId, status });
+    await this.client.reportTaskEvent({ instanceId, source: 'agent', timestamp: Date.now(), level, payload: message });
   }
 
   /**

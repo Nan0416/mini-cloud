@@ -49,10 +49,10 @@ is worse than no monitoring. An unreachable agent, a rejected report, a timeout,
 unwritable buffer — all of them resolve, and log.
 
 **A report that cannot be delivered is not lost.** It is appended to a local file, one
-JSON object per line, and the agent replays it on its next start. That format is
-crash-safe: a process killed mid-write loses at most the final partial line. Without
-it, an exit that happened during an agent restart would leave the instance showing as
-running until a timeout sweep guessed at it.
+JSON object per line, and the agent replays it once it can reach the service again.
+That format is crash-safe: a process killed mid-write loses at most the final partial
+line. Without it, an exit that happened during an agent restart would leave the
+instance showing as running until a timeout sweep guessed at it.
 
 Heartbeats are the deliberate exception — they are never buffered, because a missed
 heartbeat *is* the health check's signal and replaying a stale one later would assert
