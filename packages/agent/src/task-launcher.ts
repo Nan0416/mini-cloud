@@ -43,8 +43,26 @@ export class TaskLauncher {
   async launch(instruction: LaunchInstruction, options: LaunchOptions): Promise<LaunchOutcome> {
     logger.info(`Launching instance ${instruction.instanceId}: ${instruction.cmd} ${(instruction.arguments ?? []).join(' ')} (cwd ${instruction.cwd})`);
 
-    const [stdout, stderr] = await Promise.all([this.openStdio(instruction.stdout), this.openStdio(instruction.stderr)]);
+    const stdout = await this.openStdio(instruction.stdout);
+    let stderr: Writable | undefined;
+    try {
+      stderr = await this.openStdio(instruction.stderr);
+    } catch (err) {
+      stdout?.destroy();
+      throw err;
+    }
 
+    try {
+      return this.spawnTask(instruction, options, stdout, stderr);
+    } finally {
+      // The child has its own copies of these descriptors. The agent's must close here,
+      // or every launch holds two files open until the agent cannot open any more.
+      stdout?.destroy();
+      stderr?.destroy();
+    }
+  }
+
+  private spawnTask(instruction: LaunchInstruction, options: LaunchOptions, stdout?: Writable, stderr?: Writable): LaunchOutcome {
     const env: Record<string, string> = {};
     for (const key of INHERITED_ENV_KEYS) {
       const value = process.env[key];

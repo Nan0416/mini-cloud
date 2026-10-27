@@ -1,5 +1,5 @@
 import { LaunchInstruction, REPORTER_ENV } from '@mini-cloud/shared';
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { LaunchOptions, TaskLauncher } from '../src/task-launcher';
@@ -59,6 +59,18 @@ describe('TaskLauncher', () => {
   };
 
   const nonEmpty = (contents: string): boolean => contents.trim().length > 0;
+
+  const openDescriptors = (): number => readdirSync('/dev/fd').length;
+
+  /** Polls because a stream's descriptor closes asynchronously, after `destroy()` returns. */
+  const descriptorsSettleAt = async (baseline: number): Promise<number> => {
+    // Inside jest's own timeout, so a leak fails on the count rather than on the clock.
+    const deadline = Date.now() + 2_000;
+    while (openDescriptors() > baseline && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    return openDescriptors();
+  };
 
   it('spawns the process and reports its pid', async () => {
     const outcome = await new TaskLauncher().launch(instruction(), OPTIONS);
@@ -204,5 +216,28 @@ describe('TaskLauncher', () => {
     await readWhen(path.join(dir, 'out.log'), nonEmpty);
 
     await expect(new TaskLauncher().launch(instruction({ cmd: 'echo hi', stdout }), OPTIONS)).rejects.toThrow();
+  });
+
+  it('holds none of the stdio files open once the task is launched', async () => {
+    const launcher = new TaskLauncher();
+    const baseline = openDescriptors();
+
+    for (let i = 0; i < 10; i++) {
+      await launcher.launch(instruction({ instanceId: `i${i}`, cmd: 'true', stdout: path.join(dir, `out-${i}.log`), stderr: path.join(dir, `err-${i}.log`) }), OPTIONS);
+    }
+
+    // Kept open, each launch costs the agent two descriptors for as long as it runs,
+    // and a task on a five-minute schedule exhausts its limit in a few weeks.
+    expect(await descriptorsSettleAt(baseline)).toBeLessThanOrEqual(baseline);
+  });
+
+  it('closes the stdout file when the stderr file cannot be opened', async () => {
+    const baseline = openDescriptors();
+    const blocker = path.join(dir, 'not-a-dir');
+    writeFileSync(blocker, '');
+
+    await expect(new TaskLauncher().launch(instruction({ cmd: 'echo hi', stdout: path.join(dir, 'out.log'), stderr: path.join(blocker, 'err.log') }), OPTIONS)).rejects.toThrow();
+
+    expect(await descriptorsSettleAt(baseline)).toBeLessThanOrEqual(baseline);
   });
 });
