@@ -3,7 +3,7 @@ import { LoggerFactory, TaskAgent } from '@mini-cloud/shared';
 import { Command } from 'commander';
 import { GlobalOptions, createClient, resolveConfig } from '../client-factory';
 import { Column, formatAge, printJson, printTable } from '../output';
-import { AGENT_UNIT } from '../service';
+import { AGENT_UNIT, startLogCap } from '../service';
 import { buildDaemonCommand, explainPortConflict } from './daemon';
 
 const logger = LoggerFactory.getLogger('agent');
@@ -22,6 +22,7 @@ export function buildAgentCommand(): Command {
     .command('start')
     .description('run a worker agent on this machine, in the foreground')
     .action(async function (this: Command) {
+      startLogCap(AGENT_UNIT);
       const global: GlobalOptions = this.optsWithGlobals();
       const config = resolveAgentConfig(resolveConfig(global).agent);
 

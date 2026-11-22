@@ -1,7 +1,7 @@
 import { LoadConfigOptions, MiniCloudServer, createPool, loadConfig, migrate } from '@mini-cloud/service';
 import { LoggerFactory } from '@mini-cloud/shared';
 import { Command } from 'commander';
-import { CONTROL_PLANE_UNIT } from '../service';
+import { CONTROL_PLANE_UNIT, startLogCap } from '../service';
 import { explainPortConflict } from './daemon';
 
 const logger = LoggerFactory.getLogger('serve');
@@ -22,6 +22,7 @@ export function buildServeCommand(): Command {
     .description('start the control plane: two HTTP listeners, the pub/sub hub and the scheduler')
     .option('--skip-migrations', 'do not apply pending migrations on startup')
     .action(async (options: { skipMigrations?: boolean }, command: Command) => {
+      startLogCap(CONTROL_PLANE_UNIT);
       // Read here rather than at import: every other command would otherwise depend on
       // this machine's config file being well-formed just to parse an argument.
       const config = loadConfig(configOption(command));
