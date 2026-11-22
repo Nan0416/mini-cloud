@@ -1,4 +1,19 @@
-import { closeSync, existsSync, fstatSync, ftruncateSync, mkdtempSync, openSync, readFileSync, readdirSync, rmSync, writeSync } from 'node:fs';
+import {
+  closeSync,
+  existsSync,
+  fstatSync,
+  ftruncateSync,
+  mkdirSync,
+  mkdtempSync,
+  openSync,
+  readFileSync,
+  readdirSync,
+  renameSync,
+  rmSync,
+  rmdirSync,
+  writeFileSync,
+  writeSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { MAX_LOG_BYTES, capLogFile, isDaemonLog, startLogCap } from '../../src/service/log-cap';
@@ -38,7 +53,7 @@ describe('log cap', () => {
       expect(existsSync(`${logPath}.1`)).toBe(false);
     });
 
-    it('moves a log past the cap to .1 and empties it, so nothing written is lost', () => {
+    it('copies a log past the cap to .1 and empties it, so nothing written is lost', () => {
       writeSync(fd, 'a'.repeat(150));
 
       expect(capLogFile(fd, logPath, 100)).toBe(true);
@@ -55,7 +70,29 @@ describe('log cap', () => {
       expect(readFileSync(logPath, 'utf8')).toBe('next\n');
     });
 
-    it('keeps one earlier copy, so disk use stays under twice the cap', () => {
+    it('lands stderr at the start too, though launchd opens it separately from stdout', () => {
+      const stderr = openLog(logPath);
+      writeSync(fd, 'a'.repeat(150));
+      capLogFile(fd, logPath, 100);
+
+      writeSync(stderr, 'warn\n');
+
+      expect(readFileSync(logPath, 'utf8')).toBe('warn\n');
+    });
+
+    it('leaves the previous copy whole, and the log untouched, when a copy fails', () => {
+      writeSync(fd, 'a'.repeat(150));
+      capLogFile(fd, logPath, 100);
+      writeSync(fd, 'b'.repeat(150));
+      // A directory in the way makes the copy fail, as a full disk would.
+      mkdirSync(`${logPath}.1.tmp`);
+
+      expect(() => capLogFile(fd, logPath, 100)).toThrow();
+      expect(readFileSync(`${logPath}.1`, 'utf8')).toBe('a'.repeat(150));
+      expect(readFileSync(logPath, 'utf8')).toBe('b'.repeat(150));
+    });
+
+    it('keeps only one earlier copy, replacing it each time', () => {
       writeSync(fd, 'a'.repeat(150));
       capLogFile(fd, logPath, 100);
       writeSync(fd, 'b'.repeat(150));
@@ -80,6 +117,12 @@ describe('log cap', () => {
     it('refuses when nothing is at the log path, as under systemd', () => {
       expect(isDaemonLog(fd, path.join(dir, 'missing.log'))).toBe(false);
     });
+
+    it('refuses anything that is not a regular file, such as journald’s socket', () => {
+      const devNull = openLog('/dev/null');
+
+      expect(isDaemonLog(devNull, '/dev/null')).toBe(false);
+    });
   });
 
   describe('startLogCap', () => {
@@ -89,12 +132,10 @@ describe('log cap', () => {
 
     beforeEach(() => {
       jest.useFakeTimers();
-      jest.spyOn(console, 'log').mockImplementation(() => undefined);
     });
 
     afterEach(() => {
       jest.useRealTimers();
-      jest.restoreAllMocks();
     });
 
     it('caps a log that is already too big when the daemon starts, not a minute later', () => {
@@ -125,6 +166,35 @@ describe('log cap', () => {
 
       expect(fstatSync(elsewhere).size).toBe(MAX_LOG_BYTES + 1);
       expect(existsSync(`${elsewherePath}.1`)).toBe(false);
+    });
+
+    it('leaves the log alone while capping fails, and caps it once it can', () => {
+      mkdirSync(`${logPath}.1.tmp`);
+      growPastCap(fd);
+
+      startLogCap(unit(), fd);
+      jest.advanceTimersByTime(3 * 60_000);
+
+      expect(fstatSync(fd).size).toBe(MAX_LOG_BYTES + 1);
+
+      rmdirSync(`${logPath}.1.tmp`);
+      jest.advanceTimersByTime(60_000);
+
+      expect(fstatSync(fd).size).toBe(0);
+    });
+
+    it('stops when the log is moved away, rather than copy whatever replaced it over the last good copy', () => {
+      startLogCap(unit(), fd);
+      renameSync(logPath, path.join(dir, 'agent.old'));
+      writeFileSync(logPath, 'unrelated\n');
+      growPastCap(fd);
+
+      jest.advanceTimersByTime(60_000);
+
+      expect(fstatSync(fd).size).toBe(MAX_LOG_BYTES + 1);
+      expect(readFileSync(logPath, 'utf8')).toBe('unrelated\n');
+      expect(existsSync(`${logPath}.1`)).toBe(false);
+      expect(jest.getTimerCount()).toBe(0);
     });
   });
 });
