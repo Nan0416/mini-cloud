@@ -6,6 +6,7 @@ import { DaemonUnit, ServiceManager } from './types';
 export { buildPlist } from './launchd';
 export { buildUnit } from './systemd';
 export { unitEnvironment } from './environment';
+export { startLogCap } from './log-cap';
 export { AGENT_UNIT, CONTROL_PLANE_UNIT } from './units';
 export * from './types';
 

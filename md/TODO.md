@@ -65,8 +65,3 @@ instead. Delete a line once it has shipped.
       each other's launch and terminate commands. The check belongs in the service, as a
       refusal of a second live subscriber on an agent's topic, and has to let an agent
       reconnect before the hub has swept its dead connection.
-- [ ] **Rotate the daemons' log files on macOS.** The launchd plists capture output to
-      `~/.mini-cloud/service/service.log` and `~/.mini-cloud/agent/agent.log`, and
-      nothing truncates either, so a long-running daemon grows one file forever.
-      systemd has journald and needs nothing. Either a size-rotating writer in
-      `shared`'s logger, or hand the files to `newsyslog`.

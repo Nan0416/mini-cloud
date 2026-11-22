@@ -74,8 +74,10 @@ mini-cloud daemon uninstall
 | systemd `--user` (Linux) | `~/.config/systemd/user/mini-cloud.service` | `…/mini-cloud-agent.service` |
 | Log on macOS | `~/.mini-cloud/service/service.log` | `~/.mini-cloud/agent/agent.log` |
 
-Linux logs go to journald. What the supervisor adds is restart-on-crash and
-start-at-login; `--no-enable` gives you the first without the second.
+Linux logs go to journald, which rotates them. On macOS each daemon keeps its own log
+under 10 MB: past that, it copies the file to `service.log.1` or `agent.log.1`, replacing
+the previous copy, and empties it in place. What the supervisor adds is restart-on-crash
+and start-at-login; `--no-enable` gives you the first without the second.
 
 The unit runs the binary it was installed from. For one installed by `install.sh` that is
 the `~/.local/bin/mini-cloud` symlink, so after `mini-cloud update` a `daemon restart`
