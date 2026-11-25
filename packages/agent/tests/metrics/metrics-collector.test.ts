@@ -11,7 +11,7 @@ import {
   UnauthenticatedError,
 } from '@mini-cloud/shared';
 import { mkdtempSync, readdirSync, rmSync } from 'node:fs';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import {
@@ -30,16 +30,23 @@ const HOUR = Date.UTC(2026, 8, 19, 14);
 const MINUTE = HOUR + 30 * 60_000;
 const SPOOL_FILE = 'inst-1-2026-09-19-14.emf';
 
-/** Records the batches it was given, and can be told to fail. */
+/**
+ * Records the batches it was given, and can be told to fail. Applies each batch id once,
+ * as the service does, so `applied` is what the service would have stored.
+ */
 class FakePublisher implements MetricPublisher {
   readonly sent: PutMetricDataRequest[] = [];
+  readonly applied = new Map<string, ReadonlyArray<MetricDatum>>();
   failures = 0;
   failWith: Error = new Error('service unreachable');
   /** Refuses as too large any batch holding more than this, as the service does by bytes. */
   maxData = Infinity;
+  /** Runs before the answer, for a test that needs the disk to change mid-delivery. */
+  beforeAnswer?: (request: PutMetricDataRequest) => Promise<void>;
 
   async putMetricData(request: PutMetricDataRequest): Promise<unknown> {
     this.sent.push(request);
+    await this.beforeAnswer?.(request);
     if (request.data.length > this.maxData) {
       throw new PayloadTooLargeError('The request body is too large.');
     }
@@ -47,7 +54,15 @@ class FakePublisher implements MetricPublisher {
       this.failures -= 1;
       throw this.failWith;
     }
+    if (!this.applied.has(request.batchId)) {
+      this.applied.set(request.batchId, request.data);
+    }
     return {};
+  }
+
+  /** Every minute stored, once per time it was stored. */
+  appliedMinutes(): number[] {
+    return [...this.applied.values()].flatMap((data) => data.map((datum) => (datum.bucketStart - HOUR) / 60_000)).sort((a, b) => a - b);
   }
 }
 
@@ -88,9 +103,10 @@ describe('MetricsCollector', () => {
     await writeFile(path.join(spoolDir(), SPOOL_FILE), documents.map((document) => `${JSON.stringify(document)}\n`).join(''));
   };
   /** A batch a previous tick left on disk, holding `count` minutes. */
-  const leavePending = async (batchId: string, count: number): Promise<void> => {
+  const leavePending = async (batchId: string, count: number, firstMinute = 0): Promise<void> => {
     await mkdir(pendingDir(), { recursive: true });
-    await writeFile(path.join(pendingDir(), `${batchId}.json`), JSON.stringify({ batchId, data: Array.from({ length: count }, (_, minute) => aDatum(minute)) }));
+    const data = Array.from({ length: count }, (_, index) => aDatum(firstMinute + index));
+    await writeFile(path.join(pendingDir(), `${batchId}.json`), JSON.stringify({ batchId, data }));
   };
   /** Many operations in one minute, which aggregate to as many datums. */
   const writeOperations = async (count: number): Promise<void> => {
@@ -300,6 +316,36 @@ describe('MetricsCollector', () => {
     expect(pendingFiles().length).toBeGreaterThan(1);
   });
 
+  it('gives the rest of a large minute one attempt each once a batch has spent its retries on a failing service', async () => {
+    await writeOperations(1_200);
+    publisher.failWith = new InternalServiceError('Internal server error (HTTP 500)');
+    publisher.failures = 99;
+
+    await collector.collect(MINUTE + 61_000);
+
+    const batches = new Set(publisher.sent.map((request) => request.batchId)).size;
+    expect(batches).toBeGreaterThan(1);
+    expect(publisher.sent).toHaveLength(DELIVERY_RETRY_DELAYS_MS.length + batches);
+    expect(waits).toEqual(DELIVERY_RETRY_DELAYS_MS);
+    expect(pendingFiles()).toHaveLength(batches);
+  });
+
+  it('still tries a batch it could not save after the pass stops, since nothing would send it later', async () => {
+    await writeOperations(1_200);
+    // A file where the pending directory belongs makes every save fail.
+    await writeFile(pendingDir(), '');
+    publisher.failWith = new ServiceUnreachableError('connection refused');
+    publisher.failures = 99;
+
+    await collector.collect(MINUTE + 61_000);
+
+    const ids = publisher.sent.map((request) => request.batchId);
+    const batches = new Set(ids).size;
+    expect(batches).toBeGreaterThan(1);
+    expect(ids.filter((id) => id === 'batch-1')).toHaveLength(DELIVERY_RETRY_DELAYS_MS.length + 1);
+    expect(ids).toHaveLength(DELIVERY_RETRY_DELAYS_MS.length + batches);
+  });
+
   it('halves a batch the service refuses as too large, and sends the halves in its place', async () => {
     await leavePending('batch-0', 4);
     publisher.maxData = 2;
@@ -320,9 +366,8 @@ describe('MetricsCollector', () => {
 
     await collector.collect(MINUTE + 61_000);
 
-    const delivered = publisher.sent.filter((request) => request.data.length <= 1);
-    expect(delivered.map((request) => request.batchId)).toEqual(['batch-0.0.0', 'batch-0.0.1', 'batch-0.1.0', 'batch-0.1.1']);
-    expect(delivered.map((request) => request.data[0].bucketStart)).toEqual([0, 1, 2, 3].map((minute) => HOUR + minute * 60_000));
+    expect([...publisher.applied.keys()]).toEqual(['batch-0.0.0', 'batch-0.0.1', 'batch-0.1.0', 'batch-0.1.1']);
+    expect(publisher.appliedMinutes()).toEqual([0, 1, 2, 3]);
     expect(pendingFiles()).toEqual([]);
   });
 
@@ -336,6 +381,62 @@ describe('MetricsCollector', () => {
 
     expect(publisher.sent.map((request) => request.batchId)).toEqual(['batch-0', 'batch-0.0']);
     expect(pendingFiles()).toEqual(['batch-0.0.json', 'batch-0.1.json']);
+  });
+
+  it('finishes a split a crash interrupted without storing any datum twice, however long the service remembers ids', async () => {
+    // The parent and both halves on disk: the agent stopped after writing the halves and
+    // before removing the parent. Sending the halves and then splitting the parent again
+    // would send each half twice.
+    await leavePending('batch-0', 4);
+    await leavePending('batch-0.0', 2);
+    await leavePending('batch-0.1', 2, 2);
+    publisher.maxData = 2;
+
+    await collector.collect(MINUTE + 61_000);
+
+    expect(publisher.sent.map((request) => request.batchId)).toEqual(['batch-0', 'batch-0.0', 'batch-0.1']);
+    expect(publisher.appliedMinutes()).toEqual([0, 1, 2, 3]);
+    expect(pendingFiles()).toEqual([]);
+  });
+
+  it('sends no half while the batch it was cut from is still on disk, even when removing that batch fails', async () => {
+    await leavePending('batch-0', 4);
+    const parent = path.join(pendingDir(), 'batch-0.json');
+    const contents = await readFile(parent, 'utf-8');
+    publisher.maxData = 2;
+    // A non-empty directory in the parent's place: writing the halves still works, removing the parent does not.
+    publisher.beforeAnswer = async (request) => {
+      if (request.batchId === 'batch-0') {
+        await rm(parent);
+        await mkdir(parent);
+        await writeFile(path.join(parent, 'keep'), '');
+      }
+    };
+
+    await collector.collect(MINUTE + 61_000);
+    expect(publisher.sent.map((request) => request.batchId)).toEqual(['batch-0']);
+    expect(pendingFiles()).toEqual(['batch-0.0.json', 'batch-0.1.json', 'batch-0.json']);
+
+    // As the failed removal would have left it: the parent still a file beside its halves.
+    publisher.beforeAnswer = undefined;
+    await rm(parent, { recursive: true });
+    await writeFile(parent, contents);
+    await collector.collect(MINUTE + 121_000);
+
+    expect(publisher.appliedMinutes()).toEqual([0, 1, 2, 3]);
+    expect(pendingFiles()).toEqual([]);
+  });
+
+  it('keeps a batch it could not split onto disk, rather than removing it with nothing to replace it', async () => {
+    await leavePending('batch-0', 4);
+    // A directory where the first half would go makes that write fail.
+    await mkdir(path.join(pendingDir(), 'batch-0.0.json'));
+    publisher.maxData = 2;
+
+    await collector.collect(MINUTE + 61_000);
+
+    expect(publisher.sent.map((request) => request.batchId)).toEqual(['batch-0']);
+    expect(pendingFiles()).toContain('batch-0.json');
   });
 
   it('discards a lone datum the service still refuses as too large', async () => {
@@ -411,6 +512,17 @@ describe('MetricsCollector', () => {
 
     expect(publisher.sent).toEqual([]);
     expect(readdirSync(pendingDir())).toEqual([]);
+  });
+
+  it('discards a pending file whose data has no minutes, and carries on with the tick', async () => {
+    await mkdir(pendingDir(), { recursive: true });
+    await writeFile(path.join(pendingDir(), 'batch-0.json'), JSON.stringify({ batchId: 'batch-0', data: [{ metricName: 'Latency' }] }));
+    await write(aDocument(MINUTE + 10_000));
+
+    await collector.collect(MINUTE + 61_000);
+
+    expect(publisher.sent.map((request) => request.batchId)).toEqual(['batch-1']);
+    expect(pendingFiles()).toEqual([]);
   });
 
   it('discards a pending file that will not parse, for the same reason', async () => {

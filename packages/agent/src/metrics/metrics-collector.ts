@@ -156,15 +156,34 @@ export class MetricsCollector {
       return;
     }
 
-    // All on disk before any is posted, so a pass that stops early leaves the rest for
-    // the next tick rather than losing them.
+    // All written before any is posted, so a pass that stops early leaves the rest on
+    // disk for the next tick.
     const batches: PendingBatch[] = splitByBytes(sealed, MAX_BATCH_BYTES).map((data) => ({ batchId: this.props.newBatchId(), data }));
+    const saved = new Set<string>();
     for (const batch of batches) {
-      await this.writePending(batch);
+      if (await this.writePending(batch)) {
+        saved.add(batch.batchId);
+      }
     }
+
+    // Quick retries only until one batch has spent them: a service failing every batch
+    // should cost one batch's waits a tick, not every batch's.
+    let retryDelaysMs = DELIVERY_RETRY_DELAYS_MS;
+    let stopped = false;
     for (const batch of batches) {
-      if ((await this.deliver(batch, DELIVERY_RETRY_DELAYS_MS)) === 'stop') {
-        return;
+      // A batch that could not be saved gets its one attempt even after a stop, since
+      // nothing will send it later.
+      if (stopped && saved.has(batch.batchId)) {
+        continue;
+      }
+      const outcome = await this.deliver(batch, stopped ? [] : retryDelaysMs);
+      if ((outcome === 'kept' || outcome === 'stop') && !saved.has(batch.batchId)) {
+        logger.error(`Metric batch ${batch.batchId} (${describe(batch)}) could not be saved or delivered, so it is lost.`);
+      }
+      if (outcome === 'stop') {
+        stopped = true;
+      } else if (outcome === 'kept') {
+        retryDelaysMs = [];
       }
     }
   }
@@ -241,8 +260,8 @@ export class MetricsCollector {
    * converges whatever the service's limit turns out to be.
    *
    * The halves are on disk before the original is removed, and their ids derive from
-   * its id, so a crash in between rewrites the same two files instead of sending any
-   * datum twice.
+   * its id. A crash in between leaves both, and `loadPending` drops the halves so the
+   * original is split again into the same two: no datum goes under two ids.
    */
   private async split(batch: PendingBatch, retryDelaysMs: ReadonlyArray<number>): Promise<DeliveryOutcome> {
     if (batch.data.length < 2) {
@@ -260,7 +279,11 @@ export class MetricsCollector {
         return 'kept';
       }
     }
-    await this.discardPending(batch.batchId);
+    if (!(await this.discardPending(batch.batchId))) {
+      // Sending the halves with the original still on disk would break what
+      // `loadPending` relies on; next tick drops them and splits the original again.
+      return 'kept';
+    }
 
     let outcome: DeliveryOutcome = 'delivered';
     for (const half of halves) {
@@ -316,15 +339,29 @@ export class MetricsCollector {
         await rm(full, { force: true }).catch(() => undefined);
       }
     }
-    return batches;
+
+    // Halves on disk beside the batch they were cut from mean a split stopped before it
+    // removed the original, so none of them has been sent. Splitting it again writes the
+    // same halves; sending these as well would put each datum under two ids, which the
+    // service counts twice once it has forgotten the first.
+    const pendingIds = new Set(batches.map((batch) => batch.batchId));
+    const interrupted = batches.filter((batch) => splitAncestors(batch.batchId).some((id) => pendingIds.has(id)));
+    for (const batch of interrupted) {
+      logger.info(`Dropping metric batch ${batch.batchId}: the batch it was split from is still pending, and splitting that again recreates it.`);
+      await rm(path.join(this.props.pendingDir, `${batch.batchId}.json`), { force: true }).catch(() => undefined);
+    }
+    return batches.filter((batch) => !interrupted.includes(batch));
   }
 
-  private async discardPending(batchId: string): Promise<void> {
+  /** Whether the file is gone. */
+  private async discardPending(batchId: string): Promise<boolean> {
     try {
       await rm(path.join(this.props.pendingDir, `${batchId}.json`), { force: true });
+      return true;
     } catch (err) {
-      // A stale file costs one duplicate delivery, which the service ignores.
-      logger.debug(`Could not remove the delivered metric batch ${batchId}: ${err instanceof Error ? err.message : String(err)}`);
+      // After a delivery, a stale file costs one duplicate delivery, which the service ignores.
+      logger.debug(`Could not remove the metric batch ${batchId}: ${err instanceof Error ? err.message : String(err)}`);
+      return false;
     }
   }
 }
@@ -349,11 +386,26 @@ function describe(batch: PendingBatch): string {
   let first = Infinity;
   let last = -Infinity;
   for (const datum of batch.data) {
-    first = Math.min(first, datum.bucketStart);
-    last = Math.max(last, datum.bucketStart);
+    // Skipped rather than trusted: this runs on the failure path, and throwing here
+    // would keep the batch from being dealt with.
+    if (Number.isFinite(datum.bucketStart)) {
+      first = Math.min(first, datum.bucketStart);
+      last = Math.max(last, datum.bucketStart);
+    }
   }
-  const range = batch.data.length === 0 ? 'no minutes' : `${new Date(first).toISOString()} to ${new Date(last).toISOString()}`;
+  const range = Number.isFinite(first) ? `${new Date(first).toISOString()} to ${new Date(last).toISOString()}` : 'no minutes';
   return `${batch.data.length} datum(s), ${range}`;
+}
+
+/** The ids a split batch descends from, nearest first: `a.0.1` gives `a.0` and `a`. */
+function splitAncestors(batchId: string): ReadonlyArray<string> {
+  const ancestors: string[] = [];
+  let id = batchId;
+  while (/\.\d+$/.test(id)) {
+    id = id.replace(/\.\d+$/, '');
+    ancestors.push(id);
+  }
+  return ancestors;
 }
 
 function sleep(ms: number): Promise<void> {
@@ -365,5 +417,15 @@ function isPendingBatch(value: unknown): value is PendingBatch {
     return false;
   }
   const record: Record<string, unknown> = { ...value };
-  return typeof record['batchId'] === 'string' && Array.isArray(record['data']);
+  const data = record['data'];
+  return typeof record['batchId'] === 'string' && Array.isArray(data) && data.every(hasBucketStart);
+}
+
+/** Enough of a datum to be sorted into minutes; the service checks the rest. */
+function hasBucketStart(value: unknown): boolean {
+  if (typeof value !== 'object' || value === null) {
+    return false;
+  }
+  const record: Record<string, unknown> = { ...value };
+  return typeof record['bucketStart'] === 'number' && Number.isFinite(record['bucketStart']);
 }

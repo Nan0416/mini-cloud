@@ -161,6 +161,13 @@ describe('errorHandler', () => {
     });
   });
 
+  it('answers 500 with a body when what was thrown is not an object at all', () => {
+    const res = handle('connection lost' as unknown as Error);
+
+    expect(res.statusCode).toBe(500);
+    expect(res.body).toEqual({ error: 'Internal server error', errorCode: 'INTERNAL' });
+  });
+
   it('still answers 500 for an error that merely carries a type, when its status is not a 4xx', () => {
     const res = handle(Object.assign(new Error('stream encoding should not be set'), { type: 'stream.encoding.set', status: 500 }));
 
