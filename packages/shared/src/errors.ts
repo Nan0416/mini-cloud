@@ -1,4 +1,4 @@
-export type ErrorCode = 'INVALID_REQUEST' | 'UNAUTHENTICATED' | 'FORBIDDEN' | 'NOT_FOUND' | 'CONFLICT' | 'AGENT_OFFLINE' | 'DELIVERY_FAILED' | 'INTERNAL';
+export type ErrorCode = 'INVALID_REQUEST' | 'UNAUTHENTICATED' | 'FORBIDDEN' | 'NOT_FOUND' | 'CONFLICT' | 'PAYLOAD_TOO_LARGE' | 'AGENT_OFFLINE' | 'DELIVERY_FAILED' | 'INTERNAL';
 
 /**
  * Base class for every expected failure. The service's error handler maps these to
@@ -49,6 +49,19 @@ export class NotFoundError extends AppError {
 export class ConflictError extends AppError {
   constructor(message: string) {
     super(message, 409, 'CONFLICT');
+  }
+}
+
+/**
+ * 413 — the request body is over the service's size limit, so none of it was read.
+ *
+ * Separate from `InvalidRequestError` because the right response is the opposite: an
+ * invalid request will be refused however it is sent, while this one goes through in
+ * smaller pieces.
+ */
+export class PayloadTooLargeError extends AppError {
+  constructor(message: string) {
+    super(message, 413, 'PAYLOAD_TOO_LARGE');
   }
 }
 

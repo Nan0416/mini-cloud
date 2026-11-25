@@ -6,6 +6,7 @@ import {
   InternalServiceError,
   InvalidRequestError,
   NotFoundError,
+  PayloadTooLargeError,
   ServiceUnreachableError,
   UnauthenticatedError,
 } from '@mini-cloud/shared';
@@ -197,6 +198,7 @@ describe('HttpClient error reconstruction', () => {
     ['FORBIDDEN', 403, ForbiddenError],
     ['NOT_FOUND', 404, NotFoundError],
     ['CONFLICT', 409, ConflictError],
+    ['PAYLOAD_TOO_LARGE', 413, PayloadTooLargeError],
     ['AGENT_OFFLINE', 409, AgentOfflineError],
     ['DELIVERY_FAILED', 502, DeliveryFailedError],
   ];

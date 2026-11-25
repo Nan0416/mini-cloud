@@ -1,4 +1,4 @@
-import { LoggerFactory } from '@mini-cloud/shared';
+import { LoggerFactory, MAX_REQUEST_BODY_BYTES } from '@mini-cloud/shared';
 import express, { ErrorRequestHandler, RequestHandler } from 'express';
 import { Endpoints } from './routes/endpoints';
 
@@ -25,9 +25,9 @@ export class Service {
   }
 
   init(): express.Express {
-    // Task definitions are small; a cap keeps a malformed client from buffering
-    // arbitrary memory.
-    this.app.use(express.json({ limit: '256kb' }));
+    // A cap keeps a malformed client from buffering arbitrary memory. Shared with the
+    // agent, which splits a metric batch to stay under it.
+    this.app.use(express.json({ limit: MAX_REQUEST_BODY_BYTES }));
     this.app.use(express.urlencoded({ extended: true }));
 
     for (const middleware of this.props.middleware) {

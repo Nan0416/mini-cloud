@@ -1,21 +1,49 @@
-import { AppError, ErrorResponse, LoggerFactory } from '@mini-cloud/shared';
+import { AppError, ErrorResponse, InvalidRequestError, LoggerFactory, PayloadTooLargeError } from '@mini-cloud/shared';
 import { NextFunction, Request, Response } from 'express';
 
 const logger = LoggerFactory.getLogger('ErrorHandler');
 
 /**
- * Maps `AppError` subclasses onto HTTP responses. Anything else is a bug rather than
- * an expected failure, so it is logged in full and reported as a bare 500 — internal
- * messages are not echoed to callers.
+ * The `AppError` for a request body that express's body parsers could not take, or
+ * undefined for anything else.
+ *
+ * They fail before any route runs, with an error carrying a `type` and a 4xx `status`.
+ * Answered as 500, a caller would read a body over the size limit as worth sending
+ * again, when the same body is refused the same way every time.
+ */
+function bodyParserFailure(err: unknown): AppError | undefined {
+  // Express passes on whatever was thrown, which need not be an object at all.
+  if (typeof err !== 'object' || err === null) {
+    return undefined;
+  }
+  // `Reflect.get` rather than a spread: `status` sits on the error class's prototype, not on the error.
+  const [type, status, length, limit]: ReadonlyArray<unknown> = ['type', 'status', 'length', 'limit'].map((key) => Reflect.get(err, key));
+  if (typeof type !== 'string' || typeof status !== 'number' || status < 400 || status >= 500) {
+    return undefined;
+  }
+  if (status === 413) {
+    const size = typeof length === 'number' ? `${length} bytes` : 'too large';
+    const cap = typeof limit === 'number' ? `the ${limit}-byte limit` : 'the limit';
+    return new PayloadTooLargeError(`The request body is ${size}; keep it under ${cap}.`);
+  }
+  const reason = err instanceof Error ? err.message : type;
+  return new InvalidRequestError(`The request body could not be read (${reason}). Send JSON with Content-Type: application/json.`);
+}
+
+/**
+ * Maps `AppError` subclasses, and the JSON parser's own failures, onto HTTP responses.
+ * Anything else is a bug rather than an expected failure, so it is logged in full and
+ * reported as a bare 500 — internal messages are not echoed to callers.
  *
  * Must be registered after every route: Express identifies error handlers by the
  * four-argument signature, so `_next` has to stay even though it is unused.
  */
 export function errorHandler(err: Error, _req: Request, res: Response, _next: NextFunction): void {
-  if (err instanceof AppError) {
-    logger.warn(`${err.name}: ${err.message}`);
-    const response: ErrorResponse = { error: err.message, errorCode: err.errorCode };
-    res.status(err.statusCode).json(response);
+  const expected = err instanceof AppError ? err : bodyParserFailure(err);
+  if (expected !== undefined) {
+    logger.warn(`${expected.name}: ${expected.message}`);
+    const response: ErrorResponse = { error: expected.message, errorCode: expected.errorCode };
+    res.status(expected.statusCode).json(response);
     return;
   }
 
