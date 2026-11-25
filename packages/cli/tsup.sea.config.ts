@@ -50,5 +50,8 @@ export default defineConfig({
   dts: false,
   outDir: 'build/sea',
   noExternal: [/.*/],
+  // Bundling renames classes whose names collide, and an AppError takes its `name` from
+  // its class, so without this an InternalServiceError logs as `InternalServiceError2`.
+  keepNames: true,
   esbuildPlugins: [embedMigrations],
 });

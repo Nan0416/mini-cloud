@@ -1,5 +1,17 @@
-import { AgentOfflineError, ConflictError, InternalServiceError, InvalidRequestError, LoggerFactory, NotFoundError, UnauthenticatedError } from '@mini-cloud/shared';
+import {
+  AgentOfflineError,
+  ConflictError,
+  InternalServiceError,
+  InvalidRequestError,
+  LoggerFactory,
+  MAX_REQUEST_BODY_BYTES,
+  NotFoundError,
+  PayloadTooLargeError,
+  UnauthenticatedError,
+} from '@mini-cloud/shared';
 import { errorHandler } from '../../src/middleware/error-handler';
+import { Service } from '../../src/service';
+import { TestServer } from '../routes/test-helpers';
 import { fakeRequest, fakeResponse, recordingNext } from './test-helpers';
 
 const handle = (err: Error) => {
@@ -31,6 +43,7 @@ describe('errorHandler', () => {
       [new UnauthenticatedError(), 401, 'UNAUTHENTICATED'],
       [new NotFoundError('Task 42 does not exist.'), 404, 'NOT_FOUND'],
       [new ConflictError('Instance is already terminating.'), 409, 'CONFLICT'],
+      [new PayloadTooLargeError('The request body is 300000 bytes.'), 413, 'PAYLOAD_TOO_LARGE'],
       [new AgentOfflineError('Agent mac-mini is offline.'), 409, 'AGENT_OFFLINE'],
       [new InternalServiceError('Row 7 has unrecognised status.'), 500, 'INTERNAL'],
     ];
@@ -102,5 +115,56 @@ describe('errorHandler', () => {
     // Passing the error on after responding would have express try to write again.
     expect(next.called).toBe(false);
     expect(res.ended).toBe(true);
+  });
+
+  describe('a request body the JSON parser could not take', () => {
+    let server: TestServer;
+
+    beforeEach(async () => {
+      // The real assembly, so the limit, the parser and this handler are the ones in production.
+      const app = new Service({
+        name: 'internal',
+        middleware: [],
+        endpoints: [{ bind: (target) => target.post('/echo', (req, res) => res.json({ received: Object.keys(req.body).length })) }],
+        notFound: (_req, res) => res.status(404).end(),
+        errorHandler,
+      }).init();
+      server = await TestServer.startApp(app);
+    });
+
+    afterEach(async () => {
+      await server.close();
+    });
+
+    it('answers a body over the size limit with 413, so a caller sends smaller pieces instead of the same one again', async () => {
+      const response = await server.post<{ error: string; errorCode: string }>('/echo', { padding: 'x'.repeat(MAX_REQUEST_BODY_BYTES) });
+
+      expect(response.status).toBe(413);
+      expect(response.body.errorCode).toBe('PAYLOAD_TOO_LARGE');
+      expect(response.body.error).toContain(`the ${MAX_REQUEST_BODY_BYTES}-byte limit`);
+      expect(error).not.toHaveBeenCalled();
+    });
+
+    it('accepts a body just under the limit', async () => {
+      const response = await server.post('/echo', { padding: 'x'.repeat(MAX_REQUEST_BODY_BYTES - 100) });
+
+      expect(response.status).toBe(200);
+    });
+
+    it('answers a body that is not JSON with 400, naming what was wrong with it', async () => {
+      const response = await fetch(`${server.origin}/echo`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{"batchId": ' });
+      const body = await response.json();
+
+      expect(response.status).toBe(400);
+      expect(body).toEqual({ error: expect.stringContaining('The request body could not be read'), errorCode: 'INVALID_REQUEST' });
+      expect(error).not.toHaveBeenCalled();
+    });
+  });
+
+  it('still answers 500 for an error that merely carries a type, when its status is not a 4xx', () => {
+    const res = handle(Object.assign(new Error('stream encoding should not be set'), { type: 'stream.encoding.set', status: 500 }));
+
+    expect(res.statusCode).toBe(500);
+    expect(res.body).toEqual({ error: 'Internal server error', errorCode: 'INTERNAL' });
   });
 });

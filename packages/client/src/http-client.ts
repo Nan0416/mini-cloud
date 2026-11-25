@@ -9,6 +9,7 @@ import {
   InvalidRequestError,
   LoggerFactory,
   NotFoundError,
+  PayloadTooLargeError,
   ServiceUnreachableError,
   UnauthenticatedError,
 } from '@mini-cloud/shared';
@@ -40,6 +41,8 @@ function toAppError(status: number, message: string, errorCode: ErrorCode | unde
       return new NotFoundError(message);
     case 'CONFLICT':
       return new ConflictError(message);
+    case 'PAYLOAD_TOO_LARGE':
+      return new PayloadTooLargeError(message);
     case 'AGENT_OFFLINE':
       return new AgentOfflineError(message);
     case 'DELIVERY_FAILED':
@@ -145,7 +148,17 @@ export class HttpClient {
   }
 
   private toErrorCode(value: string | undefined): ErrorCode | undefined {
-    const codes: ReadonlyArray<ErrorCode> = ['INVALID_REQUEST', 'UNAUTHENTICATED', 'FORBIDDEN', 'NOT_FOUND', 'CONFLICT', 'AGENT_OFFLINE', 'DELIVERY_FAILED', 'INTERNAL'];
+    const codes: ReadonlyArray<ErrorCode> = [
+      'INVALID_REQUEST',
+      'UNAUTHENTICATED',
+      'FORBIDDEN',
+      'NOT_FOUND',
+      'CONFLICT',
+      'PAYLOAD_TOO_LARGE',
+      'AGENT_OFFLINE',
+      'DELIVERY_FAILED',
+      'INTERNAL',
+    ];
     return codes.find((code) => code === value);
   }
 }

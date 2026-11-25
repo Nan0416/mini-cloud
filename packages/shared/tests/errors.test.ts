@@ -6,6 +6,7 @@ import {
   InternalServiceError,
   InvalidRequestError,
   NotFoundError,
+  PayloadTooLargeError,
   ServiceUnreachableError,
   UnauthenticatedError,
 } from '../src/errors';
@@ -23,6 +24,7 @@ describe('AppError', () => {
     [new ForbiddenError(), 403, 'FORBIDDEN', 'ForbiddenError'],
     [new NotFoundError('no such task'), 404, 'NOT_FOUND', 'NotFoundError'],
     [new ConflictError('already running'), 409, 'CONFLICT', 'ConflictError'],
+    [new PayloadTooLargeError('body over the limit'), 413, 'PAYLOAD_TOO_LARGE', 'PayloadTooLargeError'],
     [new AgentOfflineError('agent is offline'), 409, 'AGENT_OFFLINE', 'AgentOfflineError'],
     [new InternalServiceError('invariant broken'), 500, 'INTERNAL', 'InternalServiceError'],
     [new ServiceUnreachableError('connection refused'), 503, 'INTERNAL', 'ServiceUnreachableError'],
@@ -52,6 +54,8 @@ describe('AppError', () => {
     expect(new ConflictError('x')).not.toBeInstanceOf(AgentOfflineError);
     expect(new AgentOfflineError('x')).not.toBeInstanceOf(ConflictError);
     expect(new ServiceUnreachableError('x')).not.toBeInstanceOf(InternalServiceError);
+    // A caller splits a too-large request and drops an invalid one, so the two must not overlap.
+    expect(new PayloadTooLargeError('x')).not.toBeInstanceOf(InvalidRequestError);
   });
 
   it('carries the message through to Error', () => {
